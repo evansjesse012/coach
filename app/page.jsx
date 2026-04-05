@@ -966,8 +966,10 @@ function EventModal({event,onSave,onClose,onDelete}){
   const[mode,setMode]=useState(initMode);
   const[step,setStep]=useState(event?2:1);
   const[preset,setPreset]=useState(event?presetById(event.presetId):null);
-  const[form,setForm]=useState(event?{name:event.name,date:event.date||'',location:event.location||'',goal:event.goal||'',stretchGoal:event.stretchGoal||'',baseline:event.baseline||'',url:event.url||'',result:event.result||'',placement:event.placement||''}:{name:'',date:'',location:'',goal:'',stretchGoal:'',baseline:'',url:'',result:'',placement:''});
+  const[form,setForm]=useState(event?{name:event.name,date:event.date||'',location:event.location||'',goal:event.goal||'',stretchGoal:event.stretchGoal||'',baseline:event.baseline||'',url:event.url||'',result:event.result||'',placement:event.placement||'',splits:event.splits||{swim:'',t1:'',bike:'',t2:'',run:'',total:''}}:{name:'',date:'',location:'',goal:'',stretchGoal:'',baseline:'',url:'',result:'',placement:'',splits:{swim:'',t1:'',bike:'',t2:'',run:'',total:''}});
   const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const updSplit=(k,v)=>setForm(f=>({...f,splits:{...f.splits,[k]:v}}));
+  const isTri=preset?.planType==='tri';
 
   const modeLabel=mode==='race'?'Past Race':mode==='pr'?'PR':'Goal';
   const sheetTitle=event?`Edit ${modeLabel.toLowerCase()}`:`Add ${mode==='pr'?'a':'a'} ${modeLabel.toLowerCase()}`;
@@ -975,6 +977,10 @@ function EventModal({event,onSave,onClose,onDelete}){
   const handleSave=()=>{
     if(!form.name.trim())return;
     const ev={...(event||{}),id:event?.id||uid(),presetId:preset.id,mode,...form};
+    if(mode==='race'&&isTri){
+      ev.splits=form.splits;
+      ev.result=form.splits.total||form.result;
+    }
     if(mode==='race'||mode==='pr') ev.completed=true;
     onSave(ev);
   };
@@ -1018,12 +1024,29 @@ function EventModal({event,onSave,onClose,onDelete}){
           <div><Label>Current PR</Label><Inp placeholder="Your best so far" value={form.baseline} onChange={e=>upd('baseline',e.target.value)}/></div>
         </>}
 
-        {mode==='race'&&<>
+        {mode==='race'&&!isTri&&<>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
             <div><Label>{preset.resultLabel||'Result'} *</Label><Inp placeholder="e.g. 3:28:15" value={form.result} onChange={e=>upd('result',e.target.value)}/></div>
             <div><Label>Placement</Label><Inp placeholder="e.g. 142/5000" value={form.placement} onChange={e=>upd('placement',e.target.value)}/></div>
           </div>
           <div><Label>Goal was</Label><Inp placeholder="What you were aiming for" value={form.goal} onChange={e=>upd('goal',e.target.value)}/></div>
+        </>}
+
+        {mode==='race'&&isTri&&<>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div><Label>Swim</Label><Inp placeholder="0:32:10" value={form.splits.swim} onChange={e=>updSplit('swim',e.target.value)}/></div>
+            <div><Label>T1</Label><Inp placeholder="0:03:00" value={form.splits.t1} onChange={e=>updSplit('t1',e.target.value)}/></div>
+            <div><Label>Bike</Label><Inp placeholder="2:45:00" value={form.splits.bike} onChange={e=>updSplit('bike',e.target.value)}/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div><Label>T2</Label><Inp placeholder="0:02:30" value={form.splits.t2} onChange={e=>updSplit('t2',e.target.value)}/></div>
+            <div><Label>Run</Label><Inp placeholder="1:50:00" value={form.splits.run} onChange={e=>updSplit('run',e.target.value)}/></div>
+            <div><Label>Total *</Label><Inp placeholder="5:12:40" value={form.splits.total} onChange={e=>updSplit('total',e.target.value)}/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div><Label>Placement</Label><Inp placeholder="e.g. 142/5000" value={form.placement} onChange={e=>upd('placement',e.target.value)}/></div>
+            <div><Label>Goal was</Label><Inp placeholder="What you were aiming for" value={form.goal} onChange={e=>upd('goal',e.target.value)}/></div>
+          </div>
         </>}
 
         {mode==='pr'&&<>
@@ -1037,7 +1060,7 @@ function EventModal({event,onSave,onClose,onDelete}){
       </div>
       <div style={{display:'flex',gap:10}}>
         {event&&<Btn onClick={async()=>{const ok=await confirmDialog('Delete this goal?','Your workout history will be kept.');if(ok)onDelete(event.id);}} outline style={{flex:1}}>Delete</Btn>}
-        <Btn onClick={handleSave} color={preset.color} disabled={!form.name.trim()||(mode!=='goal'&&!form.result?.trim())} style={{flex:2}}>
+        <Btn onClick={handleSave} color={preset.color} disabled={!form.name.trim()||(mode==='race'&&isTri&&!form.splits.total?.trim())||(mode!=='goal'&&!isTri&&!form.result?.trim())} style={{flex:2}}>
           {mode==='goal'?'Save goal':mode==='race'?'Save race':'Save PR'}
         </Btn>
       </div>
@@ -1048,19 +1071,32 @@ function EventModal({event,onSave,onClose,onDelete}){
 // ─── Goal Detail View ─────────────────────────────────────────────────────────
 function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const p=presetById(event.presetId);
+  const isTri=p.planType==='tri';
   const days=event.date?daysUntil(event.date):null;
   const isPast=days!==null&&days<0;
   const[noteText,setNoteText]=useState('');
   const[racePlan,setRacePlan]=useState(event.racePlan||'');
   const[planSaved,setPlanSaved]=useState(true);
+  const[showCompleteSplits,setShowCompleteSplits]=useState(false);
+  const[completeSplits,setCompleteSplits]=useState(event.splits||{swim:'',t1:'',bike:'',t2:'',run:'',total:''});
+  const[completeResult,setCompleteResult]=useState(event.result||'');
+  const[completePlacement,setCompletePlacement]=useState(event.placement||'');
   const notes=event.notes||[];
 
   const addNote=()=>{if(!noteText.trim())return;const n={id:uid(),text:noteText.trim(),date:todayStr()};onUpdate({...event,notes:[n,...notes]});setNoteText('');toast.success('Note added');};
   const deleteNote=async(nid)=>{const ok=await confirmDialog('Delete this note?','');if(!ok)return;onUpdate({...event,notes:notes.filter(n=>n.id!==nid)});};
   const saveRacePlan=()=>{onUpdate({...event,racePlan});setPlanSaved(true);toast.success('Race plan saved');};
   const toggleComplete=async()=>{
-    if(event.completed){onUpdate({...event,completed:false});toast.info('Marked as active');}
+    if(event.completed){onUpdate({...event,completed:false,mode:event.mode==='race'?'goal':event.mode});toast.info('Marked as active');}
+    else if(isTri){setShowCompleteSplits(true);}
     else{const ok=await confirmDialog('Mark as complete?','This will move it to your history.');if(ok){onUpdate({...event,completed:true});toast.success('Completed!');}}
+  };
+  const saveCompleteSplits=()=>{
+    const updates={...event,completed:true,mode:'race',splits:completeSplits,result:isTri?(completeSplits.total||completeResult):completeResult};
+    if(completePlacement)updates.placement=completePlacement;
+    onUpdate(updates);
+    setShowCompleteSplits(false);
+    toast.success('Completed!');
   };
 
   return(
@@ -1097,6 +1133,18 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
         {/* Result / Goal times */}
         {(event.result||event.goal||event.stretchGoal||event.baseline||event.placement)&&<div style={{display:'grid',gridTemplateColumns:`repeat(${[event.result,event.goal,event.stretchGoal,event.baseline,event.placement].filter(Boolean).length>3?3:Math.max([event.result,event.goal,event.stretchGoal,event.baseline,event.placement].filter(Boolean).length,1)},1fr)`,gap:10,marginBottom:20}}>
           {[{l:event.mode==='pr'?'PR':p.resultLabel||'Result',v:event.result,c:C.green},{l:'Goal',v:event.goal,c:p.color},{l:'Stretch',v:event.stretchGoal,c:C.yellow},{l:'Previous best',v:event.baseline,c:C.subtle},{l:'Placement',v:event.placement,c:C.cyan}].map(({l,v,c})=>v?<Card key={l} style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:c,lineHeight:1}}>{v}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>{l}</div></Card>:null)}
+        </div>}
+
+        {/* Tri splits */}
+        {event.splits&&Object.values(event.splits).some(v=>v)&&<div style={{marginBottom:20}}>
+          <Label>Splits</Label>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+            {[{l:'Swim',v:event.splits.swim,icon:'swim'},{l:'T1',v:event.splits.t1},{l:'Bike',v:event.splits.bike,icon:'bike'},{l:'T2',v:event.splits.t2},{l:'Run',v:event.splits.run,icon:'run'},{l:'Total',v:event.splits.total}].map(({l,v,icon})=>v?<Card key={l} style={{textAlign:'center',padding:'12px 6px'}}>
+              {icon&&<div style={{marginBottom:4}}><Icon name={icon} size={14} color={p.color}/></div>}
+              <div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,lineHeight:1}}>{v}</div>
+              <div style={{fontFamily:F.ui,fontSize:10,color:C.muted,marginTop:4,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em'}}>{l}</div>
+            </Card>:null)}
+          </div>
         </div>}
 
         {/* URL */}
@@ -1143,6 +1191,30 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
           <Btn onClick={async()=>{const ok=await confirmDialog('Delete this goal?','Your workout history will be kept.');if(ok){onDelete(event.id);onClose();}}} outline style={{flex:1,fontSize:14,padding:13,borderColor:C.red+'50',color:C.red}}>Delete</Btn>
         </div>
       </div>
+
+      {showCompleteSplits&&<Sheet onClose={()=>setShowCompleteSplits(false)} title="Race Results">
+        <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:18}}>Enter your race splits and results.</div>
+        <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:20}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div><Label>Swim</Label><Inp placeholder="0:32:10" value={completeSplits.swim} onChange={e=>setCompleteSplits(s=>({...s,swim:e.target.value}))}/></div>
+            <div><Label>T1</Label><Inp placeholder="0:03:00" value={completeSplits.t1} onChange={e=>setCompleteSplits(s=>({...s,t1:e.target.value}))}/></div>
+            <div><Label>Bike</Label><Inp placeholder="2:45:00" value={completeSplits.bike} onChange={e=>setCompleteSplits(s=>({...s,bike:e.target.value}))}/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div><Label>T2</Label><Inp placeholder="0:02:30" value={completeSplits.t2} onChange={e=>setCompleteSplits(s=>({...s,t2:e.target.value}))}/></div>
+            <div><Label>Run</Label><Inp placeholder="1:50:00" value={completeSplits.run} onChange={e=>setCompleteSplits(s=>({...s,run:e.target.value}))}/></div>
+            <div><Label>Total *</Label><Inp placeholder="5:12:40" value={completeSplits.total} onChange={e=>setCompleteSplits(s=>({...s,total:e.target.value}))}/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div><Label>Placement</Label><Inp placeholder="e.g. 142/5000" value={completePlacement} onChange={e=>setCompletePlacement(e.target.value)}/></div>
+            <div/>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <Btn onClick={()=>setShowCompleteSplits(false)} outline style={{flex:1}}>Cancel</Btn>
+          <Btn onClick={saveCompleteSplits} color={C.green} disabled={!completeSplits.total?.trim()} style={{flex:2}}>Complete race ✓</Btn>
+        </div>
+      </Sheet>}
     </div>
   );
 }
