@@ -8,29 +8,14 @@ The working app is two files:
 
 ```
 app/
-  page.jsx              ← CoachFinal.jsx — the entire frontend (789 lines)
+  page.jsx              ← The entire frontend (~1500 lines)
+  layout.jsx            ← Root layout (metadata + html shell)
   api/
     chat/
-      route.js           ← API proxy for Anthropic (35 lines)
+      route.js           ← API proxy for Anthropic (44 lines)
 ```
 
-Everything else in the repo is either documentation or designed-but-not-wired future architecture:
-
-```
-future/
-  schema.sql             ← Supabase schema (run this when you wire up the backend)
-  rls.sql                ← Row-level security policies (run after schema.sql)
-  _layout.jsx            ← Expo Router root layout (for native iOS version)
-  auth.jsx               ← Auth screen (for multi-user version)
-  src/agent/
-    agentLoop.js         ← Modular agent loop (extracted reference, not imported)
-    tools.js             ← Tool definitions (extracted reference, not imported)
-    systemPrompt.js      ← Legacy system prompt builder (context-stuffing approach)
-    commands.js          ← Legacy XML command parser (replaced by tool use)
-    index.js             ← Legacy useAgent hook (calls API directly, broken)
-```
-
-**Source of truth is always `CoachFinal.jsx`.** The files in `future/src/agent/` are earlier modular versions that diverged. When you extract CoachFinal.jsx into modules, start fresh from the current code — don't try to reconcile with the old modules.
+Everything else in the repo is documentation.
 
 ## Development Workflow
 
@@ -38,29 +23,23 @@ future/
 
 The recommended workflow:
 
-1. Open CoachFinal.jsx in Claude
+1. Open the repo with Claude Code
 2. Describe what you want to change
-3. Claude produces the updated file
-4. Paste into v0.dev → verify → deploy
-
-For small changes (fixing a color, changing a label), you can edit directly in v0.dev's editor.
+3. Claude edits `app/page.jsx` directly
+4. Push to `main` — Vercel auto-deploys
 
 For AI behavior changes (tool definitions, system prompt, personality prompts), always describe the exact behavior you want and let Claude update the relevant section. Test by chatting with the coach after deploy.
 
 ### Testing locally
 
-If you want to run locally instead of through v0.dev:
-
 ```bash
-npx create-next-app@latest coach --typescript=false
 cd coach
-# Replace app/page.jsx with CoachFinal.jsx
-# Add app/api/chat/route.js
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
+npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` on your phone (same Wi-Fi network) using your computer's local IP.
+Open `http://localhost:3000`. Requires Node.js >= 20.
 
 ## How to Add Features
 
@@ -68,14 +47,14 @@ Open `http://localhost:3000` on your phone (same Wi-Fi network) using your compu
 
 The AI can only access data you give it tools for. To make new data available:
 
-1. **Define the tool** — Add to the `TOOLS` array (~line 136):
+1. **Define the tool** — Add to the `TOOLS` array:
 ```javascript
 { name:'get_sleep_data',
   description:'Get recent sleep data. Use when athlete asks about recovery or sleep quality.',
   input_schema:{type:'object',properties:{days:{type:'number'}}} },
 ```
 
-2. **Implement the executor** — Add a case to `executeTool()` (~line 146):
+2. **Implement the executor** — Add a case to `executeTool()`:
 ```javascript
 case 'get_sleep_data': {
   const { days=14 } = input;
@@ -93,12 +72,12 @@ That's it. The agent loop handles any number of tools automatically.
 
 ### Adding a new tab
 
-1. Add the tab to the `TABS` array (~line 739):
+1. Add the tab to the `TABS` array:
 ```javascript
-{id:'progress', label:'Progress', icon:'📈'}
+{id:'progress', label:'Progress', icon:'chart'}
 ```
 
-2. Add the conditional render in the content section (~line 769):
+2. Add the conditional render in the content section:
 ```javascript
 {tab==='progress' && <ProgressTab cardio={cardio} strength={strengthH} prs={prs} />}
 ```
@@ -107,10 +86,10 @@ That's it. The agent loop handles any number of tools automatically.
 
 ### Adding a new coach personality
 
-1. Add to the `PERSONALITIES` object (~line 52):
+1. Add to the `PERSONALITIES` object:
 ```javascript
 zen: {
-  name:'Zen Coach', emoji:'🧘', color:'#8B6FE8',
+  name:'Zen Coach', icon:'heart', color:'#8B6FE8',
   tagline:'Calm · consistent · philosophical',
   description:'Finds meaning in small daily actions. Values consistency over intensity.',
   prompt:`You are a calm, philosophical coach...`,
@@ -118,10 +97,7 @@ zen: {
 },
 ```
 
-2. Add the key to the personality selector in `SettingsPage` (~line 418):
-```javascript
-{['normal','goggins','hype','zen'].map(key => { ... })}
-```
+2. Add the key to the personality selector in `SettingsPage`.
 
 ### Adding a new dashboard widget
 
@@ -130,14 +106,6 @@ Currently the home tab has hardcoded stat cards. To add more:
 1. Compute the data in `HomeTab` from the props it receives
 2. Add a new `Card` in the grid layout
 3. No AI changes needed — widgets are pure UI
-
-### Changing the training plan
-
-`generateWeeklyPlan()` (~line 343) returns a static weekly plan based on goal type. To make it adaptive:
-
-1. Accept training phase and week number as parameters
-2. Vary volume and intensity based on phase (Base → Build → Peak → Taper)
-3. The AI already reads the plan via `get_training_plan` — it will automatically reference the updated plan
 
 ## Coding Conventions
 
@@ -150,32 +118,53 @@ Currently the home tab has hardcoded stat cards. To add more:
 
 ### Component patterns
 
-- Shared UI components (`Card`, `Btn`, `Inp`, `Label`, `Pill`, `SportBadge`) are defined as functions or arrow expressions around line 322.
+- Shared UI components (`Card`, `Btn`, `Inp`, `Label`, `Pill`, `SportBadge`) are defined as functions or arrow expressions.
 - Modal-style overlays use the `Sheet` component for bottom sheets.
 - Confirmation dialogs use the global `confirmDialog()` function.
 - Toast notifications use the global `toast.success()` / `toast.error()` / etc.
+- Assistant chat messages use `renderMd()` for basic markdown (bold, bullets).
 
 ### Data patterns
 
 - All persistent data goes through the `db` helper: `db.get(key, fallback)` and `db.set(key, value)`.
 - localStorage keys are prefixed with `coach_` (e.g., `coach_cardio`, `coach_events`).
 - State flows down via props. There's no global state management (no Zustand, no Context) — the root component holds all state.
+- Events (goals/races/PRs) have a `mode` field: `'goal'`, `'race'`, or `'pr'`.
+- Triathlon races store `splits: { swim, t1, bike, t2, run, total }`.
 
 ### AI interaction patterns
 
-- All AI calls go through `callAI()` (~line 319), which POSTs to `/api/chat`.
-- The agent loop (`runAgentLoop`) handles multi-step tool use.
+- All AI calls go through `callAI()`, which POSTs to `/api/chat`.
+- The agent loop (`runAgentLoop`) handles multi-step tool use. Message history is sanitized before sending (extra properties stripped, content normalized to strings).
 - Memory extraction (`extractMemory`) is fire-and-forget after the user sees their response.
 - Quick capture (`parseQuickCapture`) is a one-shot API call with structured JSON output.
+- Error messages are displayed to the user but not persisted to chat history.
+
+## Current Tools (13)
+
+| Tool | Purpose |
+|------|---------|
+| `get_workouts` | Workout history filtered by sport/date |
+| `get_training_plan` | This week's plan with completion status |
+| `get_training_stats` | Weekly volume, trends, consistency |
+| `get_personal_records` | PRs for exercises |
+| `get_goals` | Active goals with days remaining |
+| `get_athlete_profile` | Coaching memory (accumulated facts) |
+| `log_workout` | Log a completed workout |
+| `log_meal` | Log a meal with timing relative to training |
+| `get_meals` | Recent meal log filtered by days/timing |
+| `save_training_plan` | Save a full periodized season plan |
+| `save_weekly_plan` | Save a generated weekly plan for a specific week |
+| `update_plan_progress` | Advance current week/phase in training plan |
 
 ## Known Issues
 
 1. **Theme mutation** — `C` and `S` are mutable module-level objects. Components don't re-render when theme changes; they rely on the root re-render cascading. This breaks if you add `React.memo` to any component.
 
-2. **Duplicate className on streaming div** — Line 602 has two `className` attributes. The second wins, dropping the `fade-up` animation.
+2. **localStorage purging** — Safari clears PWA localStorage after 7 days of inactivity. Training data will be lost. Fix: wire up Supabase.
 
-3. **localStorage purging** — Safari clears PWA localStorage after 7 days of inactivity. Training data will be lost. Fix: wire up Supabase.
+3. **No rate limiting** — The `/api/chat` endpoint has no auth or rate limiting. Anyone who discovers the URL can burn API credits.
 
-4. **No rate limiting** — The `/api/chat` endpoint has no auth or rate limiting. Anyone who discovers the URL can burn API credits.
+4. **Plan generation is static** — `generateWeeklyPlan()` doesn't adapt to training phase or progression.
 
-5. **Plan generation is static** — `generateWeeklyPlan()` doesn't adapt to training phase or progression.
+5. **Data is per-device** — localStorage doesn't sync between phone and computer.

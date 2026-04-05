@@ -8,8 +8,8 @@ Step-by-step: from code to a working app on your iPhone home screen.
 
 1. Go to [v0.dev](https://v0.dev) and sign in
 2. Create a new project
-3. Paste the contents of `CoachFinal.jsx` into `app/page.jsx`
-4. Create the file `app/api/chat/route.js` and paste the contents of `api-route.js`
+3. Paste the contents of `app/page.jsx` into `app/page.jsx`
+4. Create the file `app/api/chat/route.js` and paste the contents of `app/api/chat/route.js`
 5. The app should render in the preview immediately (AI features won't work yet — that's expected)
 
 ### Step 2: Deploy to Vercel
@@ -28,13 +28,17 @@ Open your deployed URL (e.g., `https://coach-xyz.vercel.app`) and test:
 - [ ] Light/dark mode toggle works in Settings
 - [ ] Can add a goal (e.g., 70.3 Triathlon, Sep 20 2026)
 - [ ] Training plan appears on Plan tab after adding a goal
+- [ ] Can add a past race with result and placement from Goals tab
+- [ ] Can add a PR from Goals tab
+- [ ] Tri race shows swim/T1/bike/T2/run/total split fields
 - [ ] Can log a workout manually on the Log tab
 - [ ] Quick capture (⚡ button) parses "45 min easy run" correctly
 - [ ] Coach tab: send a message, get a response
+- [ ] Coach tab: send multiple messages without 400 errors
+- [ ] Coach tab: bold and bullet formatting renders correctly
 - [ ] Coach tab: say "I just did a 45 min easy run" — workout gets logged
 - [ ] Push message generates on Home tab (tap ↻ if it doesn't auto-generate)
 - [ ] Settings: personality switch changes push message style
-- [ ] Learn tab: research a topic, article saves to library
 
 ### Step 4: Add to iPhone home screen
 
@@ -49,16 +53,9 @@ Open your deployed URL (e.g., `https://coach-xyz.vercel.app`) and test:
 If you prefer version control:
 
 ```bash
-# Create the project
-npx create-next-app@latest coach --js --no-tailwind --no-eslint --app --src-dir=false
+# Clone the repo
+git clone https://github.com/evansjesse012/coach.git
 cd coach
-
-# Replace the default page
-cp /path/to/CoachFinal.jsx app/page.jsx
-
-# Create the API route
-mkdir -p app/api/chat
-cp /path/to/api-route.js app/api/chat/route.js
 
 # Add environment variable
 echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env.local

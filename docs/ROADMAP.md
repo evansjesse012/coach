@@ -2,18 +2,9 @@
 
 Phased plan from current state through daily personal use, native iOS, and potential multi-user product.
 
-## Phase 0: Deploy (This Week)
+## Phase 0: Deploy ✅
 
-**Goal:** Get the app running and start using it daily.
-
-**Tasks:**
-- Deploy CoachFinal.jsx to Vercel via v0.dev
-- Set ANTHROPIC_API_KEY environment variable
-- Add to iPhone home screen as PWA
-- Add your 70.3 Cozumel goal (Sep 20, 2026)
-- Log your first real workout
-
-**Decision point:** None. Just do it.
+**Status:** Complete. App is deployed on Vercel via GitHub, connected to `evansjesse012/coach` repo. Pushes to `main` auto-deploy.
 
 **Risk:** localStorage loss on Safari. Acceptable for the first 2-4 weeks while you validate the app is worth building on. Don't accumulate months of data without Supabase.
 
@@ -31,7 +22,7 @@ Phased plan from current state through daily personal use, native iOS, and poten
   dataLayer.getWorkouts() → reads from Supabase (or localStorage as fallback)
   dataLayer.saveWorkout() → writes to Supabase
   ```
-- Replace `db.get()`/`db.set()` calls in CoachFinal.jsx with data layer calls
+- Replace `db.get()`/`db.set()` calls in app/page.jsx with data layer calls
 - Migrate existing localStorage data to Supabase on first authenticated session
 - Move coaching memory to Supabase (`coaching_memory` table or JSONB in `user_config`)
 
@@ -63,7 +54,7 @@ If the PWA covers 90% of your needs (it probably will for everything except Heal
 
 **Goal:** Make the codebase maintainable for adding features.
 
-The single file will be approaching 1000+ lines at this point. Extract into:
+The single file is already ~1500 lines. Extract into:
 
 ```
 app/
@@ -71,9 +62,9 @@ app/
   api/chat/route.js      ← API proxy (unchanged)
   components/
     HomeTab.jsx
+    GoalsTab.jsx
     PlanTab.jsx
     LogTab.jsx
-    LearnTab.jsx
     ChatTab.jsx
     Settings.jsx
     StrengthTracker.jsx
@@ -103,7 +94,6 @@ app/
 3. **Proactive pattern cards** — Detect gaps (e.g., swim < 1x/week for 3 weeks) and surface them on the home screen without the user asking
 4. **Swim-specific context** — Include pool dimensions (33-yard) and equipment in `get_athlete_profile` so the AI can plan swim sets properly
 5. **Memory conflict resolution** — Update the extraction prompt to explicitly handle conflicting information (e.g., injury status changes)
-6. **Deterministic memory sampling** — Replace `Math.random() > 0.55` with a counter-based approach so extraction doesn't randomly skip 5 conversations in a row
 
 **Decision point:** Each of these is independent. Do them as you notice gaps in coaching quality during daily use. The best improvements come from using the app and noticing where the AI fails.
 
