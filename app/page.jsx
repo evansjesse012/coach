@@ -333,7 +333,8 @@ Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('e
 }
 
 async function runAgentLoop({ personality, customText, messages, appState, callAI, maxRounds=5 }) {
-  let chain=[...messages]; let toolCallCount=0; const workoutsLogged=[]; const mealsLogged=[]; const planChanges=[];
+  const clean=messages.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n')||'(continued)':String(m.content||'')}));
+  let chain=[...clean]; let toolCallCount=0; const workoutsLogged=[]; const mealsLogged=[]; const planChanges=[];
   for (let round=0; round<maxRounds; round++) {
     const resp=await callAI({system:buildSystemPrompt(personality,customText),messages:chain,tools:TOOLS,tool_choice:{type:'auto'},max_tokens:2048});
     if (resp.stop_reason==='end_turn') return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'',workoutsLogged,mealsLogged,planChanges,toolCallCount};
@@ -1487,8 +1488,8 @@ export default function CoachApp() {
       extractMemory(final.slice(-8),callAI);
     }catch(err){
       setLoading(false);setIsStreaming(false);setStreamText('');
-      const errMsg={role:'assistant',content:`Something went wrong: ${err.message}`,logged:false};
-      setMessages(prev=>[...prev,errMsg]);db.set('coach_messages',[...messages,userMsg,errMsg].slice(-60));
+      const errMsg={role:'assistant',content:`Something went wrong: ${err.message}`,isError:true};
+      setMessages(prev=>[...prev,errMsg]);db.set('coach_messages',[...messages,userMsg].slice(-60));
       toast.error('Message failed — check connection');
     }
   },[messages,personality,customPrompt,getAppState,addCardio]);
