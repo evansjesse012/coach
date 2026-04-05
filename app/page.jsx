@@ -968,7 +968,7 @@ function EventModal({event,onSave,onClose,onDelete}){
   const[mode,setMode]=useState(initMode);
   const[step,setStep]=useState(event?2:1);
   const[preset,setPreset]=useState(event?presetById(event.presetId):null);
-  const[form,setForm]=useState(event?{name:event.name,date:event.date||'',location:event.location||'',goal:event.goal||'',stretchGoal:event.stretchGoal||'',baseline:event.baseline||'',url:event.url||'',result:event.result||'',placement:event.placement||'',splits:event.splits||{swim:'',t1:'',bike:'',t2:'',run:'',total:''}}:{name:'',date:'',location:'',goal:'',stretchGoal:'',baseline:'',url:'',result:'',placement:'',splits:{swim:'',t1:'',bike:'',t2:'',run:'',total:''}});
+  const[form,setForm]=useState(event?{name:event.name,date:event.date||'',location:event.location||'',goal:event.goal||'',stretchGoal:event.stretchGoal||'',baseline:event.baseline||'',url:event.url||'',result:event.result||'',placement:event.placement||'',bibNumber:event.bibNumber||'',ageGroup:event.ageGroup||'',genderPlacement:event.genderPlacement||'',ageGroupPlacement:event.ageGroupPlacement||'',splits:event.splits||{swim:'',t1:'',bike:'',t2:'',run:'',total:''}}:{name:'',date:'',location:'',goal:'',stretchGoal:'',baseline:'',url:'',result:'',placement:'',bibNumber:'',ageGroup:'',genderPlacement:'',ageGroupPlacement:'',splits:{swim:'',t1:'',bike:'',t2:'',run:'',total:''}});
   const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
   const updSplit=(k,v)=>setForm(f=>({...f,splits:{...f.splits,[k]:v}}));
   const isTri=preset?.planType==='tri';
@@ -1029,9 +1029,17 @@ function EventModal({event,onSave,onClose,onDelete}){
         {mode==='race'&&!isTri&&<>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
             <div><Label>{preset.resultLabel||'Result'} *</Label><Inp placeholder="e.g. 3:28:15" value={form.result} onChange={e=>upd('result',e.target.value)}/></div>
-            <div><Label>Placement</Label><Inp placeholder="e.g. 142/5000" value={form.placement} onChange={e=>upd('placement',e.target.value)}/></div>
+            <div><Label>Goal was</Label><Inp placeholder="What you were aiming for" value={form.goal} onChange={e=>upd('goal',e.target.value)}/></div>
           </div>
-          <div><Label>Goal was</Label><Inp placeholder="What you were aiming for" value={form.goal} onChange={e=>upd('goal',e.target.value)}/></div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div><Label>Bib #</Label><Inp placeholder="e.g. 1465" value={form.bibNumber} onChange={e=>upd('bibNumber',e.target.value)}/></div>
+            <div><Label>Age group</Label><Inp placeholder="e.g. M18-24" value={form.ageGroup} onChange={e=>upd('ageGroup',e.target.value)}/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div><Label>Overall</Label><Inp placeholder="e.g. 721st" value={form.placement} onChange={e=>upd('placement',e.target.value)}/></div>
+            <div><Label>Gender</Label><Inp placeholder="e.g. 551st" value={form.genderPlacement} onChange={e=>upd('genderPlacement',e.target.value)}/></div>
+            <div><Label>Age group</Label><Inp placeholder="e.g. 23rd" value={form.ageGroupPlacement} onChange={e=>upd('ageGroupPlacement',e.target.value)}/></div>
+          </div>
         </>}
 
         {mode==='race'&&isTri&&<>
@@ -1046,9 +1054,15 @@ function EventModal({event,onSave,onClose,onDelete}){
             <div><Label>Total *</Label><Inp placeholder="5:12:40" value={form.splits.total} onChange={e=>updSplit('total',e.target.value)}/></div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div><Label>Placement</Label><Inp placeholder="e.g. 142/5000" value={form.placement} onChange={e=>upd('placement',e.target.value)}/></div>
-            <div><Label>Goal was</Label><Inp placeholder="What you were aiming for" value={form.goal} onChange={e=>upd('goal',e.target.value)}/></div>
+            <div><Label>Bib #</Label><Inp placeholder="e.g. 1465" value={form.bibNumber} onChange={e=>upd('bibNumber',e.target.value)}/></div>
+            <div><Label>Age group</Label><Inp placeholder="e.g. M18-24" value={form.ageGroup} onChange={e=>upd('ageGroup',e.target.value)}/></div>
           </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div><Label>Overall</Label><Inp placeholder="e.g. 721st" value={form.placement} onChange={e=>upd('placement',e.target.value)}/></div>
+            <div><Label>Gender</Label><Inp placeholder="e.g. 551st" value={form.genderPlacement} onChange={e=>upd('genderPlacement',e.target.value)}/></div>
+            <div><Label>Age group</Label><Inp placeholder="e.g. 23rd" value={form.ageGroupPlacement} onChange={e=>upd('ageGroupPlacement',e.target.value)}/></div>
+          </div>
+          <div><Label>Goal was</Label><Inp placeholder="What you were aiming for" value={form.goal} onChange={e=>upd('goal',e.target.value)}/></div>
         </>}
 
         {mode==='pr'&&<>
@@ -1083,6 +1097,10 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const[completeSplits,setCompleteSplits]=useState(event.splits||{swim:'',t1:'',bike:'',t2:'',run:'',total:''});
   const[completeResult,setCompleteResult]=useState(event.result||'');
   const[completePlacement,setCompletePlacement]=useState(event.placement||'');
+  const[completeGenderPlace,setCompleteGenderPlace]=useState(event.genderPlacement||'');
+  const[completeAGPlace,setCompleteAGPlace]=useState(event.ageGroupPlacement||'');
+  const[completeBib,setCompleteBib]=useState(event.bibNumber||'');
+  const[completeAG,setCompleteAG]=useState(event.ageGroup||'');
   const notes=event.notes||[];
 
   const addNote=()=>{if(!noteText.trim())return;const n={id:uid(),text:noteText.trim(),date:todayStr()};onUpdate({...event,notes:[n,...notes]});setNoteText('');toast.success('Note added');};
@@ -1096,6 +1114,10 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const saveCompleteSplits=()=>{
     const updates={...event,completed:true,mode:'race',splits:completeSplits,result:isTri?(completeSplits.total||completeResult):completeResult};
     if(completePlacement)updates.placement=completePlacement;
+    if(completeGenderPlace)updates.genderPlacement=completeGenderPlace;
+    if(completeAGPlace)updates.ageGroupPlacement=completeAGPlace;
+    if(completeBib)updates.bibNumber=completeBib;
+    if(completeAG)updates.ageGroup=completeAG;
     onUpdate(updates);
     setShowCompleteSplits(false);
     toast.success('Completed!');
@@ -1132,9 +1154,20 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
           </div>
         </div>
 
+        {/* Race details */}
+        {(event.bibNumber||event.ageGroup)&&<div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+          {event.bibNumber&&<Pill color={C.subtle} small>Bib #{event.bibNumber}</Pill>}
+          {event.ageGroup&&<Pill color={p.color} small>{event.ageGroup}</Pill>}
+        </div>}
+
         {/* Result / Goal times */}
-        {(event.result||event.goal||event.stretchGoal||event.baseline||event.placement)&&<div style={{display:'grid',gridTemplateColumns:`repeat(${[event.result,event.goal,event.stretchGoal,event.baseline,event.placement].filter(Boolean).length>3?3:Math.max([event.result,event.goal,event.stretchGoal,event.baseline,event.placement].filter(Boolean).length,1)},1fr)`,gap:10,marginBottom:20}}>
-          {[{l:event.mode==='pr'?'PR':p.resultLabel||'Result',v:event.result,c:C.green},{l:'Goal',v:event.goal,c:p.color},{l:'Stretch',v:event.stretchGoal,c:C.yellow},{l:'Previous best',v:event.baseline,c:C.subtle},{l:'Placement',v:event.placement,c:C.cyan}].map(({l,v,c})=>v?<Card key={l} style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:c,lineHeight:1}}>{v}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>{l}</div></Card>:null)}
+        {(event.result||event.goal||event.stretchGoal||event.baseline)&&<div style={{display:'grid',gridTemplateColumns:`repeat(${Math.min([event.result,event.goal,event.stretchGoal,event.baseline].filter(Boolean).length,3)},1fr)`,gap:10,marginBottom:20}}>
+          {[{l:event.mode==='pr'?'PR':p.resultLabel||'Result',v:event.result,c:C.green},{l:'Goal',v:event.goal,c:p.color},{l:'Stretch',v:event.stretchGoal,c:C.yellow},{l:'Previous best',v:event.baseline,c:C.subtle}].map(({l,v,c})=>v?<Card key={l} style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:c,lineHeight:1}}>{v}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>{l}</div></Card>:null)}
+        </div>}
+
+        {/* Placements */}
+        {(event.placement||event.genderPlacement||event.ageGroupPlacement)&&<div style={{display:'grid',gridTemplateColumns:`repeat(${[event.placement,event.genderPlacement,event.ageGroupPlacement].filter(Boolean).length},1fr)`,gap:10,marginBottom:20}}>
+          {[{l:'Overall',v:event.placement,c:C.cyan},{l:'Gender',v:event.genderPlacement,c:C.accent},{l:'Age group',v:event.ageGroupPlacement,c:C.green}].map(({l,v,c})=>v?<Card key={l} style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:c,lineHeight:1}}>{v}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>{l}</div></Card>:null)}
         </div>}
 
         {/* Tri splits */}
@@ -1208,8 +1241,13 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
             <div><Label>Total *</Label><Inp placeholder="5:12:40" value={completeSplits.total} onChange={e=>setCompleteSplits(s=>({...s,total:e.target.value}))}/></div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div><Label>Placement</Label><Inp placeholder="e.g. 142/5000" value={completePlacement} onChange={e=>setCompletePlacement(e.target.value)}/></div>
-            <div/>
+            <div><Label>Bib #</Label><Inp placeholder="e.g. 1465" value={completeBib} onChange={e=>setCompleteBib(e.target.value)}/></div>
+            <div><Label>Age group</Label><Inp placeholder="e.g. M18-24" value={completeAG} onChange={e=>setCompleteAG(e.target.value)}/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div><Label>Overall</Label><Inp placeholder="e.g. 721st" value={completePlacement} onChange={e=>setCompletePlacement(e.target.value)}/></div>
+            <div><Label>Gender</Label><Inp placeholder="e.g. 551st" value={completeGenderPlace} onChange={e=>setCompleteGenderPlace(e.target.value)}/></div>
+            <div><Label>Age group</Label><Inp placeholder="e.g. 23rd" value={completeAGPlace} onChange={e=>setCompleteAGPlace(e.target.value)}/></div>
           </div>
         </div>
         <div style={{display:'flex',gap:10}}>
@@ -1378,7 +1416,8 @@ export default function CoachApp() {
   // Load persisted data
   useEffect(()=>{
     const defaultEvents = [
-      {id:'demo_1',presetId:'tri_703',name:'IRONMAN 70.3 Cozumel',date:'2026-09-20',location:'Cozumel, Mexico',goal:'5:30',stretchGoal:'5:00',baseline:'5:52',url:'',notes:[],racePlan:'',completed:false},
+      {id:'demo_1',presetId:'tri_703',name:'IRONMAN 70.3 Cozumel',date:'2026-09-20',location:'Cozumel, Mexico',goal:'5:30',stretchGoal:'5:00',baseline:'6:28:06',url:'',notes:[],racePlan:'',completed:false},
+      {id:'race_703va_2022',presetId:'tri_703',name:'IRONMAN 70.3 Virginia',date:'2022-06-05',location:'Virginia, USA',mode:'race',completed:true,bibNumber:'1465',ageGroup:'M18-24',result:'6:28:06',splits:{swim:'44:29',t1:'5:32',bike:'3:18:17',t2:'9:16',run:'2:10:32',total:'6:28:06'},placement:'721st',genderPlacement:'551st',ageGroupPlacement:'23rd',goal:'',stretchGoal:'',baseline:'',url:'',notes:[],racePlan:''},
     ];
     setEvents(db.get('coach_events',defaultEvents));
     setCardio(db.get('coach_cardio',[]));
