@@ -151,8 +151,8 @@ Currently the home tab has hardcoded stat cards. To add more:
 | `get_goals` | Active goals with days remaining |
 | `get_athlete_profile` | Coaching memory (accumulated facts) |
 | `log_workout` | Log a completed workout |
-| `log_meal` | Log a meal with timing relative to training |
-| `get_meals` | Recent meal log filtered by days/timing |
+| `log_nutrition` | Log nutrition with timing relative to training |
+| `get_nutrition` | Recent nutrition log filtered by days/timing |
 | `save_training_plan` | Save a full periodized season plan |
 | `save_weekly_plan` | Save a generated weekly plan for a specific week |
 | `update_plan_progress` | Advance current week/phase in training plan |

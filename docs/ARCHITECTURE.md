@@ -14,7 +14,7 @@ The core of the AI system. It handles multi-step tool use: the AI requests data,
 
 Key design:
 - Messages are **sanitized** before entering the loop — extra properties stripped, content normalized to plain strings. This prevents 400 errors from malformed message history.
-- The loop tracks workouts logged, meals logged, and plan changes separately so the caller can update React state.
+- The loop tracks workouts logged, nutrition logged, and plan changes separately so the caller can update React state.
 - **maxRounds** prevents runaway tool loops. Most conversations use 1-3 rounds. The push message (which gathers 4 datasets) uses maxRounds=4.
 - **Tool execution is local.** `executeTool()` runs in the browser against localStorage data. No network call. The only network call is to the Anthropic API.
 
@@ -31,8 +31,8 @@ Key design:
 | `get_goals` | Active goals with days remaining | include_completed |
 | `get_athlete_profile` | Coaching memory (accumulated facts) | — |
 | `log_workout` | Log a completed workout | sport, duration, notes, date |
-| `log_meal` | Log a meal with training timing | meal, timing, relatedWorkout, date |
-| `get_meals` | Recent meal log | days, timing |
+| `log_nutrition` | Log nutrition with training timing | meal, timing, relatedWorkout, date |
+| `get_nutrition` | Recent nutrition log | days, timing |
 | `save_training_plan` | Save a full periodized season plan | goalId, phases, totalWeeks, etc. |
 | `save_weekly_plan` | Save a generated weekly plan | weekNumber, phase, sessions |
 | `update_plan_progress` | Advance current week/phase | currentWeek, currentPhase |
@@ -125,13 +125,13 @@ User types message
         │
         ├── If stop_reason === 'tool_use':
         │     ├── executeTool() runs locally against localStorage
-        │     ├── Extract workouts/meals/plan changes from tool results
+        │     ├── Extract workouts/nutrition/plan changes from tool results
         │     ├── Append tool results to conversation chain
         │     └── Loop back to send again
         │
         └── If stop_reason === 'end_turn':
               ├── Extract final text
-              └── Return { response, workoutsLogged, mealsLogged, planChanges }
+              └── Return { response, workoutsLogged, nutritionLogged, planChanges }
         │
         ▼
   typewriter(response) + renderMd()

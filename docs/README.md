@@ -18,7 +18,7 @@ A single-page React app that acts as your personal coach. It knows your training
 
 ### AI Architecture
 
-The AI has 13 tools it calls on demand: `get_workouts`, `get_training_plan`, `get_training_stats`, `get_personal_records`, `get_goals`, `get_athlete_profile`, `log_workout`, `log_meal`, `get_meals`, `save_training_plan`, `save_weekly_plan`, `update_plan_progress`. The system prompt is ~300 tokens (no data stuffing). This scales to years of training history.
+The AI has 13 tools it calls on demand: `get_workouts`, `get_training_plan`, `get_training_stats`, `get_personal_records`, `get_goals`, `get_athlete_profile`, `log_workout`, `log_nutrition`, `get_nutrition`, `save_training_plan`, `save_weekly_plan`, `update_plan_progress`. The system prompt is ~300 tokens (no data stuffing). This scales to years of training history.
 
 After each conversation, a background API call extracts new facts (injuries, patterns, motivations) and merges them into persistent coaching memory.
 

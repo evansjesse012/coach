@@ -184,15 +184,15 @@ const TOOLS = [
   { name:'get_goals', description:'Get active training goals with days remaining.', input_schema:{type:'object',properties:{include_completed:{type:'boolean'}}} },
   { name:'get_athlete_profile', description:"Get coaching memory — accumulated facts about the athlete.", input_schema:{type:'object',properties:{}} },
   { name:'log_workout', description:'Log a completed workout. Only use when athlete explicitly describes something they just completed.', input_schema:{type:'object',properties:{sport:{type:'string',enum:['run','bike','swim','strength','brick','hike','other']},duration:{type:'number'},notes:{type:'string'},date:{type:'string'}},required:['sport','duration']} },
-  { name:'log_meal', description:'Log what the athlete ate. Use when they describe a meal or snack. Record what they ate, timing relative to training (pre/during/post/general), and which workout it relates to if mentioned. Do NOT estimate macros.', input_schema:{type:'object',properties:{meal:{type:'string',description:'What they ate, in their words'},timing:{type:'string',enum:['pre','during','post','general'],description:'When relative to training'},relatedWorkout:{type:'string',description:'Which workout this fueled, if known (e.g. "long run", "bike")'},date:{type:'string',description:'YYYY-MM-DD, default today'}},required:['meal','timing']} },
-  { name:'get_meals', description:'Get the athlete\'s recent meal log. Use to review fueling patterns, check pre/post workout nutrition, or answer questions about eating habits around training.', input_schema:{type:'object',properties:{days:{type:'number',description:'Look back this many days. Default 7.'},timing:{type:'string',enum:['pre','during','post','general','all'],description:'Filter by meal timing. Default all.'}}} },
+  { name:'log_nutrition', description:'Log what the athlete ate. Use when they describe a meal or snack. Record what they ate, timing relative to training (pre/during/post/general), and which workout it relates to if mentioned. Do NOT estimate macros.', input_schema:{type:'object',properties:{meal:{type:'string',description:'What they ate, in their words'},timing:{type:'string',enum:['pre','during','post','general'],description:'When relative to training'},relatedWorkout:{type:'string',description:'Which workout this fueled, if known (e.g. "long run", "bike")'},date:{type:'string',description:'YYYY-MM-DD, default today'}},required:['meal','timing']} },
+  { name:'get_nutrition', description:'Get the athlete\'s recent nutrition log. Use to review fueling patterns, check pre/post workout nutrition, or answer questions about eating habits around training.', input_schema:{type:'object',properties:{days:{type:'number',description:'Look back this many days. Default 7.'},timing:{type:'string',enum:['pre','during','post','general','all'],description:'Filter by timing. Default all.'}}} },
   { name:'save_training_plan', description:'Save a full periodized training plan. Use this after gathering athlete context (goals, profile, workouts, available days) to create a multi-phase season plan. Generate phases appropriate to the race type, timeline, fitness level, and constraints. Name phases descriptively. Set intensity ceilings per phase. Include deload weeks. The plan structure is created once — individual weeks are generated on demand later.', input_schema:{type:'object',properties:{goalId:{type:'string'},raceName:{type:'string'},raceDate:{type:'string'},startDate:{type:'string'},totalWeeks:{type:'number'},trainingDaysPerWeek:{type:'number',description:'How many days/week the athlete can train'},phases:{type:'array',items:{type:'object',properties:{number:{type:'number'},name:{type:'string',description:'Descriptive phase name, e.g. "Base + Structural Durability"'},startDate:{type:'string'},endDate:{type:'string'},weeks:{type:'number'},weeklyVolume:{type:'string'},intensityCeiling:{type:'string',description:'Maximum intensity allowed, e.g. "Z2 only" or "threshold introduced"'},intensityMix:{type:'string',description:'e.g. "80% Z2, 20% threshold"'},strengthFreq:{type:'string'},focus:{type:'string'},keySessionTypes:{type:'array',items:{type:'string'}},deloadWeek:{type:'number',description:'Which week within this phase is deload, null if none'}}}}},required:['goalId','raceName','raceDate','startDate','totalWeeks','phases']} },
   { name:'save_weekly_plan', description:'Save a generated weekly plan for a specific week. Call this after generating the sessions for a week. Each session should include sport, duration, zones, per-session nutrition (pre/during/post), priority level (red=cannot skip, yellow=flexible), and coaching notes.', input_schema:{type:'object',properties:{weekNumber:{type:'number'},phase:{type:'number'},focusOfWeek:{type:'string',description:'Single coaching focus for this week'},sessions:{type:'array',description:'Array of 7 day objects (Mon-Sun)',items:{type:'object',properties:{day:{type:'string'},isRest:{type:'boolean'},sessions:{type:'array',items:{type:'object',properties:{type:{type:'string'},label:{type:'string'},duration:{type:'number'},zone:{type:'string'},targetIntensity:{type:'string',description:'Specific watts, pace, or RPE'},fuel:{type:'object',properties:{pre:{type:'string'},during:{type:'string'},post:{type:'string'}}},priority:{type:'string',enum:['red','yellow']},notes:{type:'string'},templateId:{type:'string',description:'For strength sessions, link to strength template'}}}}}}}},required:['weekNumber','phase','focusOfWeek','sessions']} },
   { name:'update_plan_progress', description:'Advance the current week number or phase in the training plan. Use at the start of a new week or when transitioning between phases.', input_schema:{type:'object',properties:{currentWeek:{type:'number'},currentPhase:{type:'number'},notes:{type:'string'}},required:['currentWeek','currentPhase']} },
 ];
 
 function executeTool(name, input, appState) {
-  const { cardio=[], strength=[], prs={}, events=[], memory={}, plan=[], meals=[], trainingPlan=null } = appState;
+  const { cardio=[], strength=[], prs={}, events=[], memory={}, plan=[], nutrition=[], trainingPlan=null } = appState;
   const today = new Date().toISOString().split('T')[0];
   const fD = m => { if(!m)return'0m'; const h=Math.floor(m/60),mn=m%60; return h>0?(mn>0?`${h}h ${mn}m`:`${h}h`):`${mn}m`; };
   switch (name) {
@@ -260,17 +260,17 @@ function executeTool(name, input, appState) {
       if (!sport||!duration) return JSON.stringify({error:'sport and duration required'});
       return JSON.stringify({logged:true,workout:{sport,duration,notes,date}});
     }
-    case 'log_meal': {
+    case 'log_nutrition': {
       const { meal, timing='general', relatedWorkout='', date=today } = input;
-      if (!meal) return JSON.stringify({error:'meal description is required'});
-      return JSON.stringify({logged:true,meal:{meal,timing,relatedWorkout,date}});
+      if (!meal) return JSON.stringify({error:'nutrition description is required'});
+      return JSON.stringify({logged:true,nutrition:{description:meal,timing,relatedWorkout,date}});
     }
-    case 'get_meals': {
+    case 'get_nutrition': {
       const { days=7, timing='all' } = input;
       const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-days);
-      const filtered=meals.filter(m=>new Date(m.date+'T12:00:00')>=cutoff).filter(m=>timing==='all'||m.timing===timing).sort((a,b)=>b.date.localeCompare(a.date));
-      if (!filtered.length) return `No meals logged in the last ${days} days.`;
-      return JSON.stringify({count:filtered.length,meals:filtered});
+      const filtered=nutrition.filter(m=>new Date(m.date+'T12:00:00')>=cutoff).filter(m=>timing==='all'||m.timing===timing).sort((a,b)=>b.date.localeCompare(a.date));
+      if (!filtered.length) return `No nutrition logged in the last ${days} days.`;
+      return JSON.stringify({count:filtered.length,nutrition:filtered});
     }
     case 'save_training_plan': {
       const { goalId, raceName, raceDate, startDate, totalWeeks, trainingDaysPerWeek=5, phases } = input;
@@ -303,8 +303,8 @@ You have tools to access the athlete's complete training data. Always use them b
 - "How am I doing": get_training_stats + get_goals
 - Plan questions: get_training_plan
 - Athlete describes completed workout: log_workout
-- Athlete describes what they ate: log_meal (record it, then coach on whether it was appropriate for their training)
-- Fueling questions: get_training_plan + get_meals to see what's prescribed and what they've been eating
+- Athlete describes what they ate: log_nutrition (record it, then coach on whether it was appropriate for their training)
+- Fueling questions: get_training_plan + get_nutrition to see what's prescribed and what they've been eating
 - "Create a training plan": gather context (get_goals, get_athlete_profile, get_workouts), then use save_training_plan to create the phase structure, then save_weekly_plan to generate the current week
 
 TRAINING PLAN GENERATION:
@@ -334,20 +334,20 @@ Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('e
 
 async function runAgentLoop({ personality, customText, messages, appState, callAI, maxRounds=5 }) {
   const clean=messages.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n')||'(continued)':String(m.content||'')}));
-  let chain=[...clean]; let toolCallCount=0; const workoutsLogged=[]; const mealsLogged=[]; const planChanges=[];
+  let chain=[...clean]; let toolCallCount=0; const workoutsLogged=[]; const nutritionLogged=[]; const planChanges=[];
   for (let round=0; round<maxRounds; round++) {
     const resp=await callAI({system:buildSystemPrompt(personality,customText),messages:chain,tools:TOOLS,tool_choice:{type:'auto'},max_tokens:2048});
-    if (resp.stop_reason==='end_turn') return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'',workoutsLogged,mealsLogged,planChanges,toolCallCount};
+    if (resp.stop_reason==='end_turn') return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
     if (resp.stop_reason==='tool_use') {
       const toolUses=resp.content?.filter(b=>b.type==='tool_use')||[];
-      if (!toolUses.length) return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'',workoutsLogged,mealsLogged,planChanges,toolCallCount};
-      const toolResults=toolUses.map(tu=>{toolCallCount++;let input;try{input=typeof tu.input==='string'?JSON.parse(tu.input):tu.input;}catch{input={};}const result=executeTool(tu.name,input,appState);if(tu.name==='log_workout'){try{const p=JSON.parse(result);if(p.logged&&p.workout)workoutsLogged.push(p.workout);}catch{}}if(tu.name==='log_meal'){try{const p=JSON.parse(result);if(p.logged&&p.meal)mealsLogged.push(p.meal);}catch{}}if(tu.name==='save_training_plan'){try{const p=JSON.parse(result);if(p.saved&&p.plan)planChanges.push({type:'plan',data:p.plan});}catch{}}if(tu.name==='save_weekly_plan'){try{const p=JSON.parse(result);if(p.saved&&p.weekPlan)planChanges.push({type:'week',data:p.weekPlan});}catch{}}if(tu.name==='update_plan_progress'){try{const p=JSON.parse(result);if(p.updated)planChanges.push({type:'progress',data:{currentWeek:p.currentWeek,currentPhase:p.currentPhase}});}catch{}}return{type:'tool_result',tool_use_id:tu.id,content:result};});
+      if (!toolUses.length) return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
+      const toolResults=toolUses.map(tu=>{toolCallCount++;let input;try{input=typeof tu.input==='string'?JSON.parse(tu.input):tu.input;}catch{input={};}const result=executeTool(tu.name,input,appState);if(tu.name==='log_workout'){try{const p=JSON.parse(result);if(p.logged&&p.workout)workoutsLogged.push(p.workout);}catch{}}if(tu.name==='log_nutrition'){try{const p=JSON.parse(result);if(p.logged&&p.nutrition)nutritionLogged.push(p.nutrition);}catch{}}if(tu.name==='save_training_plan'){try{const p=JSON.parse(result);if(p.saved&&p.plan)planChanges.push({type:'plan',data:p.plan});}catch{}}if(tu.name==='save_weekly_plan'){try{const p=JSON.parse(result);if(p.saved&&p.weekPlan)planChanges.push({type:'week',data:p.weekPlan});}catch{}}if(tu.name==='update_plan_progress'){try{const p=JSON.parse(result);if(p.updated)planChanges.push({type:'progress',data:{currentWeek:p.currentWeek,currentPhase:p.currentPhase}});}catch{}}return{type:'tool_result',tool_use_id:tu.id,content:result};});
       chain=[...chain,{role:'assistant',content:resp.content},{role:'user',content:toolResults}];
       continue;
     }
-    return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'Done.',workoutsLogged,mealsLogged,planChanges,toolCallCount};
+    return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'Done.',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
   }
-  return {response:'I needed more context. Try asking again.',workoutsLogged,mealsLogged,planChanges,toolCallCount};
+  return {response:'I needed more context. Try asking again.',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
 }
 
 async function extractMemory(messages, callAI) {
@@ -516,7 +516,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
 
   const handleCustomSave = () => { onCustomPromptChange(localCustom); setSaved(true); setTimeout(()=>setSaved(false),2000); toast.success('Custom coach saved'); };
   const resetMemory = async () => { const ok=await confirmDialog('Reset coaching memory?','The coach will start fresh — all learned patterns and history cleared.'); if(!ok)return; saveMemory(defaultMemory()); toast.info('Coaching memory reset'); };
-  const exportData = () => { const data={exportedAt:new Date().toISOString(),events:db.get('coach_events',[]),cardio:db.get('coach_cardio',[]),strength:db.get('coach_strength_history',[]),prs:db.get('coach_prs',{}),meals:db.get('coach_meals',[]),trainingPlan:db.get('coach_training_plan',null),memory:loadMemory()}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`coach-export-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); toast.success('Data exported'); };
+  const exportData = () => { const data={exportedAt:new Date().toISOString(),events:db.get('coach_events',[]),cardio:db.get('coach_cardio',[]),strength:db.get('coach_strength_history',[]),prs:db.get('coach_prs',{}),nutrition:db.get('coach_nutrition',[]),trainingPlan:db.get('coach_training_plan',null),memory:loadMemory()}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`coach-export-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); toast.success('Data exported'); };
 
   return (
     <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto'}}>
@@ -1358,7 +1358,7 @@ function ChatTab({messages,onSend,loading,isStreaming,streamText,personality}){
   return(<div style={{display:'flex',flexDirection:'column',height:'calc(100svh - 180px)',minHeight:400}}>
     {messages.length===0&&!isStreaming&&<div style={{marginBottom:16}}><Card style={{marginBottom:12,borderColor:p.color+'30',background:p.color+'07'}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}><div style={{width:32,height:32,borderRadius:10,background:p.color+'20',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name={p.icon} size={18} color={p.color}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:p.color}}>{p.name}</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>Online · ready to coach</div></div></div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,lineHeight:1.7}}>Tell me about a workout and I'll log it. Ask anything about your training.</div></Card>{suggestions.map((s,i)=><button key={i} onClick={()=>onSend(s)} style={{width:'100%',background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:'12px 16px',color:C.subtle,fontFamily:F.ui,fontSize:14,fontWeight:500,textAlign:'left',cursor:'pointer',marginBottom:8,transition:'all .15s',boxShadow:S.sm,lineHeight:1.5}} onMouseEnter={e=>{e.currentTarget.style.color=C.text;e.currentTarget.style.borderColor=C.borderBright;e.currentTarget.style.boxShadow=S.md;}} onMouseLeave={e=>{e.currentTarget.style.color=C.subtle;e.currentTarget.style.borderColor=C.border;e.currentTarget.style.boxShadow=S.sm;}}>{s}</button>)}</div>}
     <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:10,paddingRight:2}}>
-      {messages.map((m,i)=>(<div key={i} className="fade-up" style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:m.role==='user'?'20px 20px 6px 20px':'6px 20px 20px 20px',background:m.role==='user'?C.accent:C.surface,boxShadow:m.role==='assistant'?S.card:'none',fontFamily:F.ui,fontSize:15,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal',border:m.role==='assistant'?`1.5px solid ${C.border}`:'none'}}>{m.role==='assistant'?renderMd(m.content):m.content}{m.logged&&<div style={{marginTop:10,padding:'8px 12px',background:C.green+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><span style={{color:C.green,fontSize:14,fontWeight:700}}>✓</span><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Workout logged</span></div>}{m.mealLogged&&<div style={{marginTop:10,padding:'8px 12px',background:C.cyan+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='zap' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.cyan}}>Meal logged</span></div>}{m.planChanged&&<div style={{marginTop:10,padding:'8px 12px',background:C.accent+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='calendar' size={14} color={C.accent}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent}}>Training plan updated</span></div>}</div></div>))}
+      {messages.map((m,i)=>(<div key={i} className="fade-up" style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:m.role==='user'?'20px 20px 6px 20px':'6px 20px 20px 20px',background:m.role==='user'?C.accent:C.surface,boxShadow:m.role==='assistant'?S.card:'none',fontFamily:F.ui,fontSize:15,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal',border:m.role==='assistant'?`1.5px solid ${C.border}`:'none'}}>{m.role==='assistant'?renderMd(m.content):m.content}{m.logged&&<div style={{marginTop:10,padding:'8px 12px',background:C.green+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><span style={{color:C.green,fontSize:14,fontWeight:700}}>✓</span><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Workout logged</span></div>}{m.nutritionLogged&&<div style={{marginTop:10,padding:'8px 12px',background:C.cyan+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='zap' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.cyan}}>Nutrition logged</span></div>}{m.planChanged&&<div style={{marginTop:10,padding:'8px 12px',background:C.accent+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='calendar' size={14} color={C.accent}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent}}>Training plan updated</span></div>}</div></div>))}
       {isStreaming&&<div className="fade-up" style={{display:'flex',justifyContent:'flex-start'}}><div className={streamText?'fade-up':'streaming-cursor'} style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,fontFamily:F.ui,fontSize:15,color:C.text,border:`1.5px solid ${C.border}`}}>{streamText?renderMd(streamText):<DotsLoader color={p.color}/>}</div></div>}
       {loading&&!isStreaming&&<div className="fade-up" style={{display:'flex'}}><div style={{padding:'14px 18px',borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,border:`1.5px solid ${C.border}`}}><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:6}}>Reviewing your training…</div></div></div>}
       <div ref={bottomRef}/>
@@ -1376,7 +1376,7 @@ export default function CoachApp() {
   const [isDark,       setIsDark]      = useState(() => db.get('coach_dark_mode', false));
   const [events,       setEvents]      = useState([]);
   const [cardio,       setCardio]      = useState([]);
-  const [meals,        setMeals]       = useState([]);
+  const [nutrition,    setNutrition]   = useState([]);
   const [strengthH,    setSH]          = useState([]);
   const [prs,          setPRs]         = useState({});
   const [trainingPlan, setTrainingPlan]= useState(null);
@@ -1421,7 +1421,7 @@ export default function CoachApp() {
     ];
     setEvents(db.get('coach_events',defaultEvents));
     setCardio(db.get('coach_cardio',[]));
-    setMeals(db.get('coach_meals',[]));
+    setNutrition(db.get('coach_nutrition',[]));
     setSH(db.get('coach_strength_history',[]));
     setPRs(db.get('coach_prs',{}));
     setTrainingPlan(db.get('coach_training_plan',null));
@@ -1434,7 +1434,7 @@ export default function CoachApp() {
   },[]);
 
   const plan = useMemo(() => generateWeeklyPlan(events), [events]);
-  const getAppState = useCallback(()=>({cardio,strength:strengthH,prs,events,memory:loadMemory(),plan,meals,trainingPlan}),[cardio,strengthH,prs,events,plan,meals,trainingPlan]);
+  const getAppState = useCallback(()=>({cardio,strength:strengthH,prs,events,memory:loadMemory(),plan,nutrition,trainingPlan}),[cardio,strengthH,prs,events,plan,nutrition,trainingPlan]);
 
   // Auto-advance training plan week
   useEffect(()=>{
@@ -1509,9 +1509,9 @@ export default function CoachApp() {
     setMessages(withUser);setLoading(true);
     try{
       const appState=getAppState();
-      const{response,workoutsLogged,mealsLogged,planChanges}=await runAgentLoop({personality,customText:customPrompt,messages:withUser,appState,callAI,maxRounds:7});
+      const{response,workoutsLogged,nutritionLogged,planChanges}=await runAgentLoop({personality,customText:customPrompt,messages:withUser,appState,callAI,maxRounds:7});
       for(const w of workoutsLogged)addCardio(w);
-      for(const m of mealsLogged){setMeals(prev=>{const u=[{...m,id:uid()},...prev].slice(0,200);db.set('coach_meals',u);return u;});}
+      for(const m of nutritionLogged){setNutrition(prev=>{const u=[{...m,id:uid()},...prev].slice(0,200);db.set('coach_nutrition',u);return u;});}
       // Process plan changes
       for(const pc of planChanges){
         if(pc.type==='plan'){setTrainingPlan(pc.data);db.set('coach_training_plan',pc.data);toast.success('Training plan created');}
@@ -1520,11 +1520,11 @@ export default function CoachApp() {
       }
       setLoading(false);setIsStreaming(true);setStreamText('');
       await typewriter(response,chunk=>setStreamText(chunk));
-      const aMsg={role:'assistant',content:response,logged:workoutsLogged.length>0,mealLogged:mealsLogged.length>0,planChanged:planChanges.length>0};
+      const aMsg={role:'assistant',content:response,logged:workoutsLogged.length>0,nutritionLogged:nutritionLogged.length>0,planChanged:planChanges.length>0};
       const final=[...withUser,aMsg];setMessages(final);db.set('coach_messages',final.slice(-60));
       setIsStreaming(false);setStreamText('');
       for(const w of workoutsLogged){const s=SPORT_META[w.sport]||SPORT_META.other;toast.success(`${s.label} logged — ${fmtDur(w.duration)}`);}
-      for(const m of mealsLogged){toast.success(`Meal logged — ${m.timing} training`);}
+      for(const m of nutritionLogged){toast.success(`Nutrition logged — ${m.timing} training`);}
       extractMemory(final.slice(-8),callAI);
     }catch(err){
       setLoading(false);setIsStreaming(false);setStreamText('');
