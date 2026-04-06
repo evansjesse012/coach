@@ -200,7 +200,92 @@ const TOOLS = [
   { name:'save_training_plan', description:'Save a full periodized training plan. Use this after gathering athlete context (goals, profile, workouts, available days) to create a multi-phase season plan. Generate phases appropriate to the race type, timeline, fitness level, and constraints. Name phases descriptively. Set intensity ceilings per phase. Include deload weeks. The plan structure is created once — individual weeks are generated on demand later.', input_schema:{type:'object',properties:{goalId:{type:'string'},raceName:{type:'string'},raceDate:{type:'string'},startDate:{type:'string'},totalWeeks:{type:'number'},trainingDaysPerWeek:{type:'number',description:'How many days/week the athlete can train'},phases:{type:'array',items:{type:'object',properties:{number:{type:'number'},name:{type:'string',description:'Descriptive phase name, e.g. "Base + Structural Durability"'},startDate:{type:'string'},endDate:{type:'string'},weeks:{type:'number'},weeklyVolume:{type:'string'},intensityCeiling:{type:'string',description:'Maximum intensity allowed, e.g. "Z2 only" or "threshold introduced"'},intensityMix:{type:'string',description:'e.g. "80% Z2, 20% threshold"'},strengthFreq:{type:'string'},focus:{type:'string'},keySessionTypes:{type:'array',items:{type:'string'}},deloadWeek:{type:'number',description:'Which week within this phase is deload, null if none'}}}}},required:['goalId','raceName','raceDate','startDate','totalWeeks','phases']} },
   { name:'save_weekly_plan', description:'Save a generated weekly plan for a specific week. Call this after generating the sessions for a week. Each session should include sport, duration, zones, per-session nutrition (pre/during/post), priority level (red=cannot skip, yellow=flexible), and coaching notes.', input_schema:{type:'object',properties:{weekNumber:{type:'number'},phase:{type:'number'},focusOfWeek:{type:'string',description:'Single coaching focus for this week'},sessions:{type:'array',description:'Array of 7 day objects (Mon-Sun)',items:{type:'object',properties:{day:{type:'string'},isRest:{type:'boolean'},sessions:{type:'array',items:{type:'object',properties:{type:{type:'string'},label:{type:'string'},duration:{type:'number'},zone:{type:'string'},targetIntensity:{type:'string',description:'Specific watts, pace, or RPE'},fuel:{type:'object',properties:{pre:{type:'string'},during:{type:'string'},post:{type:'string'}}},priority:{type:'string',enum:['red','yellow']},notes:{type:'string'},templateId:{type:'string',description:'For strength sessions, link to strength template'}}}}}}}},required:['weekNumber','phase','focusOfWeek','sessions']} },
   { name:'update_plan_progress', description:'Advance the current week number or phase in the training plan. Use at the start of a new week or when transitioning between phases.', input_schema:{type:'object',properties:{currentWeek:{type:'number'},currentPhase:{type:'number'},notes:{type:'string'}},required:['currentWeek','currentPhase']} },
+  { name:'get_week_review', description:'Compare prescribed training plan vs actual logged workouts for a specific week. Returns what was completed, missed, shortened, substituted, and multi-week patterns. ALWAYS call this before generating next week\'s plan.', input_schema:{type:'object',properties:{weekNumber:{type:'number',description:'Week to review. Default: previous week.'},includeMultiWeek:{type:'boolean',description:'Include 4-week rolling pattern analysis. Default false.'}}} },
 ];
+
+// ─── Adherence Computation ────────────────────────────────────────────────────
+function computeWeekAdherence(tp, weekNum, cardio, strength) {
+  if (!tp?.weeklyPlans) return null;
+  const wp = tp.weeklyPlans[String(weekNum)];
+  if (!wp) return null;
+  const planStart = new Date(tp.startDate + 'T00:00:00');
+  const weekMonday = new Date(planStart);
+  weekMonday.setDate(weekMonday.getDate() + (weekNum - 1) * 7);
+  // Adjust to Monday if startDate isn't Monday
+  const startDay = weekMonday.getDay();
+  if (startDay !== 1) weekMonday.setDate(weekMonday.getDate() - ((startDay + 6) % 7));
+  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const todayStr_ = new Date().toISOString().split('T')[0];
+  const days = (wp.sessions || []).map((dayObj, di) => {
+    const dayDate = new Date(weekMonday);
+    dayDate.setDate(dayDate.getDate() + di);
+    const dateStr = dayDate.toISOString().split('T')[0];
+    const isPast = dateStr < todayStr_;
+    const isToday = dateStr === todayStr_;
+    const dayCardio = cardio.filter(w => w.date === dateStr);
+    const dayStrength = strength.filter(s => s.date === dateStr);
+    const sessions = (dayObj.sessions || []).map(sess => {
+      if (sess.type === 'brick') {
+        const legsDone = (sess.legs || []).every(l => dayCardio.some(w => w.sport === l.sport));
+        return { ...sess, status: legsDone ? 'completed' : (isPast ? 'missed' : 'upcoming'), dateStr };
+      }
+      const isStr = sess.type === 'strength';
+      if (isStr) {
+        const match = dayStrength.find(s => s.templateId === sess.templateId);
+        if (match) return { ...sess, status: 'completed', actualDuration: match.duration, dateStr };
+        return { ...sess, status: isPast ? 'missed' : 'upcoming', dateStr };
+      }
+      const match = dayCardio.find(w => w.sport === sess.type);
+      if (match) {
+        const ratio = sess.duration ? match.duration / sess.duration : 1;
+        return { ...sess, status: ratio >= 0.8 ? 'completed' : 'shortened', actualDuration: match.duration, dateStr };
+      }
+      // Check if different sport was logged (substitution)
+      const anySport = dayCardio.length > 0 && !dayObj.sessions.some(s => s.type !== 'strength' && dayCardio.some(w => w.sport === s.type));
+      if (isPast && anySport && dayCardio.length > 0) return { ...sess, status: 'substituted', substitute: dayCardio[0].sport, dateStr };
+      return { ...sess, status: isPast ? 'missed' : (isToday ? 'today' : 'upcoming'), dateStr };
+    });
+    return { day: dayObj.day, dateStr, isPast, isToday, isRest: dayObj.isRest, sessions };
+  });
+  const allSessions = days.flatMap(d => d.sessions);
+  const prescribed = allSessions.length;
+  const completed = allSessions.filter(s => s.status === 'completed').length;
+  const shortened = allSessions.filter(s => s.status === 'shortened').length;
+  const missed = allSessions.filter(s => s.status === 'missed').length;
+  const substituted = allSessions.filter(s => s.status === 'substituted').length;
+  const missedByType = {};
+  allSessions.filter(s => s.status === 'missed').forEach(s => { const t = s.type || 'other'; missedByType[t] = (missedByType[t] || 0) + 1; });
+  const adherence = prescribed > 0 ? Math.round((completed + shortened * 0.5) / prescribed * 100) : 100;
+  return { weekNumber: weekNum, days, prescribed, completed, shortened, missed, substituted, adherence, missedByType };
+}
+
+function computeMultiWeekPatterns(tp, currentWeek, cardio, strength, lookback = 4) {
+  const patterns = [];
+  const weekReviews = [];
+  for (let w = Math.max(1, currentWeek - lookback); w < currentWeek; w++) {
+    const review = computeWeekAdherence(tp, w, cardio, strength);
+    if (review) weekReviews.push(review);
+  }
+  if (!weekReviews.length) return patterns;
+  // Detect sport-specific miss patterns
+  const sportMissCounts = {};
+  weekReviews.forEach(r => Object.entries(r.missedByType).forEach(([sport, count]) => { sportMissCounts[sport] = (sportMissCounts[sport] || 0) + count; }));
+  Object.entries(sportMissCounts).forEach(([sport, count]) => {
+    const weeksWithMiss = weekReviews.filter(r => r.missedByType[sport]).length;
+    if (weeksWithMiss >= 2) patterns.push(`${sport} missed in ${weeksWithMiss} of last ${weekReviews.length} weeks (${count} total sessions)`);
+  });
+  // Detect adherence trend
+  const adherences = weekReviews.map(r => r.adherence);
+  if (adherences.length >= 3) {
+    const recent = adherences.slice(-2);
+    const earlier = adherences.slice(0, -2);
+    const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const earlierAvg = earlier.reduce((a, b) => a + b, 0) / earlier.length;
+    if (recentAvg < earlierAvg - 15) patterns.push(`Adherence declining: ${Math.round(earlierAvg)}% → ${Math.round(recentAvg)}%`);
+    if (recentAvg > earlierAvg + 15) patterns.push(`Adherence improving: ${Math.round(earlierAvg)}% → ${Math.round(recentAvg)}%`);
+  }
+  return patterns;
+}
 
 function executeTool(name, input, appState) {
   const { cardio=[], strength=[], prs={}, events=[], memory={}, plan=[], nutrition=[], trainingPlan=null, bricks=[] } = appState;
@@ -301,6 +386,35 @@ function executeTool(name, input, appState) {
       const { currentWeek, currentPhase, notes='' } = input;
       return JSON.stringify({updated:true,currentWeek,currentPhase,notes});
     }
+    case 'get_week_review': {
+      const { weekNumber=null, includeMultiWeek=false } = input;
+      if (!trainingPlan) return JSON.stringify({error:'No training plan exists.'});
+      const wk = weekNumber || Math.max(1, (trainingPlan.currentWeek || 1) - 1);
+      const review = computeWeekAdherence(trainingPlan, wk, cardio, strength);
+      if (!review) return JSON.stringify({error:`Week ${wk} has not been generated yet.`});
+      const result = {
+        weekNumber: wk,
+        prescribed: review.prescribed,
+        completed: review.completed,
+        shortened: review.shortened,
+        missed: review.missed,
+        substituted: review.substituted,
+        adherence: review.adherence + '%',
+        missedByType: review.missedByType,
+        days: review.days.map(d => ({
+          day: d.day, date: d.dateStr, isRest: d.isRest,
+          sessions: d.sessions.map(s => ({
+            type: s.type, label: s.label, prescribed: s.duration ? s.duration + 'min' : null,
+            status: s.status, actual: s.actualDuration ? s.actualDuration + 'min' : null,
+            substitute: s.substitute || null
+          }))
+        }))
+      };
+      if (includeMultiWeek) {
+        result.multiWeekPatterns = computeMultiWeekPatterns(trainingPlan, trainingPlan.currentWeek, cardio, strength);
+      }
+      return JSON.stringify(result);
+    }
     default: return JSON.stringify({error:`Unknown tool: ${name}`});
   }
 }
@@ -319,6 +433,7 @@ You have tools to access the athlete's complete training data. Always use them b
 - Athlete describes what they ate: log_nutrition (record it, then coach on whether it was appropriate for their training)
 - Fueling questions: get_training_plan + get_nutrition to see what's prescribed and what they've been eating
 - "Create a training plan": gather context (get_goals, get_athlete_profile, get_workouts), then use save_training_plan to create the phase structure, then save_weekly_plan to generate the current week
+- Before generating any weekly plan: ALWAYS call get_week_review(includeMultiWeek=true) to see last week's adherence and patterns
 
 TRAINING PLAN GENERATION:
 You are the coach. You decide the phase structure based on sports science, the athlete's race type, timeline, fitness level, and constraints.
@@ -328,7 +443,10 @@ You are the coach. You decide the phase structure based on sports science, the a
 - Name phases descriptively. Set intensity ceilings per phase. Build in deload weeks (every 3-4 weeks).
 - Each week: 3 Priority sessions (🔴 cannot skip) + flexible sessions (🟡 can move/shorten) scaled to athlete's available days.
 - Every session prescription must include per-session nutrition (pre/during/post) appropriate to session type and duration.
-- When generating a weekly plan, call get_workouts first to see recent training load and adapt accordingly.
+- When generating a weekly plan, call get_week_review(includeMultiWeek=true) first, then get_workouts to see recent load and adapt.
+- If adherence < 80%: ask why before re-prescribing. Is it schedule, fatigue, motivation, or injury? Each has a different response.
+- If a specific session type is consistently missed across weeks: restructure rather than repeat. Move it to a different day, shorten it, or combine it with another session.
+- If athlete is completing everything and sessions feel easy: consider cautious progression.
 
 BRICK WORKOUTS:
 Bricks (bike→run or swim→bike) are critical for triathlon race prep. When generating weekly plans:
@@ -357,11 +475,12 @@ function buildPlanBuilderPrompt(goal, mode='create') {
   if(mode==='week') return `You are building a weekly training plan. ${goalCtx}
 
 INSTRUCTIONS:
-1. First call get_training_plan to see the current phase and plan structure
-2. Then call get_workouts(sport="all", days=14) to see recent training load
-3. Generate the weekly plan adapted to current fitness and phase requirements
-4. Call save_weekly_plan to save it
-5. Summarize the week in 2-3 sentences
+1. First call get_week_review(includeMultiWeek=true) to see last week's adherence — what was completed, missed, shortened
+2. Then call get_training_plan to see the current phase and plan structure
+3. Then call get_workouts(sport="all", days=14) to see recent training load
+4. Adapt this week based on adherence patterns: if sessions were consistently missed, restructure them; if everything was completed, progress; if adherence was low, address it
+5. Generate the weekly plan and call save_weekly_plan to save it
+6. Summarize: what changed from last week and why (reference the adherence data)
 
 Be concise. Generate and save the plan.
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
@@ -1182,6 +1301,8 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const tp=trainingPlan;
   const currentPhase=tp.phases?.find(p=>p.number===tp.currentPhase)||tp.phases?.[0];
   const weekPlan=tp.weeklyPlans?.[String(tp.currentWeek)]||null;
+  const weekAdherence=weekPlan?computeWeekAdherence(tp,tp.currentWeek,cardio,strengthHistory):null;
+  const multiWeekPatterns=tp.currentWeek>1?computeMultiWeekPatterns(tp,tp.currentWeek,cardio,strengthHistory):[];
   const weeksToRace=tp.raceDate?Math.max(0,Math.ceil((new Date(tp.raceDate+'T12:00:00')-new Date())/604800000)):null;
   const[expandedPhase,setExpandedPhase]=useState(null);
   const[showFuel,setShowFuel]=useState(null);
@@ -1225,9 +1346,19 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
     {activeWO&&<Card accent={C.yellow} onClick={()=>setTracker(STRENGTH_TEMPLATES.find(t=>t.id===activeWO.templateId))} style={{marginBottom:16}}><div style={{display:'flex',alignItems:'center',gap:10}}><Icon name='timer' size={20} color={C.yellow}/><div><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:C.yellow}}>Workout in progress</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{activeWO.name} · tap to continue</div></div><span style={{marginLeft:'auto',color:C.yellow}}>→</span></div></Card>}
 
     {/* Current week sessions */}
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:weekAdherence?6:10}}>
       <Label style={{marginBottom:0}}>Week {tp.currentWeek}{weekPlan?` · ${weekPlan.focusOfWeek}`:''}</Label>
     </div>
+    {weekAdherence&&weekAdherence.prescribed>0&&<div style={{marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+        <span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red}}>{weekAdherence.completed+weekAdherence.shortened}/{weekAdherence.prescribed} sessions · {weekAdherence.adherence}%</span>
+        {weekAdherence.missed>0&&<span style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{weekAdherence.missed} missed</span>}
+      </div>
+      <div style={{height:6,background:C.border,borderRadius:3,overflow:'hidden'}}>
+        <div style={{height:'100%',width:`${weekAdherence.adherence}%`,background:weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red,borderRadius:3,transition:'width .3s'}}/>
+      </div>
+      {multiWeekPatterns.length>0&&<div style={{marginTop:6}}>{multiWeekPatterns.map((p,i)=><div key={i} style={{fontFamily:F.ui,fontSize:11,color:C.yellow,display:'flex',alignItems:'center',gap:4,marginTop:2}}><Icon name='alert' size={11} color={C.yellow}/>{p}</div>)}</div>}
+    </div>}
 
     {!weekPlan?<Card accent={C.accent} onClick={()=>setPlanBuilder({goal:{...events.find(e=>e.id===tp.goalId)||{name:tp.raceName},_weekNum:tp.currentWeek,_phaseNum:tp.currentPhase},mode:'week'})} style={{textAlign:'center',padding:28,marginBottom:16}}>
       <div style={{marginBottom:8}}><Icon name='calendar' size={28} color={C.accent}/></div>
@@ -1237,19 +1368,24 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
     :weekPlan.sessions?.map((dayObj,di)=>{
       const isToday=dayObj.day===today;
       const daySessions=dayObj.sessions||[];
-      // Compute date for this day of the week
       const dayIndex=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].indexOf(dayObj.day);
       const weekStart=new Date();weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));weekStart.setHours(0,0,0,0);
       const dayDate=new Date(weekStart);dayDate.setDate(dayDate.getDate()+dayIndex);
       const dayDateStr=dayDate.toISOString().split('T')[0];
+      const isPastDay=dayDateStr<todayStr();
       const dayCardio=cardio.filter(w=>w.date===dayDateStr);
       const dayStrength=strengthHistory.filter(s=>s.date===dayDateStr);
-      return (<div key={di} style={{marginBottom:10}}>
+      const adhDay=weekAdherence?.days?.find(d=>d.day===dayObj.day);
+      const dayCompleted=adhDay?.sessions?.filter(s=>s.status==='completed'||s.status==='shortened').length||0;
+      const dayMissed=adhDay?.sessions?.filter(s=>s.status==='missed').length||0;
+      const dayTotal=adhDay?.sessions?.length||daySessions.length;
+      return (<div key={di} style={{marginBottom:10,opacity:isPastDay&&dayTotal>0&&dayCompleted===0&&dayMissed===dayTotal?0.6:1}}>
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
           <span style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:isToday?C.accent:C.subtle}}>{dayObj.day}</span>
           {isToday&&<Pill color={C.accent} small>Today</Pill>}
           {dayObj.isRest&&<span style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginLeft:'auto'}}>Rest</span>}
-          {!dayObj.isRest&&daySessions.length>0&&(()=>{const done=daySessions.filter(s=>s.type==='brick'?(s.legs||[]).every(l=>dayCardio.some(w=>w.sport===l.sport)):s.type==='strength'?dayStrength.some(sh=>sh.templateId===s.templateId):dayCardio.some(w=>w.sport===s.type)).length;return done>0?<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:done===daySessions.length?C.green:C.muted,marginLeft:'auto'}}>{done}/{daySessions.length} done</span>:null;})()}
+          {!dayObj.isRest&&dayTotal>0&&dayCompleted>0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:dayCompleted>=dayTotal?C.green:C.muted,marginLeft:'auto'}}>{dayCompleted}/{dayTotal} done</span>}
+          {!dayObj.isRest&&isPastDay&&dayMissed>0&&dayCompleted===0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.red,marginLeft:'auto'}}>Missed</span>}
         </div>
         {daySessions.length>0&&<Card style={{padding:'4px 6px',borderColor:isToday?C.accent+'30':C.border}}>
           {daySessions.map((sess,si)=>{
@@ -1284,18 +1420,26 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
             const sport=SPORT_META[sess.type]||SPORT_META.other;
             const isStr=sess.type==='strength';
             const done=isStr?dayStrength.some(sh=>sh.templateId===sess.templateId):dayCardio.some(w=>w.sport===sess.type);
+            const adhSess=adhDay?.sessions?.[si];
+            const sessStatus=adhSess?.status||'upcoming';
+            const isMissed=sessStatus==='missed';
+            const isShortened=sessStatus==='shortened';
+            const isSub=sessStatus==='substituted';
             const priorityColor=sess.priority==='red'?C.accent:C.yellow;
             const fuelKey=`${di}-${si}`;
             return (<div key={si}>
-              <div onClick={isStr&&sess.templateId&&!done?()=>startStrength(sess.templateId):undefined} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 10px',borderRadius:12,cursor:isStr&&sess.templateId&&!done?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'08':'transparent'}}>
-                <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':sport.color+'20',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2}}>
-                  {done?<Icon name='check' size={18} color={C.green}/>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
+              <div onClick={isStr&&sess.templateId&&!done?()=>startStrength(sess.templateId):undefined} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 10px',borderRadius:12,cursor:isStr&&sess.templateId&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'08':(isMissed?C.red+'06':'transparent')}}>
+                <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2}}>
+                  {done?<Icon name='check' size={18} color={C.green}/>:isMissed?<span style={{fontFamily:F.ui,fontSize:14,color:C.red}}>✕</span>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
                 </div>
                 <div style={{flex:1}}>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
-                    <div style={{width:6,height:6,borderRadius:'50%',background:done?C.green:priorityColor,flexShrink:0}}/>
-                    <div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div>
-                    {done&&<Pill color={C.green} small>Done</Pill>}
+                    <div style={{width:6,height:6,borderRadius:'50%',background:done?C.green:(isMissed?C.red:priorityColor),flexShrink:0}}/>
+                    <div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:(isMissed?C.muted:C.text),textDecoration:isMissed?'line-through':'none'}}>{sess.label}</div>
+                    {done&&!isShortened&&<Pill color={C.green} small>Done</Pill>}
+                    {isShortened&&<Pill color={C.yellow} small>{adhSess?.actualDuration}min / {sess.duration}min</Pill>}
+                    {isMissed&&<Pill color={C.red} small>Missed</Pill>}
+                    {isSub&&<Pill color={C.yellow} small>Swapped → {SPORT_META[adhSess?.substitute]?.label||adhSess?.substitute}</Pill>}
                   </div>
                   {sess.zone&&!done&&<div style={{fontFamily:F.mono,fontSize:12,color:sport.color,marginTop:3}}>{sess.zone}{sess.targetIntensity?' · '+sess.targetIntensity:''}</div>}
                   {sess.notes&&!done&&<div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:3,lineHeight:1.5}}>{sess.notes}</div>}
@@ -1318,6 +1462,24 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
         </Card>}
       </div>);
     })}
+
+    {/* Weekly summary for past weeks */}
+    {weekAdherence&&weekAdherence.days.every(d=>d.isPast||d.isRest)&&weekAdherence.prescribed>0&&<Card style={{marginTop:12,marginBottom:4,padding:'14px 16px',borderColor:weekAdherence.adherence>=85?C.green+'30':weekAdherence.adherence>=60?C.yellow+'30':C.red+'30'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+        <div style={{width:28,height:28,borderRadius:8,background:weekAdherence.adherence>=85?C.green+'18':weekAdherence.adherence>=60?C.yellow+'18':C.red+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={weekAdherence.adherence>=85?'check':'alert'} size={14} color={weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red}/></div>
+        <div>
+          <div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.text}}>Week {tp.currentWeek} Summary</div>
+          <div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>{weekAdherence.completed} completed · {weekAdherence.shortened} shortened · {weekAdherence.missed} missed</div>
+        </div>
+        <div style={{marginLeft:'auto',fontFamily:F.display,fontSize:24,fontWeight:700,color:weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red}}>{weekAdherence.adherence}%</div>
+      </div>
+      {Object.keys(weekAdherence.missedByType).length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+        {Object.entries(weekAdherence.missedByType).map(([sport,count])=><Pill key={sport} color={C.red} small>{SPORT_META[sport]?.label||sport}: {count} missed</Pill>)}
+      </div>}
+      {multiWeekPatterns.length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+        {multiWeekPatterns.map((p,i)=><div key={i} style={{fontFamily:F.ui,fontSize:12,color:C.yellow,display:'flex',alignItems:'center',gap:6,marginTop:i>0?4:0}}><Icon name='alert' size={12} color={C.yellow}/>{p}</div>)}
+      </div>}
+    </Card>}
 
     {/* Disruption shortcuts */}
     {onDisruption&&<div style={{marginTop:24}}>
