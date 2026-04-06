@@ -587,9 +587,136 @@ function generateWeeklyPlan(events) {
 function getMockHealthWorkouts(){const types=['run','bike','swim','strength','hike'];const notes={run:['Morning run','Tempo intervals','Long run','Easy jog'],bike:['Z2 ride','Interval session','Long ride'],swim:['Pool session','Technique drills'],strength:['Gym session','Home workout'],hike:['Trail hike']};const durs={run:[25,35,45,55,70,90],bike:[45,60,75,90,120],swim:[30,40,50],strength:[45,55,65],hike:[60,90,120]};const w=[];for(let d=1;d<=14;d++){if(Math.random()>0.45){const date=new Date();date.setDate(date.getDate()-d);const sport=types[Math.floor(Math.random()*types.length)];w.push({id:`hk-${d}-${uid()}`,sport,duration:durs[sport][Math.floor(Math.random()*durs[sport].length)],notes:notes[sport][Math.floor(Math.random()*notes[sport].length)],date:date.toISOString().split('T')[0],source:'healthkit'});}}return w.sort((a,b)=>b.date.localeCompare(a.date));}
 
 // ─── Settings Page ─────────────────────────────────────────────────────────────
+function AthleteProfilePage({onClose}){
+  const[mem,setMem]=useState(()=>loadMemory());
+  const[showChat,setShowChat]=useState(false);
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[isStreaming,setIsStreaming]=useState(false);
+  const[streamText,setStreamText]=useState('');
+  const bottomRef=useRef(null);
+  const chainRef=useRef([]);
+
+  const refreshMem=()=>setMem(loadMemory());
+
+  const profilePrompt=`You are updating an athlete's coaching profile. The athlete is sharing information about themselves. Your job:
+1. Acknowledge what they shared (1-2 sentences)
+2. Extract facts and update the coaching memory appropriately
+3. Ask a follow-up question to learn more — pick from gaps you notice (schedule, equipment, injuries, goals, preferences, nutrition habits, training history)
+4. Keep it conversational and brief — this is mobile.
+
+After each message, internally categorize info into: profile (schedule, equipment, preferences), physical (injuries, strengths, limiters), behavioral (patterns, motivators), or coaching (focus areas, open items).
+
+Today: ${new Date().toISOString().split('T')[0]}`;
+
+  const sendMsg=async(text)=>{
+    const userMsg={role:'user',content:text};
+    const updated=[...msgs,userMsg];
+    setMsgs(updated);setInput('');setLoading(true);
+    const chain=chainRef.current.length?[...chainRef.current,{role:'user',content:text}]:[{role:'user',content:text}];
+    try{
+      const resp=await callAI({system:profilePrompt,messages:chain,tools:TOOLS.filter(t=>t.name==='get_athlete_profile'),max_tokens:800});
+      const textContent=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'';
+      chainRef.current=[...chain,{role:'assistant',content:textContent}];
+      setLoading(false);setIsStreaming(true);setStreamText('');
+      await typewriter(textContent,chunk=>setStreamText(chunk));
+      setMsgs(prev=>[...prev,{role:'assistant',content:textContent}]);
+      setIsStreaming(false);setStreamText('');
+      // Extract and save to memory
+      try{
+        const extract=await callAI({system:`Extract facts from this conversation into coaching memory JSON. Return ONLY JSON matching this structure (include only fields with new info, omit empty fields):
+{"profile":{"communicationStyle":"","preferredWorkoutTimes":"","equipment":""},"physical":{"injuries":[],"strengths":[],"limiters":[]},"behavioral":{"patterns":[],"motivators":[],"consistency":""},"coaching":{"currentFocus":"","openItems":[]}}
+If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.current.map(m=>`${m.role==='user'?'Athlete':'Coach'}: ${m.content}`).join('\n')}],max_tokens:400});
+        const raw=extract.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';
+        const parsed=JSON.parse(raw.replace(/```json\n?|\n?```/g,'').trim());
+        if(Object.keys(parsed).length>0){saveMemory(mergeMemory(loadMemory(),parsed));refreshMem();}
+      }catch{}
+    }catch(err){setLoading(false);setIsStreaming(false);setMsgs(prev=>[...prev,{role:'assistant',content:`Something went wrong: ${err.message}`}]);}
+  };
+
+  const Section=({icon,color,title,children,empty})=>(
+    <Card style={{marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:children?10:0}}>
+        <div style={{width:32,height:32,borderRadius:10,background:color+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name={icon} size={16} color={color}/></div>
+        <div style={{fontFamily:F.ui,fontWeight:700,fontSize:15,color:C.text}}>{title}</div>
+      </div>
+      {children||<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,fontStyle:'italic',marginTop:4}}>{empty||'Your coach hasn\'t learned this yet'}</div>}
+    </Card>
+  );
+
+  const hasProfile=mem.profile?.communicationStyle||mem.profile?.preferredWorkoutTimes||mem.profile?.equipment;
+  const hasPhysical=mem.physical?.injuries?.length||mem.physical?.strengths?.length||mem.physical?.limiters?.length;
+  const hasBehavioral=mem.behavioral?.patterns?.length||mem.behavioral?.motivators?.length||mem.behavioral?.consistency;
+  const hasCoaching=mem.coaching?.currentFocus||mem.coaching?.openItems?.length;
+
+  return(<div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto'}}>
+    <div style={{background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`,padding:'16px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10}}>
+      <button onClick={onClose} style={{borderRadius:12,background:C.elevated,border:`1.5px solid ${C.border}`,color:C.text,cursor:'pointer',display:'flex',alignItems:'center',gap:4,padding:'8px 14px 8px 10px',flexShrink:0}}><Icon name='arrowLeft' size={16}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600}}>Back</span></button>
+      <div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-.01em'}}>Athlete Profile</div>
+    </div>
+
+    <div style={{padding:'20px 16px 48px'}}>
+      <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.7,marginBottom:20}}>This is what your coach knows about you. The more you share, the better the coaching.</div>
+
+      <Section icon="run" color={C.accent} title="Training" empty="Tell your coach about your schedule, equipment, and preferences">
+        {hasProfile&&<div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {mem.profile.preferredWorkoutTimes&&<div style={{display:'flex',gap:8}}><Icon name='calendar' size={13} color={C.muted}/><span style={{fontFamily:F.ui,fontSize:14,color:C.text}}>{mem.profile.preferredWorkoutTimes}</span></div>}
+          {mem.profile.equipment&&<div style={{display:'flex',gap:8}}><Icon name='dumbbell' size={13} color={C.muted}/><span style={{fontFamily:F.ui,fontSize:14,color:C.text}}>{mem.profile.equipment}</span></div>}
+          {mem.profile.communicationStyle&&<div style={{display:'flex',gap:8}}><Icon name='message' size={13} color={C.muted}/><span style={{fontFamily:F.ui,fontSize:14,color:C.text}}>{mem.profile.communicationStyle}</span></div>}
+        </div>}
+      </Section>
+
+      <Section icon="alert" color={C.yellow} title="Physical" empty="Share any injuries, strengths, or areas to work on">
+        {hasPhysical&&<div>
+          {mem.physical.injuries?.length>0&&<div style={{marginBottom:8}}>{mem.physical.injuries.map((inj,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:i>0?`1px solid ${C.border}`:'none'}}>
+            <Pill color={inj.status==='resolved'?C.green:inj.status==='monitoring'?C.yellow:C.red} small>{inj.status}</Pill>
+            <span style={{fontFamily:F.ui,fontSize:14,color:C.text}}>{inj.area}</span>
+            {inj.notes&&<span style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginLeft:'auto'}}>{inj.notes}</span>}
+          </div>)}</div>}
+          {mem.physical.strengths?.length>0&&<div style={{marginBottom:8}}><div style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.green,marginBottom:4}}>STRENGTHS</div><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{mem.physical.strengths.map((s,i)=><Pill key={i} color={C.green} small>{s}</Pill>)}</div></div>}
+          {mem.physical.limiters?.length>0&&<div><div style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.accent,marginBottom:4}}>LIMITERS</div><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{mem.physical.limiters.map((l,i)=><Pill key={i} color={C.accent} small>{l}</Pill>)}</div></div>}
+        </div>}
+      </Section>
+
+      <Section icon="clipboard" color={C.cyan} title="Patterns" empty="Your coach will notice patterns as you train">
+        {hasBehavioral&&<div>
+          {mem.behavioral.patterns?.map((p,i)=><div key={i} style={{display:'flex',gap:8,padding:'6px 0',borderTop:i>0?`1px solid ${C.border}`:'none'}}><span style={{color:C.cyan,flexShrink:0}}>•</span><span style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.5}}>{p}</span></div>)}
+          {mem.behavioral.consistency&&<div style={{marginTop:8,fontFamily:F.ui,fontSize:13,color:C.muted,fontStyle:'italic'}}>{mem.behavioral.consistency}</div>}
+          {mem.behavioral.motivators?.length>0&&<div style={{marginTop:8,display:'flex',gap:6,flexWrap:'wrap'}}>{mem.behavioral.motivators.map((m,i)=><Pill key={i} color={C.purple} small>{m}</Pill>)}</div>}
+        </div>}
+      </Section>
+
+      <Section icon="target" color={C.purple} title="Coaching Focus" empty="Your coach will set focus areas as training progresses">
+        {hasCoaching&&<div>
+          {mem.coaching.currentFocus&&<div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.6,marginBottom:8}}>{mem.coaching.currentFocus}</div>}
+          {mem.coaching.openItems?.map((item,i)=><div key={i} style={{display:'flex',gap:8,padding:'5px 0'}}><span style={{color:C.purple,flexShrink:0,fontSize:12}}>○</span><span style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>{item}</span></div>)}
+        </div>}
+      </Section>
+
+      <Btn onClick={()=>setShowChat(true)} color={C.accent} style={{width:'100%',padding:15,fontSize:16,marginTop:8}}>Tell your coach more</Btn>
+    </div>
+
+    {showChat&&<Sheet onClose={()=>{setShowChat(false);refreshMem();}} title="Update your profile">
+      <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.6}}>Share anything that would help your coach — schedule, equipment, injuries, preferences, goals.</div>
+      <div style={{maxHeight:'45vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+        {msgs.filter(m=>m.role==='assistant').map((m,i)=><div key={i} className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(m.content)}</div>)}
+        {isStreaming&&streamText&&<div className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(streamText)}</div>}
+        {loading&&!isStreaming&&<DotsLoader color={C.accent}/>}
+        <div ref={bottomRef}/>
+      </div>
+      <div style={{display:'flex',gap:8}}>
+        <Inp value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!loading&&input.trim()&&sendMsg(input.trim())} placeholder="e.g. I train mornings, have a pool and Wahoo Kickr..." style={{flex:1}}/>
+        <button onClick={()=>input.trim()&&!loading&&sendMsg(input.trim())} disabled={!input.trim()||loading} style={{width:48,height:48,background:!input.trim()||loading?C.elevated:C.accent,border:'none',borderRadius:12,cursor:!input.trim()||loading?'not-allowed':'pointer',color:!input.trim()||loading?C.muted:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>↑</button>
+      </div>
+    </Sheet>}
+  </div>);
+}
+
 function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustomPromptChange, isDark, onToggleDark, onClose }) {
   const [localCustom, setLocalCustom] = useState(customPrompt||'');
   const [saved, setSaved] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const mem = loadMemory();
   const hasMemory = mem.behavioral?.patterns?.length||mem.physical?.injuries?.length||mem.coaching?.openItems?.length;
 
@@ -650,20 +777,12 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
           {(()=>{const p=PERSONALITIES.custom;const sel=personality==='custom';return(<div style={{marginBottom:10}}><div onClick={()=>onPersonalityChange('custom')} style={{background:sel?p.color+'10':C.card,border:`2px solid ${sel?p.color:C.border}`,borderRadius:18,padding:'18px 20px',cursor:'pointer',transition:'all .18s',boxShadow:sel?S.md:S.card}} onMouseEnter={e=>{if(!sel){e.currentTarget.style.borderColor=p.color+'66';e.currentTarget.style.background=p.color+'08';}}} onMouseLeave={e=>{if(!sel){e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.card;}}}><div style={{display:'flex',alignItems:'flex-start',gap:14}}><div style={{width:52,height:52,borderRadius:16,background:p.color+'20',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name={p.icon} size={26} color={p.color}/></div><div style={{flex:1}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}><div style={{fontFamily:F.display,fontSize:20,fontWeight:700,color:sel?p.color:C.text}}>{p.name}</div>{sel&&<div style={{width:10,height:10,borderRadius:'50%',background:p.color,flexShrink:0}}/>}</div><div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:p.color,marginBottom:6}}>{p.tagline}</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.65}}>{p.description}</div></div></div></div>{sel&&<div className="fade-up" style={{background:C.purple+'08',border:`2px solid ${C.purple}30`,borderRadius:16,padding:'16px 18px',marginTop:8}}><div style={{fontFamily:F.ui,fontSize:14,fontWeight:600,color:C.purple,marginBottom:8}}>Describe your ideal coach</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginBottom:12,lineHeight:1.65}}>Write a few sentences. Your words become the coaching style. Examples: "Be like my college coach — tough but fair, always cite the science." or "Gentle and supportive, I struggle with anxiety."</div><Textarea placeholder="e.g. Talk to me like I'm training for the Olympics. Always reference the data. Push me when I make excuses, but celebrate real wins..." value={localCustom} onChange={e=>setLocalCustom(e.target.value)} rows={5} style={{marginBottom:12}}/><Btn onClick={handleCustomSave} color={C.purple} disabled={!localCustom.trim()} style={{width:'100%',fontSize:15}}>{saved?'✓ Saved':'Save custom coach'}</Btn></div>}</div>);})()}
         </div>
 
-        {/* Memory */}
+        {/* Profile & Memory */}
         <div style={{marginBottom:32}}>
-          <Label>Coaching memory</Label>
-          <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:14,lineHeight:1.65}}>Your coach learns about you over time from your conversations.</div>
-          {hasMemory?(
-            <Card style={{marginBottom:12}}>
-              {mem.physical?.injuries?.filter(i=>i.status!=='resolved')?.map((inj,i)=><div key={i} style={{display:'flex',gap:8,padding:'7px 0',borderTop:i>0?`1px solid ${C.border}`:'none'}}><span><Icon name='alert' size={14} color={C.yellow}/></span><span style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>{inj.area} — {inj.status}</span></div>)}
-              {mem.behavioral?.patterns?.slice(0,5).map((p,i)=><div key={i} style={{display:'flex',gap:8,padding:'7px 0',borderTop:`1px solid ${C.border}`}}><span><Icon name='clipboard' size={14} color={C.cyan}/></span><span style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>{p}</span></div>)}
-              {mem.coaching?.openItems?.slice(0,3).map((item,i)=><div key={i} style={{display:'flex',gap:8,padding:'7px 0',borderTop:`1px solid ${C.border}`}}><span><Icon name='pin' size={14} color={C.purple}/></span><span style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>{item}</span></div>)}
-              {mem.conversationSummaries?.slice(-2).map((s,i)=><div key={i} style={{display:'flex',gap:8,padding:'7px 0',borderTop:`1px solid ${C.border}`}}><span><Icon name='message' size={14} color={C.green}/></span><span style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>{s.date}: {s.summary}</span></div>)}
-            </Card>
-          ):(
-            <Card><div style={{fontFamily:F.ui,fontSize:14,color:C.muted,textAlign:'center',padding:'8px 0'}}>Keep chatting — your coach learns as you go.</div></Card>
-          )}
+          <Label>Athlete profile</Label>
+          <Card onClick={()=>setShowProfile(true)} accent={C.accent} style={{marginBottom:10}}>
+            <div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:36,height:36,borderRadius:12,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='run' size={18} color={C.accent}/></div><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.accent}}>View athlete profile</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:1}}>See what your coach knows about you</div></div><span style={{color:C.accent}}>→</span></div>
+          </Card>
           {hasMemory&&<button onClick={resetMemory} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:12,padding:'11px 16px',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',width:'100%',transition:'all .15s',marginTop:4}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>Reset coaching memory</button>}
         </div>
 
@@ -684,6 +803,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
           <Card><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.8}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}><span style={{fontWeight:600}}>Coach App</span><span style={{color:C.muted}}>v1.0</span></div><div style={{color:C.muted,fontSize:13}}>AI-powered personal training. Your data stays on your device.</div></div></Card>
         </div>
       </div>
+      {showProfile&&<AthleteProfilePage onClose={()=>setShowProfile(false)}/>}
     </div>
   );
 }
