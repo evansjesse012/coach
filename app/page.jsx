@@ -1784,11 +1784,7 @@ export default function CoachApp() {
 
   // Load persisted data
   useEffect(()=>{
-    const defaultEvents = [
-      {id:'demo_1',presetId:'tri_703',name:'IRONMAN 70.3 Cozumel',date:'2026-09-20',location:'Cozumel, Mexico',goal:'5:30',stretchGoal:'5:00',baseline:'6:28:06',url:'',notes:[],racePlan:'',completed:false},
-      {id:'race_703va_2022',presetId:'tri_703',name:'IRONMAN 70.3 Virginia',date:'2022-06-05',location:'Virginia, USA',mode:'race',completed:true,bibNumber:'1465',ageGroup:'M18-24',result:'6:28:06',splits:{swim:'44:29',t1:'5:32',bike:'3:18:17',t2:'9:16',run:'2:10:32',total:'6:28:06'},placement:'721st',genderPlacement:'551st',ageGroupPlacement:'23rd',goal:'',stretchGoal:'',baseline:'',url:'',notes:[],racePlan:''},
-    ];
-    setEvents(db.get('coach_events',defaultEvents));
+    setEvents(db.get('coach_events',[]));
     setCardio(db.get('coach_cardio',[]));
     setNutrition(db.get('coach_nutrition',[]));
     setSH(db.get('coach_strength_history',[]));
