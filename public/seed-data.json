@@ -3,7 +3,7 @@
     {"id":"demo_1","presetId":"tri_703","name":"IRONMAN 70.3 Cozumel","date":"2026-09-20","location":"Cozumel, Mexico","goal":"5:30","stretchGoal":"5:00","baseline":"6:28:06","url":"","notes":[],"racePlan":"","completed":false},
     {"id":"race_703va_2022","presetId":"tri_703","name":"IRONMAN 70.3 Virginia","date":"2022-06-05","location":"Virginia, USA","mode":"race","completed":true,"bibNumber":"1465","ageGroup":"M18-24","result":"6:28:06","splits":{"swim":"44:29","t1":"5:32","bike":"3:18:17","t2":"9:16","run":"2:10:32","total":"6:28:06"},"placement":"721st","genderPlacement":"551st","ageGroupPlacement":"23rd","goal":"","stretchGoal":"","baseline":"","url":"","notes":[],"racePlan":""},
     {"id":"race_oly_2023","presetId":"tri_sprint","name":"Reston Sprint Triathlon","date":"2023-07-15","location":"Reston, VA","mode":"race","completed":true,"bibNumber":"312","ageGroup":"M25-29","result":"1:22:45","splits":{"swim":"12:30","t1":"2:15","bike":"38:20","t2":"1:40","run":"28:00","total":"1:22:45"},"placement":"85th","genderPlacement":"62nd","ageGroupPlacement":"8th","goal":"","stretchGoal":"","baseline":"","url":"","notes":[],"racePlan":""},
-    {"id":"pr_5k","presetId":"5k","name":"5K PR","date":"2025-11-22","mode":"pr","completed":true,"result":"22:45","baseline":"24:10","presetId":"5k","notes":[],"racePlan":"","goal":"","stretchGoal":"","location":"","url":""}
+    {"id":"pr_5k","presetId":"5k","name":"5K PR","date":"2025-11-22","mode":"pr","completed":true,"result":"22:45","baseline":"24:10","notes":[],"racePlan":"","goal":"","stretchGoal":"","location":"","url":""}
   ],
   "cardio": [
     {"id":"w001","sport":"run","duration":50,"notes":"Easy run, felt good. 10:15/mi pace.","date":"2026-04-06"},
@@ -14,45 +14,89 @@
     {"id":"w006","sport":"run","duration":20,"notes":"Brick run off the bike. Legs heavy first mile then settled at 9:30/mi.","date":"2026-04-04"},
     {"id":"w007","sport":"swim","duration":40,"notes":"Pool 1800yds. Focus on catch and pull drills. 4x150 steady.","date":"2026-04-03"},
     {"id":"w008","sport":"run","duration":65,"notes":"Long run. Easy effort, 10:00/mi avg. Fueled with gel at 40min.","date":"2026-04-02"},
-    {"id":"w009","sport":"bike","duration":60,"notes":"Recovery spin. Easy Z1. Legs tired from yesterday.","date":"2026-04-01"},
-    {"id":"w010","sport":"swim","duration":50,"notes":"Open water swim practice. Lake. 2200yds. Sighting every 10 strokes.","date":"2026-03-31"},
-    {"id":"w011","sport":"run","duration":45,"notes":"Easy run with strides. 6x20sec pickups at end.","date":"2026-03-30"},
-    {"id":"w012","sport":"bike","duration":75,"notes":"Tempo ride. 2x15min at threshold, rest Z2.","date":"2026-03-30"},
-    {"id":"w013","sport":"run","duration":25,"notes":"Brick run. Off the tempo bike. 9:00/mi settling to 8:45.","date":"2026-03-30"},
-    {"id":"w014","sport":"swim","duration":45,"notes":"Pool 2100yds. Main set: 8x100 descend 1-4, repeat.","date":"2026-03-29"},
-    {"id":"w015","sport":"bike","duration":150,"notes":"Long ride. 3hrs Z2 with 3x5min tempo efforts at end. Avg 140W.","date":"2026-03-28"},
-    {"id":"w016","sport":"run","duration":30,"notes":"Recovery jog. 11:00/mi. Legs feeling the long ride.","date":"2026-03-28"},
-    {"id":"w017","sport":"swim","duration":40,"notes":"Pool 1600yds. Technique focus: bilateral breathing, high elbow catch.","date":"2026-03-27"},
-    {"id":"w018","sport":"run","duration":55,"notes":"Progressive run. Started at 10:30, finished last 2mi at 8:45/mi.","date":"2026-03-26"},
-    {"id":"w019","sport":"bike","duration":60,"notes":"Indoor trainer. 4x8min sweet spot intervals. HR avg 155.","date":"2026-03-25"},
-    {"id":"w020","sport":"swim","duration":45,"notes":"Pool 2000yds. Warm up, 10x100 on 1:55, cool down.","date":"2026-03-24"},
-    {"id":"w021","sport":"run","duration":40,"notes":"Easy run. Conversation pace. Beautiful morning.","date":"2026-03-23"},
-    {"id":"w022","sport":"bike","duration":105,"notes":"Group ride. Mostly Z2 with some Z3 on climbs. 42 miles.","date":"2026-03-22"},
-    {"id":"w023","sport":"run","duration":20,"notes":"Brick run off group ride. Heavy legs, 9:45/mi.","date":"2026-03-22"},
-    {"id":"w024","sport":"swim","duration":35,"notes":"Short pool session. 1400yds. Focused on flip turns and streamline.","date":"2026-03-21"},
-    {"id":"w025","sport":"run","duration":70,"notes":"Long run. 7 miles. 10:05/mi avg. Took gel at mile 5.","date":"2026-03-20"},
-    {"id":"w026","sport":"bike","duration":45,"notes":"Recovery spin. Z1 only. Watching race videos.","date":"2026-03-19"},
-    {"id":"w027","sport":"swim","duration":50,"notes":"Pool 2200yds. Pull buoy set + kick set + 6x200 aerobic.","date":"2026-03-18"},
-    {"id":"w028","sport":"run","duration":35,"notes":"Fartlek. 8x1min hard/1min easy after 10min warmup.","date":"2026-03-17"},
-    {"id":"w029","sport":"bike","duration":90,"notes":"Z2 steady. Indoor trainer. Watched Cozumel race course videos.","date":"2026-03-16"},
-    {"id":"w030","sport":"swim","duration":40,"notes":"Pool 1800yds. Catch-up drill, fingertip drag, 6x150 steady.","date":"2026-03-15"},
-    {"id":"w031","sport":"hike","duration":90,"notes":"Trail hike. Active recovery day. Beautiful weather.","date":"2026-03-14"},
-    {"id":"w032","sport":"run","duration":50,"notes":"Easy run with 4x30sec hill sprints at the end.","date":"2026-03-13"},
-    {"id":"w033","sport":"bike","duration":120,"notes":"Long ride. Flat route, practiced aero position. 38 miles.","date":"2026-03-12"},
-    {"id":"w034","sport":"swim","duration":45,"notes":"Pool 2000yds. Timed 500: 8:42. Feeling more efficient.","date":"2026-03-11"}
+
+    {"id":"hk-w8-01","sport":"swim","duration":40,"notes":"Pool 1800yds. Warm up, 6x150 Z2, cool down.","date":"2026-03-31","source":"healthkit"},
+    {"id":"hk-w8-02","sport":"run","duration":45,"notes":"Easy run with strides. 6x20sec pickups at end. 10:10/mi.","date":"2026-03-30","source":"healthkit"},
+    {"id":"hk-w8-03","sport":"bike","duration":75,"notes":"Z2 ride. 2x15min steady effort, rest easy. Avg 142W.","date":"2026-03-30","source":"healthkit"},
+    {"id":"hk-w8-04","sport":"run","duration":25,"notes":"Brick run off the bike. 9:00/mi settling to 8:45.","date":"2026-03-30","source":"healthkit"},
+    {"id":"hk-w8-05","sport":"swim","duration":45,"notes":"Pool 2100yds. Main set: 8x100 descend 1-4, repeat.","date":"2026-03-29","source":"healthkit"},
+    {"id":"hk-w8-06","sport":"bike","duration":150,"notes":"Long ride. 3hrs Z2 with 3x5min tempo efforts at end. Avg 140W.","date":"2026-03-28","source":"healthkit"},
+    {"id":"hk-w8-07","sport":"run","duration":30,"notes":"Recovery jog. 11:00/mi. Legs feeling the long ride.","date":"2026-03-28","source":"healthkit"},
+    {"id":"hk-w8-08","sport":"swim","duration":40,"notes":"Pool 1600yds. Technique focus: bilateral breathing, high elbow catch.","date":"2026-03-27","source":"healthkit"},
+
+    {"id":"hk-w7-01","sport":"run","duration":55,"notes":"Progressive run. Started at 10:30, finished last 2mi at 8:45/mi.","date":"2026-03-26","source":"healthkit"},
+    {"id":"hk-w7-02","sport":"bike","duration":60,"notes":"Indoor trainer. 4x8min sweet spot intervals. HR avg 155.","date":"2026-03-25","source":"healthkit"},
+    {"id":"hk-w7-03","sport":"swim","duration":45,"notes":"Pool 2000yds. Warm up, 10x100 on 1:55, cool down.","date":"2026-03-24","source":"healthkit"},
+    {"id":"hk-w7-04","sport":"run","duration":40,"notes":"Easy run. Conversation pace. Beautiful morning. 10:20/mi.","date":"2026-03-23","source":"healthkit"},
+    {"id":"hk-w7-05","sport":"bike","duration":105,"notes":"Group ride. Mostly Z2 with some Z3 on climbs. 42 miles.","date":"2026-03-22","source":"healthkit"},
+    {"id":"hk-w7-06","sport":"run","duration":20,"notes":"Brick run off group ride. Heavy legs, 9:45/mi.","date":"2026-03-22","source":"healthkit"},
+    {"id":"hk-w7-07","sport":"swim","duration":35,"notes":"Short pool session. 1400yds. Flip turns and streamline.","date":"2026-03-21","source":"healthkit"},
+
+    {"id":"hk-w6-01","sport":"run","duration":70,"notes":"Long run. 7 miles. 10:05/mi avg. Took gel at mile 5.","date":"2026-03-20","source":"healthkit"},
+    {"id":"hk-w6-02","sport":"bike","duration":45,"notes":"Recovery spin. Z1 only. Easy legs.","date":"2026-03-19","source":"healthkit"},
+    {"id":"hk-w6-03","sport":"swim","duration":50,"notes":"Pool 2200yds. Pull buoy set + kick set + 6x200 aerobic.","date":"2026-03-18","source":"healthkit"},
+    {"id":"hk-w6-04","sport":"run","duration":35,"notes":"Fartlek. 8x1min hard/1min easy after 10min warmup.","date":"2026-03-17","source":"healthkit"},
+    {"id":"hk-w6-05","sport":"bike","duration":90,"notes":"Z2 steady. Indoor trainer. 28 miles. Avg 138W.","date":"2026-03-16","source":"healthkit"},
+    {"id":"hk-w6-06","sport":"swim","duration":40,"notes":"Pool 1800yds. Catch-up drill, fingertip drag, 6x150 steady.","date":"2026-03-15","source":"healthkit"},
+    {"id":"hk-w6-07","sport":"hike","duration":90,"notes":"Trail hike. Active recovery day.","date":"2026-03-14","source":"healthkit"},
+
+    {"id":"hk-w5-01","sport":"run","duration":50,"notes":"Easy run with 4x30sec hill sprints at the end. 10:00/mi base.","date":"2026-03-13","source":"healthkit"},
+    {"id":"hk-w5-02","sport":"bike","duration":120,"notes":"Long ride. Flat route, practiced aero position. 38 miles. Avg 135W.","date":"2026-03-12","source":"healthkit"},
+    {"id":"hk-w5-03","sport":"swim","duration":45,"notes":"Pool 2000yds. Timed 500: 8:42. Feeling more efficient.","date":"2026-03-11","source":"healthkit"},
+    {"id":"hk-w5-04","sport":"run","duration":40,"notes":"Easy run. 10:15/mi. Left knee felt tight at mile 3, loosened up.","date":"2026-03-10","source":"healthkit"},
+    {"id":"hk-w5-05","sport":"bike","duration":60,"notes":"Z2 trainer ride. 20 miles. Cadence work: 90-95rpm target.","date":"2026-03-09","source":"healthkit"},
+    {"id":"hk-w5-06","sport":"swim","duration":35,"notes":"Pool 1500yds. Drill day: catch-up, fist, zipper. Short and technical.","date":"2026-03-08","source":"healthkit"},
+    {"id":"hk-w5-07","sport":"run","duration":60,"notes":"Long run. 6.2 miles. 9:40/mi. Felt strong last 2 miles.","date":"2026-03-07","source":"healthkit"},
+
+    {"id":"hk-w4-01","sport":"bike","duration":90,"notes":"Z2 ride outside. 30 miles. First outdoor ride of spring. Avg 132W.","date":"2026-03-06","source":"healthkit"},
+    {"id":"hk-w4-02","sport":"swim","duration":45,"notes":"Pool 2000yds. 4x400 at steady pace. 8:55 avg per 400.","date":"2026-03-05","source":"healthkit"},
+    {"id":"hk-w4-03","sport":"run","duration":35,"notes":"Easy run. 10:30/mi. Recovery day. Legs felt heavy.","date":"2026-03-04","source":"healthkit"},
+    {"id":"hk-w4-04","sport":"bike","duration":60,"notes":"Trainer. Z2 with 3x5min at sweet spot. HR peaked 158.","date":"2026-03-03","source":"healthkit"},
+    {"id":"hk-w4-05","sport":"swim","duration":40,"notes":"Pool 1800yds. 6x200 on 4:00. Focused on breathing rhythm.","date":"2026-03-02","source":"healthkit"},
+    {"id":"hk-w4-06","sport":"run","duration":55,"notes":"Long run. 5.5 miles. Negative split: 10:30 first half, 9:50 second.","date":"2026-03-01","source":"healthkit"},
+
+    {"id":"hk-w3-01","sport":"bike","duration":105,"notes":"Long ride on trainer. 2:45 Z2 steady. Movie on screen. 34 miles.","date":"2026-02-28","source":"healthkit"},
+    {"id":"hk-w3-02","sport":"run","duration":20,"notes":"Brick run off trainer. Short and easy. 10:00/mi. Legs adjusted quick.","date":"2026-02-28","source":"healthkit"},
+    {"id":"hk-w3-03","sport":"swim","duration":40,"notes":"Pool 1700yds. Warm up, 8x100 on 1:55, 4x50 sprint, cool down.","date":"2026-02-27","source":"healthkit"},
+    {"id":"hk-w3-04","sport":"run","duration":45,"notes":"Easy run. 10:15/mi. Listened to podcast. Nice weather.","date":"2026-02-26","source":"healthkit"},
+    {"id":"hk-w3-05","sport":"bike","duration":55,"notes":"Z2 trainer. 18 miles. Working on holding 135W steadily.","date":"2026-02-25","source":"healthkit"},
+    {"id":"hk-w3-06","sport":"swim","duration":35,"notes":"Pool 1500yds. All drills: catch-up, fingertip drag, 6-3-6. Technique day.","date":"2026-02-24","source":"healthkit"},
+    {"id":"hk-w3-07","sport":"run","duration":50,"notes":"Long run. 5 miles. 10:00/mi. Tried new gel (SIS) — stomach OK.","date":"2026-02-23","source":"healthkit"},
+
+    {"id":"hk-w2-01","sport":"bike","duration":80,"notes":"Z2 trainer ride. 26 miles. Avg 130W. Felt easy.","date":"2026-02-22","source":"healthkit"},
+    {"id":"hk-w2-02","sport":"swim","duration":40,"notes":"Pool 1800yds. 10x100 on 2:00. Avg 1:48. Getting consistent.","date":"2026-02-21","source":"healthkit"},
+    {"id":"hk-w2-03","sport":"run","duration":35,"notes":"Easy run. 10:20/mi. Cold morning, warmed up by mile 2.","date":"2026-02-20","source":"healthkit"},
+    {"id":"hk-w2-04","sport":"bike","duration":50,"notes":"Z2 recovery spin. 16 miles. Legs tired from yesterday's run.","date":"2026-02-19","source":"healthkit"},
+    {"id":"hk-w2-05","sport":"swim","duration":30,"notes":"Pool 1200yds. Short session — ran out of time. 6x100 + drills.","date":"2026-02-18","source":"healthkit"},
+    {"id":"hk-w2-06","sport":"run","duration":45,"notes":"Long run. 4.5 miles. 10:05/mi. Building base. Felt good.","date":"2026-02-17","source":"healthkit"},
+
+    {"id":"hk-w1-01","sport":"bike","duration":90,"notes":"Long ride on trainer. Z2 steady. 29 miles. Avg 128W. Building base.","date":"2026-02-15","source":"healthkit"},
+    {"id":"hk-w1-02","sport":"swim","duration":35,"notes":"Pool 1500yds. First consistent swim week. 8x100 on 2:05. Avg 1:52.","date":"2026-02-14","source":"healthkit"},
+    {"id":"hk-w1-03","sport":"run","duration":30,"notes":"Easy run. 10:30/mi. Getting back into routine.","date":"2026-02-13","source":"healthkit"},
+    {"id":"hk-w1-04","sport":"bike","duration":45,"notes":"Z1 recovery spin. 14 miles. Very easy.","date":"2026-02-12","source":"healthkit"},
+    {"id":"hk-w1-05","sport":"swim","duration":30,"notes":"Pool 1200yds. Technique focus: head position, streamline off walls.","date":"2026-02-11","source":"healthkit"},
+    {"id":"hk-w1-06","sport":"run","duration":40,"notes":"Long run. 4 miles. 10:15/mi. First long run of the cycle.","date":"2026-02-10","source":"healthkit"},
+    {"id":"hk-w1-07","sport":"bike","duration":60,"notes":"Z2 trainer. 19 miles. Dialing in bike fit — adjusted saddle height.","date":"2026-02-09","source":"healthkit"}
   ],
   "strengthHistory": [
     {"id":"s001","templateId":"str_a","name":"Strength A","date":"2026-04-04","duration":42,"exercises":[{"exerciseId":"leg_press","name":"Leg Press","sets":[{"setNum":1,"weight":180,"reps":10,"completed":true},{"setNum":2,"weight":200,"reps":10,"completed":true},{"setNum":3,"weight":200,"reps":8,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":35,"reps":10,"completed":true},{"setNum":2,"weight":40,"reps":10,"completed":true},{"setNum":3,"weight":40,"reps":8,"completed":true}]},{"exerciseId":"nordic_curl","name":"Nordic Curl","sets":[{"setNum":1,"weight":0,"reps":6,"completed":true},{"setNum":2,"weight":0,"reps":5,"completed":true},{"setNum":3,"weight":0,"reps":5,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":25,"reps":12,"completed":true},{"setNum":2,"weight":25,"reps":12,"completed":true}]}]},
     {"id":"s002","templateId":"str_b","name":"Strength B","date":"2026-04-01","duration":38,"exercises":[{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":8,"completed":true},{"setNum":2,"weight":0,"reps":7,"completed":true},{"setNum":3,"weight":0,"reps":6,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":30,"reps":15,"completed":true},{"setNum":2,"weight":30,"reps":15,"completed":true},{"setNum":3,"weight":30,"reps":12,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":35,"reps":10,"completed":true},{"setNum":2,"weight":35,"reps":10,"completed":true},{"setNum":3,"weight":35,"reps":10,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":20,"reps":12,"completed":true},{"setNum":2,"weight":20,"reps":12,"completed":true}]}]},
     {"id":"s003","templateId":"str_c","name":"Strength C","date":"2026-03-28","duration":45,"exercises":[{"exerciseId":"leg_press","name":"Leg Press","sets":[{"setNum":1,"weight":180,"reps":10,"completed":true},{"setNum":2,"weight":180,"reps":10,"completed":true},{"setNum":3,"weight":180,"reps":10,"completed":true}]},{"exerciseId":"rdl","name":"Romanian Deadlift","sets":[{"setNum":1,"weight":95,"reps":10,"completed":true},{"setNum":2,"weight":105,"reps":10,"completed":true},{"setNum":3,"weight":105,"reps":8,"completed":true}]},{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":8,"completed":true},{"setNum":2,"weight":0,"reps":7,"completed":true},{"setNum":3,"weight":0,"reps":6,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":30,"reps":15,"completed":true},{"setNum":2,"weight":30,"reps":15,"completed":true},{"setNum":3,"weight":30,"reps":13,"completed":true}]}]},
     {"id":"s004","templateId":"str_a","name":"Strength A","date":"2026-03-25","duration":40,"exercises":[{"exerciseId":"leg_press","name":"Leg Press","sets":[{"setNum":1,"weight":160,"reps":10,"completed":true},{"setNum":2,"weight":180,"reps":10,"completed":true},{"setNum":3,"weight":180,"reps":10,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":30,"reps":10,"completed":true},{"setNum":2,"weight":35,"reps":10,"completed":true},{"setNum":3,"weight":35,"reps":10,"completed":true}]},{"exerciseId":"nordic_curl","name":"Nordic Curl","sets":[{"setNum":1,"weight":0,"reps":5,"completed":true},{"setNum":2,"weight":0,"reps":5,"completed":true},{"setNum":3,"weight":0,"reps":4,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":20,"reps":12,"completed":true},{"setNum":2,"weight":20,"reps":12,"completed":true}]}]},
-    {"id":"s005","templateId":"str_b","name":"Strength B","date":"2026-03-22","duration":36,"exercises":[{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":7,"completed":true},{"setNum":2,"weight":0,"reps":6,"completed":true},{"setNum":3,"weight":0,"reps":6,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":25,"reps":15,"completed":true},{"setNum":2,"weight":30,"reps":15,"completed":true},{"setNum":3,"weight":30,"reps":12,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":30,"reps":10,"completed":true},{"setNum":2,"weight":30,"reps":10,"completed":true},{"setNum":3,"weight":30,"reps":10,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":20,"reps":12,"completed":true},{"setNum":2,"weight":20,"reps":12,"completed":true}]}]}
+    {"id":"s005","templateId":"str_b","name":"Strength B","date":"2026-03-22","duration":36,"exercises":[{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":7,"completed":true},{"setNum":2,"weight":0,"reps":6,"completed":true},{"setNum":3,"weight":0,"reps":6,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":25,"reps":15,"completed":true},{"setNum":2,"weight":30,"reps":15,"completed":true},{"setNum":3,"weight":30,"reps":12,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":30,"reps":10,"completed":true},{"setNum":2,"weight":30,"reps":10,"completed":true},{"setNum":3,"weight":30,"reps":10,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":20,"reps":12,"completed":true},{"setNum":2,"weight":20,"reps":12,"completed":true}]}]},
+    {"id":"s006","templateId":"str_c","name":"Strength C","date":"2026-03-18","duration":44,"exercises":[{"exerciseId":"leg_press","name":"Leg Press","sets":[{"setNum":1,"weight":160,"reps":10,"completed":true},{"setNum":2,"weight":170,"reps":10,"completed":true},{"setNum":3,"weight":170,"reps":10,"completed":true}]},{"exerciseId":"rdl","name":"Romanian Deadlift","sets":[{"setNum":1,"weight":85,"reps":10,"completed":true},{"setNum":2,"weight":95,"reps":10,"completed":true},{"setNum":3,"weight":95,"reps":10,"completed":true}]},{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":7,"completed":true},{"setNum":2,"weight":0,"reps":6,"completed":true},{"setNum":3,"weight":0,"reps":5,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":25,"reps":15,"completed":true},{"setNum":2,"weight":25,"reps":15,"completed":true},{"setNum":3,"weight":25,"reps":14,"completed":true}]}]},
+    {"id":"s007","templateId":"str_a","name":"Strength A","date":"2026-03-14","duration":38,"exercises":[{"exerciseId":"leg_press","name":"Leg Press","sets":[{"setNum":1,"weight":150,"reps":10,"completed":true},{"setNum":2,"weight":160,"reps":10,"completed":true},{"setNum":3,"weight":160,"reps":10,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":25,"reps":10,"completed":true},{"setNum":2,"weight":30,"reps":10,"completed":true},{"setNum":3,"weight":30,"reps":10,"completed":true}]},{"exerciseId":"nordic_curl","name":"Nordic Curl","sets":[{"setNum":1,"weight":0,"reps":4,"completed":true},{"setNum":2,"weight":0,"reps":4,"completed":true},{"setNum":3,"weight":0,"reps":3,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":15,"reps":12,"completed":true},{"setNum":2,"weight":20,"reps":12,"completed":true}]}]},
+    {"id":"s008","templateId":"str_b","name":"Strength B","date":"2026-03-11","duration":35,"exercises":[{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":6,"completed":true},{"setNum":2,"weight":0,"reps":5,"completed":true},{"setNum":3,"weight":0,"reps":5,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":20,"reps":15,"completed":true},{"setNum":2,"weight":25,"reps":15,"completed":true},{"setNum":3,"weight":25,"reps":12,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":25,"reps":10,"completed":true},{"setNum":2,"weight":25,"reps":10,"completed":true},{"setNum":3,"weight":25,"reps":10,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":15,"reps":12,"completed":true},{"setNum":2,"weight":15,"reps":12,"completed":true}]}]},
+    {"id":"s009","templateId":"str_c","name":"Strength C","date":"2026-03-06","duration":40,"exercises":[{"exerciseId":"leg_press","name":"Leg Press","sets":[{"setNum":1,"weight":140,"reps":10,"completed":true},{"setNum":2,"weight":150,"reps":10,"completed":true},{"setNum":3,"weight":150,"reps":10,"completed":true}]},{"exerciseId":"rdl","name":"Romanian Deadlift","sets":[{"setNum":1,"weight":75,"reps":10,"completed":true},{"setNum":2,"weight":85,"reps":10,"completed":true},{"setNum":3,"weight":85,"reps":10,"completed":true}]},{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":6,"completed":true},{"setNum":2,"weight":0,"reps":5,"completed":true},{"setNum":3,"weight":0,"reps":5,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":20,"reps":15,"completed":true},{"setNum":2,"weight":20,"reps":15,"completed":true},{"setNum":3,"weight":20,"reps":15,"completed":true}]}]},
+    {"id":"s010","templateId":"str_a","name":"Strength A","date":"2026-02-28","duration":36,"exercises":[{"exerciseId":"leg_press","name":"Leg Press","sets":[{"setNum":1,"weight":135,"reps":10,"completed":true},{"setNum":2,"weight":140,"reps":10,"completed":true},{"setNum":3,"weight":140,"reps":10,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":20,"reps":10,"completed":true},{"setNum":2,"weight":25,"reps":10,"completed":true},{"setNum":3,"weight":25,"reps":10,"completed":true}]},{"exerciseId":"nordic_curl","name":"Nordic Curl","sets":[{"setNum":1,"weight":0,"reps":3,"completed":true},{"setNum":2,"weight":0,"reps":3,"completed":true},{"setNum":3,"weight":0,"reps":3,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":15,"reps":12,"completed":true},{"setNum":2,"weight":15,"reps":12,"completed":true}]}]},
+    {"id":"s011","templateId":"str_b","name":"Strength B","date":"2026-02-24","duration":34,"exercises":[{"exerciseId":"pull_up","name":"Pull-Up","sets":[{"setNum":1,"weight":0,"reps":5,"completed":true},{"setNum":2,"weight":0,"reps":5,"completed":true},{"setNum":3,"weight":0,"reps":4,"completed":true}]},{"exerciseId":"face_pull","name":"Face Pull","sets":[{"setNum":1,"weight":20,"reps":15,"completed":true},{"setNum":2,"weight":20,"reps":15,"completed":true},{"setNum":3,"weight":20,"reps":12,"completed":true}]},{"exerciseId":"split_squat","name":"Bulgarian Split Squat","sets":[{"setNum":1,"weight":20,"reps":10,"completed":true},{"setNum":2,"weight":20,"reps":10,"completed":true},{"setNum":3,"weight":20,"reps":10,"completed":true}]},{"exerciseId":"pallof_press","name":"Pallof Press","sets":[{"setNum":1,"weight":15,"reps":12,"completed":true},{"setNum":2,"weight":15,"reps":12,"completed":true}]}]}
   ],
   "bricks": [
     {"id":"brick_001","date":"2026-04-04","legs":[{"workoutId":"w005","sport":"bike"},{"workoutId":"w006","sport":"run"}],"transitionTime":4,"transitionNotes":"Quick shoe change, grabbed gel and water. Elastic laces.","notes":"Legs heavy first mile off the bike, settled by mile 1.5."},
-    {"id":"brick_002","date":"2026-03-30","legs":[{"workoutId":"w012","sport":"bike"},{"workoutId":"w013","sport":"run"}],"transitionTime":5,"transitionNotes":"Slower transition, fumbled with shoes. Need to practice more.","notes":"Felt better than last brick. Run legs came around faster."},
-    {"id":"brick_003","date":"2026-03-22","legs":[{"workoutId":"w022","sport":"bike"},{"workoutId":"w023","sport":"run"}],"transitionTime":6,"transitionNotes":"Group ride finish was chaotic. Took extra time to set up.","notes":"Hardest brick yet. Group ride effort made the run tough."},
-    {"id":"brick_004","date":"2026-03-28","legs":[{"workoutId":"w015","sport":"bike"},{"workoutId":"w016","sport":"run"}],"transitionTime":3,"transitionNotes":"Clean transition. Had everything laid out.","notes":"Long ride into recovery run. Practiced T2 routine."}
+    {"id":"brick_002","date":"2026-03-30","legs":[{"workoutId":"hk-w8-03","sport":"bike"},{"workoutId":"hk-w8-04","sport":"run"}],"transitionTime":5,"transitionNotes":"Slower transition, fumbled with shoes. Need to practice more.","notes":"Felt better than last brick. Run legs came around faster."},
+    {"id":"brick_003","date":"2026-03-22","legs":[{"workoutId":"hk-w7-05","sport":"bike"},{"workoutId":"hk-w7-06","sport":"run"}],"transitionTime":6,"transitionNotes":"Group ride finish was chaotic. Took extra time to set up.","notes":"Hardest brick yet. Group ride effort made the run tough."},
+    {"id":"brick_004","date":"2026-03-28","legs":[{"workoutId":"hk-w8-06","sport":"bike"},{"workoutId":"hk-w8-07","sport":"run"}],"transitionTime":3,"transitionNotes":"Clean transition. Had everything laid out.","notes":"Long ride into recovery run. Practiced T2 routine."},
+    {"id":"brick_005","date":"2026-02-28","legs":[{"workoutId":"hk-w3-01","sport":"bike"},{"workoutId":"hk-w3-02","sport":"run"}],"transitionTime":4,"transitionNotes":"Off trainer. Quick change. Getting faster.","notes":"First brick of the cycle. Legs adapted quickly — good sign."}
   ],
   "nutrition": [
     {"id":"n001","description":"Oatmeal with banana and honey, coffee","timing":"pre","relatedWorkout":"long ride","date":"2026-04-04"},
@@ -66,14 +110,22 @@
     {"id":"n009","description":"Smoothie: protein powder, banana, spinach, almond milk","timing":"post","relatedWorkout":"Z2 ride","date":"2026-04-06"},
     {"id":"n010","description":"Pre-race test: 2 gels + 1 bottle Maurten over 90min ride","timing":"during","relatedWorkout":"long ride","date":"2026-03-28"},
     {"id":"n011","description":"Clif bar + banana 2hrs before","timing":"pre","relatedWorkout":"long run","date":"2026-03-20"},
-    {"id":"n012","description":"GU gel at mile 5","timing":"during","relatedWorkout":"long run","date":"2026-03-20"}
+    {"id":"n012","description":"GU gel at mile 5","timing":"during","relatedWorkout":"long run","date":"2026-03-20"},
+    {"id":"n013","description":"Oatmeal + coffee, 2hrs before","timing":"pre","relatedWorkout":"long ride","date":"2026-03-12"},
+    {"id":"n014","description":"Bottle of Skratch every 45min","timing":"during","relatedWorkout":"long ride","date":"2026-03-12"},
+    {"id":"n015","description":"Chicken + rice + broccoli within 30min","timing":"post","relatedWorkout":"long ride","date":"2026-03-12"},
+    {"id":"n016","description":"Toast + banana before pool","timing":"pre","relatedWorkout":"swim","date":"2026-03-11"},
+    {"id":"n017","description":"Nothing — forgot to eat before run","timing":"pre","relatedWorkout":"easy run","date":"2026-03-10"},
+    {"id":"n018","description":"Skipped post-workout meal, just coffee","timing":"post","relatedWorkout":"trainer ride","date":"2026-03-03"}
   ],
   "prs": {
     "leg_press": {"weight":200,"reps":10,"estimated1RM":267,"date":"2026-04-04"},
     "split_squat": {"weight":40,"reps":10,"estimated1RM":53,"date":"2026-04-04"},
     "pull_up": {"weight":0,"reps":8,"estimated1RM":0,"date":"2026-04-01"},
     "rdl": {"weight":105,"reps":10,"estimated1RM":140,"date":"2026-03-28"},
-    "face_pull": {"weight":30,"reps":15,"estimated1RM":45,"date":"2026-04-01"}
+    "face_pull": {"weight":30,"reps":15,"estimated1RM":45,"date":"2026-04-01"},
+    "nordic_curl": {"weight":0,"reps":6,"estimated1RM":0,"date":"2026-04-04"},
+    "pallof_press": {"weight":25,"reps":12,"estimated1RM":35,"date":"2026-04-04"}
   },
   "memory": {
     "profile": {
@@ -96,25 +148,29 @@
         "Gets motivated by seeing pace/power improvements",
         "Skips stretching and mobility work",
         "Good about fueling during long sessions, inconsistent on shorter ones",
+        "Sometimes skips post-workout nutrition entirely",
         "Responds well to accountability — checking in weekly helps"
       ],
       "motivators": ["Race day visualization","Seeing training data improve","Competing against previous self"],
-      "consistency": "4-5 sessions per week average. Swim is the most skipped discipline."
+      "consistency": "4-6 sessions per week average. Swim is the most skipped discipline. Volume trending up over 8 weeks."
     },
     "coaching": {
       "openItems": [
         "Need to increase swim frequency to 3x/week minimum",
         "Practice race-day nutrition strategy in training",
-        "Work on T2 transition routine"
+        "Work on T2 transition routine",
+        "Address inconsistent pre-workout fueling on shorter sessions"
       ],
       "currentFocus": "Building aerobic base with emphasis on swim volume and brick consistency",
       "sessionNotes": []
     },
     "conversationSummaries": [
       "Discussed race goals for Cozumel 70.3. Athlete wants to break 5:30, stretch goal 5:00. Main limiter is the run.",
-      "Reviewed Virginia 70.3 results. Swim was OK (44:29) but transitions were slow (14:48 combined). Bike solid. Run fell apart.",
+      "Reviewed Virginia 70.3 results. Swim was OK (44:29) but transitions were slow (14:48 combined). Bike solid. Run fell apart after mile 8.",
       "Athlete reported left knee tightness. Suggested foam rolling and adjusting run volume. Monitoring.",
-      "Created initial weekly template. Athlete confirmed 5 days/week availability. Pool access 4 days."
+      "Created initial weekly template. Athlete confirmed 5 days/week availability. Pool access 4 days.",
+      "8-week base phase in progress. Swim frequency improved from 2x to 2-3x/week. Bike power trending up (128W → 145W avg Z2). Run volume building gradually.",
+      "Completed 5 brick workouts in 8 weeks. Transition times improving (6min → 3-4min). Run-off-bike legs adapting faster."
     ]
   }
 }
