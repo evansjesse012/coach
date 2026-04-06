@@ -341,6 +341,76 @@ When advising on training, consider where the athlete is in their race prep time
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
 }
 
+function buildPlanBuilderPrompt(goal, mode='create') {
+  const goalCtx = goal ? `The athlete wants a plan for: ${goal.name}${goal.date?' (race date: '+goal.date+')':''}${goal.goal?' with goal time '+goal.goal:''}${goal.baseline?' and current PR/baseline '+goal.baseline:''}${goal.location?' in '+goal.location:''}.` : '';
+  if(mode==='week') return `You are building a weekly training plan. ${goalCtx}
+
+INSTRUCTIONS:
+1. First call get_training_plan to see the current phase and plan structure
+2. Then call get_workouts(sport="all", days=14) to see recent training load
+3. Generate the weekly plan adapted to current fitness and phase requirements
+4. Call save_weekly_plan to save it
+5. Summarize the week in 2-3 sentences
+
+Be concise. Generate and save the plan.
+Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
+
+  return `You are a triathlon coach building a personalized training plan. ${goalCtx}
+
+FOLLOW THIS EXACT SEQUENCE — do not skip steps:
+
+STEP 1 — SILENT DATA GATHERING (do this before your first message to the athlete):
+Call ALL of these tools now: get_goals(include_completed=true), get_athlete_profile(), get_workouts(sport="all", days=60), get_training_stats(weeks=8).
+Do NOT write any message to the athlete yet. Just gather data.
+
+STEP 2 — PRESENT YOUR ASSESSMENT (first message to athlete):
+Lead with what you already know. Show the athlete you've done your homework:
+- Their race, date, and weeks remaining
+- Their current fitness level based on recent training (volume, frequency, sports mix)
+- Past race results and what they reveal (e.g., which discipline is the limiter)
+- Any patterns you see (strengths, gaps, injury history from memory)
+Keep it to 4-6 lines. Be specific with numbers.
+
+STEP 3 — PROPOSE A PLAN CONCEPT:
+In the SAME message as your assessment, propose your preliminary plan:
+- Number of phases, their names, and approximate duration
+- The key training philosophy (e.g., "build swim frequency first, earn intensity later")
+- One sentence on your approach to the athlete's limiter
+
+STEP 4 — ASK TARGETED QUESTIONS:
+End your first message with 3-5 specific questions. ONLY ask what you cannot derive from data:
+- Training days per week and time availability
+- Equipment and facility access (pool, trainer, gym)
+- Schedule constraints (travel, work blocks)
+- Their biggest concern or priority
+Number the questions for easy answering.
+
+STEP 5 — AFTER THE ATHLETE RESPONDS:
+Refine your plan based on their answers. Present a final summary:
+- Phases with weeks and focus for each
+- Training days per week
+- Key principles
+Then ask: "Ready to build it?"
+
+STEP 6 — ON CONFIRMATION:
+Call save_training_plan with the full phase structure. Then call save_weekly_plan to generate week 1.
+Summarize what was created in 2-3 sentences.
+
+RULES:
+- Do NOT ask questions that the data already answers
+- Do NOT ask more than 5 questions total
+- Keep each message under 200 words — this is mobile
+- Be opinionated. You're the coach, not a menu.
+- Endurance: base → threshold → race-specific → taper. Earn intensity. Z2 ceiling in base is non-negotiable.
+- Scale phases to time: 24+ weeks = 4-5 phases, 12 weeks = 3, 8 weeks = 2
+- Build in deload weeks every 3-4 weeks
+- Include brick workouts in build and race-specific phases (type:'brick' with legs array)
+- Every session needs per-session nutrition (pre/during/post)
+- Priority sessions: 3 red (cannot skip) + flexible yellow sessions
+
+Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
+}
+
 async function runAgentLoop({ personality, customText, messages, appState, callAI, maxRounds=5 }) {
   const clean=messages.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n')||'(continued)':String(m.content||'')}));
   let chain=[...clean]; let toolCallCount=0; const workoutsLogged=[]; const nutritionLogged=[]; const planChanges=[];
@@ -718,11 +788,135 @@ function StrengthTracker({template,strengthHistory,prs,onSave,onDiscard}){
   return(<div className="fade-up" style={{paddingBottom:88}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><div><div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text}}>{template.name}</div><div style={{fontFamily:F.ui,fontSize:14,color:C.muted,marginTop:2}}>{done} of {total} sets</div></div><button onClick={handleDiscard} style={{background:C.elevated,border:'none',borderRadius:10,padding:'7px 14px',color:C.subtle,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer'}}>Discard</button></div><div style={{height:5,background:C.border,borderRadius:4,overflow:'hidden',marginBottom:16}}><div style={{height:'100%',width:`${total>0?(done/total)*100:0}%`,background:`linear-gradient(90deg,${C.accent},${C.green})`,borderRadius:4,transition:'width .3s'}}/></div>{restTimer&&<RestTimer key={restTimer.key} seconds={restTimer.seconds} onDone={()=>setRest(null)}/>}{ex.map(exData=>{const e=EX[exData.exerciseId]||{};const lastPerf=getLastPerf(exData.exerciseId);const allDone=exData.sets.every(s=>s.completed);const catColors={lower:C.accent,upper:C.cyan,core:C.purple};return(<Card key={exData.exerciseId} style={{marginBottom:12}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:16,color:allDone?C.green:C.text}}>{e.name}</div>{e.hint&&<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{e.hint}</div>}</div><div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:catColors[e.cat]||C.muted,background:(catColors[e.cat]||C.muted)+'15',borderRadius:8,padding:'2px 9px'}}>{e.cat}</span><span style={{fontFamily:F.mono,fontSize:12,color:allDone?C.green:C.muted}}>{exData.sets.filter(s=>s.completed).length}/{exData.sets.length}</span></div></div><div style={{display:'grid',gridTemplateColumns:'28px 1fr 60px 60px 44px',gap:6,marginBottom:6,padding:'0 4px'}}>{['#','Prev','Lbs','Reps',''].map((h,i)=><span key={i} style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.muted,textAlign:i>=2?'center':'left'}}>{h}</span>)}</div>{exData.sets.map((set,i)=><SetRow key={i} set={set} setNum={i+1} prev={lastPerf[i]} onUpdate={u=>updateSet(exData.exerciseId,i,u)} onComplete={()=>completeSet(exData.exerciseId,i)}/>)}</Card>);})} <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:468,zIndex:20}}><Btn onClick={()=>done>0&&setView('summary')} color={done===total?C.green:C.accent} disabled={done===0} style={{width:'100%',padding:15,fontSize:17,borderRadius:16,boxShadow:S.md}}>{done===total?'Finish workout ✓':`Finish (${done}/${total} sets)`}</Btn></div></div>);
 }
 
+// ─── Plan Builder Sheet ───────────────────────────────────────────────────────
+function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onClose}){
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[stage,setStage]=useState('starting'); // starting|reviewing|designing|generating|done|error
+  const[isStreaming,setIsStreaming]=useState(false);
+  const[streamText,setStreamText]=useState('');
+  const bottomRef=useRef(null);
+  const inputRef=useRef(null);
+  const chainRef=useRef([]);
+
+  const stageLabels={starting:'Starting...',reviewing:'Reviewing your training',designing:'Designing your plan',generating:'Generating week 1',done:'Plan created!',error:'Something went wrong'};
+  const stageOrder=['reviewing','designing','generating','done'];
+  const stageIdx=stageOrder.indexOf(stage);
+
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[msgs,streamText]);
+
+  const detectStage=(toolNames)=>{
+    if(toolNames.some(n=>n==='save_weekly_plan'))setStage('generating');
+    else if(toolNames.some(n=>n==='save_training_plan'))setStage('designing');
+    else if(toolNames.some(n=>['get_workouts','get_athlete_profile','get_goals','get_training_stats'].includes(n)))setStage('reviewing');
+  };
+
+  const runTurn=useCallback(async(userMsgs)=>{
+    setLoading(true);
+    const systemPrompt=buildPlanBuilderPrompt(goal,mode);
+    const clean=userMsgs.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:String(m.content||'')}));
+    let chain=[...clean];
+    try{
+      for(let round=0;round<10;round++){
+        const resp=await callAI({system:systemPrompt,messages:chain,tools:TOOLS,tool_choice:{type:'auto'},max_tokens:2048});
+        const textContent=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'';
+        if(resp.stop_reason==='end_turn'){
+          chainRef.current=chain;
+          setLoading(false);
+          setIsStreaming(true);setStreamText('');
+          await typewriter(textContent,chunk=>setStreamText(chunk));
+          const aMsg={role:'assistant',content:textContent};
+          setMsgs(prev=>[...prev,aMsg]);
+          chainRef.current=[...chain,{role:'assistant',content:textContent}];
+          setIsStreaming(false);setStreamText('');
+          return;
+        }
+        if(resp.stop_reason==='tool_use'){
+          const toolUses=resp.content?.filter(b=>b.type==='tool_use')||[];
+          if(!toolUses.length){chainRef.current=chain;setLoading(false);return;}
+          detectStage(toolUses.map(t=>t.name));
+          const toolResults=toolUses.map(tu=>{
+            let inp;try{inp=typeof tu.input==='string'?JSON.parse(tu.input):tu.input;}catch{inp={};}
+            const result=executeTool(tu.name,inp,appState);
+            if(tu.name==='save_training_plan'){try{const p=JSON.parse(result);if(p.saved&&p.plan){onPlanCreated(p.plan);if(mode==='create')setStage('designing');}}catch{}}
+            if(tu.name==='save_weekly_plan'){try{const p=JSON.parse(result);if(p.saved&&p.weekPlan){onWeekGenerated(p.weekPlan);setStage('done');}}catch{}}
+            return{type:'tool_result',tool_use_id:tu.id,content:result};
+          });
+          chain=[...chain,{role:'assistant',content:resp.content},{role:'user',content:toolResults}];
+          if(textContent){
+            setIsStreaming(true);setStreamText('');
+            await typewriter(textContent,chunk=>setStreamText(chunk));
+            setMsgs(prev=>[...prev,{role:'assistant',content:textContent}]);
+            setIsStreaming(false);setStreamText('');
+          }
+          continue;
+        }
+        break;
+      }
+      chainRef.current=chain;setLoading(false);
+    }catch(err){
+      setStage('error');setLoading(false);setIsStreaming(false);
+      setMsgs(prev=>[...prev,{role:'assistant',content:`Something went wrong: ${err.message}. Tap "Try again" to retry.`}]);
+    }
+  },[goal,mode,appState,onPlanCreated,onWeekGenerated]);
+
+  // Auto-start on mount
+  useEffect(()=>{
+    const initMsg={role:'user',content:mode==='week'?`Generate my training plan for week ${goal._weekNum||'current'} (Phase ${goal._phaseNum||'current'}).`:`Build me a training plan for ${goal.name}.`};
+    setMsgs([initMsg]);
+    runTurn([initMsg]);
+  },[]);
+
+  const sendReply=()=>{
+    const t=input.trim();if(!t||loading||isStreaming)return;
+    const userMsg={role:'user',content:t};
+    const updated=[...msgs,userMsg];
+    setMsgs(updated);setInput('');
+    const fullChain=[...chainRef.current,{role:'user',content:t}];
+    runTurn(fullChain);
+  };
+
+  const retry=()=>{setStage('starting');runTurn(chainRef.current.length?chainRef.current:[msgs[0]]);};
+
+  const isDone=stage==='done';
+  const isConversational=!loading&&!isStreaming&&msgs.length>1&&!isDone&&stage!=='error';
+
+  return(<Sheet onClose={onClose} title={mode==='week'?'Generating week':'Building your plan'}>
+    {/* Progress stepper */}
+    <div style={{display:'flex',gap:4,marginBottom:16}}>
+      {stageOrder.map((s,i)=><div key={s} style={{flex:1,height:4,borderRadius:2,background:i<=stageIdx?(i===stageIdx?C.accent:C.green):C.border,transition:'background .3s'}}/>)}
+    </div>
+    <div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:stage==='error'?C.red:stage==='done'?C.green:C.accent,marginBottom:4}}>{stageLabels[stage]}</div>
+    {stage!=='done'&&stage!=='error'&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginBottom:16}}>This usually takes 30–60 seconds</div>}
+
+    {/* Chat area */}
+    <div style={{maxHeight:'50vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+      {msgs.filter(m=>m.role==='assistant').map((m,i)=>(
+        <div key={i} className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(m.content)}</div>
+      ))}
+      {isStreaming&&streamText&&<div className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(streamText)}</div>}
+      {loading&&!isStreaming&&<div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0'}}><DotsLoader color={C.accent}/><span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>{stageLabels[stage]}</span></div>}
+      <div ref={bottomRef}/>
+    </div>
+
+    {/* Input area — only show when AI is waiting for a response */}
+    {isConversational&&<div style={{display:'flex',gap:8,marginBottom:12}}>
+      <Inp ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendReply()} placeholder="Answer your coach..." style={{flex:1}}/>
+      <button onClick={sendReply} disabled={!input.trim()} style={{width:48,height:48,background:!input.trim()?C.elevated:C.accent,border:'none',borderRadius:12,cursor:!input.trim()?'not-allowed':'pointer',color:!input.trim()?C.muted:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>↑</button>
+    </div>}
+
+    {stage==='error'&&<Btn onClick={retry} color={C.accent} style={{width:'100%',padding:13,fontSize:15,marginBottom:8}}>Try again</Btn>}
+    {isDone&&<Btn onClick={onClose} color={C.green} style={{width:'100%',padding:13,fontSize:15}}>View your plan</Btn>}
+  </Sheet>);
+}
+
 // ─── Plan Tab ──────────────────────────────────────────────────────────────────
-function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activeWO,setActiveWO,trainingPlan,onCreatePlan,onGenerateWeek,onAddEvent,onDisruption}){
+function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activeWO,setActiveWO,trainingPlan,onPlanCreated,onWeekGenerated,onAddEvent,onDisruption,appState}){
   const[tracker,setTracker]=useState(activeWO?STRENGTH_TEMPLATES.find(t=>t.id===activeWO?.templateId)||null:null);
   const[createStep,setCreateStep]=useState(null); // null | 'select' | 'confirm'
   const[selectedGoal,setSelectedGoal]=useState(null);
+  const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
   const startStrength=tid=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===tid);if(t)setTracker(t);};
   const handleSave=(completedEx,dur,newPRs)=>{onSaveStrength(completedEx,dur,newPRs,tracker);setTracker(null);setActiveWO(null);};
@@ -796,7 +990,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
           </div>
           <div style={{display:'flex',gap:10}}>
             <Btn onClick={()=>setCreateStep('select')} outline style={{flex:1}}>Back</Btn>
-            <Btn onClick={()=>{setCreateStep(null);setSelectedGoal(null);onCreatePlan(selectedGoal);}} color={C.accent} style={{flex:2,fontSize:16}}>Let's go →</Btn>
+            <Btn onClick={()=>{setCreateStep(null);setPlanBuilder({goal:selectedGoal,mode:'create'});setSelectedGoal(null);}} color={C.accent} style={{flex:2,fontSize:16}}>Let's go →</Btn>
           </div>
         </Sheet>
       );
@@ -813,6 +1007,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
       <Btn onClick={()=>setCreateStep('select')} color={C.accent} style={{width:'100%',padding:15,fontSize:16}}>Build my plan</Btn>
     </Card>
     <CreatePlanSheet/>
+    {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={onWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
     {/* Static plan preview */}
     <Label>Current weekly template</Label>
     <div style={{opacity:0.6}}>
@@ -871,7 +1066,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
       <Label style={{marginBottom:0}}>Week {tp.currentWeek}{weekPlan?` · ${weekPlan.focusOfWeek}`:''}</Label>
     </div>
 
-    {!weekPlan?<Card accent={C.accent} onClick={()=>onGenerateWeek(tp.currentWeek,tp.currentPhase)} style={{textAlign:'center',padding:28,marginBottom:16}}>
+    {!weekPlan?<Card accent={C.accent} onClick={()=>setPlanBuilder({goal:{...events.find(e=>e.id===tp.goalId)||{name:tp.raceName},_weekNum:tp.currentWeek,_phaseNum:tp.currentPhase},mode:'week'})} style={{textAlign:'center',padding:28,marginBottom:16}}>
       <div style={{marginBottom:8}}><Icon name='calendar' size={28} color={C.accent}/></div>
       <div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.accent,marginBottom:4}}>Generate this week</div>
       <div style={{fontFamily:F.ui,fontSize:13,color:C.subtle}}>Your coach will create sessions based on your current phase and recent training.</div>
@@ -1045,6 +1240,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
         </div>);
       })}
     </div>
+    {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={onWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
   </div>);
 }
 
@@ -1753,7 +1949,7 @@ export default function CoachApp() {
       <div style={{padding:'20px 16px 0'}}>
         {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')}/>}
-        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} onCreatePlan={goal=>{setTab('chat');setTimeout(()=>handleSend(`Create a training plan for my ${goal.name}. My goal is ${goal.goal||'to finish strong'}${goal.stretchGoal?' (stretch: '+goal.stretchGoal+')':''}. ${goal.date?'Race date: '+goal.date+'.':''} ${goal.baseline?'My current PR/baseline: '+goal.baseline+'.':''} ${goal.location?'Location: '+goal.location+'.':''} Please check my profile, workout history, and goals, then build me a full periodized plan.`),100);}} onGenerateWeek={(wk,ph)=>{setTab('chat');setTimeout(()=>handleSend(`Generate my training plan for week ${wk} (Phase ${ph}). Check my recent workouts and profile first, then create the full week with sessions, zones, nutrition, and priorities. Save it with save_weekly_plan.`),100);}} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}}/>}
+        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}}/>}
         {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth} bricks={bricks} onSaveBrick={saveBrick} onDeleteBrick={deleteBrick}/>}
         {tab==='chat'&&<ChatTab messages={messages} onSend={handleSend} loading={loading} isStreaming={isStreaming} streamText={streamText} personality={personality}/>}
       </div>
