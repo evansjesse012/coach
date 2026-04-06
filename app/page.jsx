@@ -194,7 +194,7 @@ const TOOLS = [
   { name:'get_personal_records', description:'Get personal records for exercises.', input_schema:{type:'object',properties:{exercise:{type:'string'}}} },
   { name:'get_goals', description:'Get active training goals with days remaining.', input_schema:{type:'object',properties:{include_completed:{type:'boolean'}}} },
   { name:'get_athlete_profile', description:"Get coaching memory — accumulated facts about the athlete.", input_schema:{type:'object',properties:{}} },
-  { name:'log_workout', description:'Log a completed workout. Only use when athlete explicitly describes something they just completed.', input_schema:{type:'object',properties:{sport:{type:'string',enum:['run','bike','swim','strength','brick','hike','other']},duration:{type:'number'},notes:{type:'string'},date:{type:'string'}},required:['sport','duration']} },
+  { name:'log_workout', description:'Log a completed workout. Only use when athlete explicitly describes something they just completed. Supports rich Apple Health fields when available.', input_schema:{type:'object',properties:{sport:{type:'string',enum:['run','bike','swim','strength','brick','hike','other']},duration:{type:'number'},notes:{type:'string'},date:{type:'string'},distance:{type:'number',description:'Distance (in distanceUnit)'},distanceUnit:{type:'string',enum:['mi','km','yds','m']},avgHR:{type:'number'},maxHR:{type:'number'},calories:{type:'number'},pace:{type:'string',description:'e.g. "9:30/mi"'},avgPower:{type:'number',description:'Watts'},cadence:{type:'number'},elevationGain:{type:'number',description:'Feet'}},required:['sport','duration']} },
   { name:'log_nutrition', description:'Log what the athlete ate. Use when they describe a meal or snack. Record what they ate, timing relative to training (pre/during/post/general), and which workout it relates to if mentioned. Do NOT estimate macros.', input_schema:{type:'object',properties:{meal:{type:'string',description:'What they ate, in their words'},timing:{type:'string',enum:['pre','during','post','general'],description:'When relative to training'},relatedWorkout:{type:'string',description:'Which workout this fueled, if known (e.g. "long run", "bike")'},date:{type:'string',description:'YYYY-MM-DD, default today'}},required:['meal','timing']} },
   { name:'get_nutrition', description:'Get the athlete\'s recent nutrition log. Use to review fueling patterns, check pre/post workout nutrition, or answer questions about eating habits around training.', input_schema:{type:'object',properties:{days:{type:'number',description:'Look back this many days. Default 7.'},timing:{type:'string',enum:['pre','during','post','general','all'],description:'Filter by timing. Default all.'}}} },
   { name:'save_training_plan', description:'Save a full periodized training plan. Use this after gathering athlete context (goals, profile, workouts, available days) to create a multi-phase season plan. Generate phases appropriate to the race type, timeline, fitness level, and constraints. Name phases descriptively. Set intensity ceilings per phase. Include deload weeks. The plan structure is created once — individual weeks are generated on demand later.', input_schema:{type:'object',properties:{goalId:{type:'string'},raceName:{type:'string'},raceDate:{type:'string'},startDate:{type:'string'},totalWeeks:{type:'number'},trainingDaysPerWeek:{type:'number',description:'How many days/week the athlete can train'},phases:{type:'array',items:{type:'object',properties:{number:{type:'number'},name:{type:'string',description:'Descriptive phase name, e.g. "Base + Structural Durability"'},startDate:{type:'string'},endDate:{type:'string'},weeks:{type:'number'},weeklyVolume:{type:'string'},intensityCeiling:{type:'string',description:'Maximum intensity allowed, e.g. "Z2 only" or "threshold introduced"'},intensityMix:{type:'string',description:'e.g. "80% Z2, 20% threshold"'},strengthFreq:{type:'string'},focus:{type:'string'},keySessionTypes:{type:'array',items:{type:'string'}},deloadWeek:{type:'number',description:'Which week within this phase is deload, null if none'}}}}},required:['goalId','raceName','raceDate','startDate','totalWeeks','phases']} },
@@ -296,7 +296,7 @@ function executeTool(name, input, appState) {
       const { sport='all', days=30, limit=20 } = input;
       const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-days);
       const brickIds=new Map();bricks.forEach(b=>b.legs.forEach(l=>brickIds.set(l.workoutId,{brickId:b.id,transitionTime:b.transitionTime,transitionNotes:b.transitionNotes})));
-      const all=[...cardio.map(w=>{const r={date:w.date,sport:w.sport,duration:w.duration,notes:w.notes||'',id:w.id};const bl=brickIds.get(w.id);if(bl)r.brick=bl;return r;}),...strength.map(s=>({date:s.date,sport:'strength',name:s.name,duration:s.duration,sets:s.exercises?.reduce((t,e)=>t+(e.sets?.filter(x=>x.completed)?.length||0),0)||0}))].filter(w=>new Date(w.date+'T12:00:00')>=cutoff).filter(w=>sport==='all'||w.sport===sport).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,limit);
+      const all=[...cardio.map(w=>{const r={date:w.date,sport:w.sport,duration:w.duration,notes:w.notes||'',id:w.id};if(w.distance)r.distance=w.distance+(w.distanceUnit?' '+w.distanceUnit:'');if(w.avgHR)r.avgHR=w.avgHR;if(w.maxHR)r.maxHR=w.maxHR;if(w.calories)r.calories=w.calories;if(w.pace)r.pace=w.pace;if(w.avgPower)r.avgPower=w.avgPower;if(w.cadence)r.cadence=w.cadence;if(w.elevationGain)r.elevationGain=w.elevationGain;if(w.hrZones)r.hrZones=w.hrZones;if(w.source)r.source=w.source;const bl=brickIds.get(w.id);if(bl)r.brick=bl;return r;}),...strength.map(s=>({date:s.date,sport:'strength',name:s.name,duration:s.duration,sets:s.exercises?.reduce((t,e)=>t+(e.sets?.filter(x=>x.completed)?.length||0),0)||0}))].filter(w=>new Date(w.date+'T12:00:00')>=cutoff).filter(w=>sport==='all'||w.sport===sport).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,limit);
       const brickCount=bricks.filter(b=>new Date(b.date+'T12:00:00')>=cutoff).length;
       return all.length ? JSON.stringify({count:all.length,bricksInPeriod:brickCount,workouts:all}) : `No ${sport==='all'?'':sport+' '}workouts in last ${days} days.`;
     }
@@ -354,9 +354,15 @@ function executeTool(name, input, appState) {
     }
     case 'get_athlete_profile': return (!memory||!Object.keys(memory).length) ? 'No coaching memory yet.' : JSON.stringify(memory);
     case 'log_workout': {
-      const { sport, duration, notes='', date=today } = input;
+      const { sport, duration, notes='', date=today, distance, distanceUnit, avgHR, maxHR, calories, pace, avgPower, cadence, elevationGain } = input;
       if (!sport||!duration) return JSON.stringify({error:'sport and duration required'});
-      return JSON.stringify({logged:true,workout:{sport,duration,notes,date}});
+      const workout={sport,duration,notes,date};
+      if(distance){workout.distance=distance;workout.distanceUnit=distanceUnit||'mi';}
+      if(avgHR)workout.avgHR=avgHR;if(maxHR)workout.maxHR=maxHR;
+      if(calories)workout.calories=calories;if(pace)workout.pace=pace;
+      if(avgPower)workout.avgPower=avgPower;if(cadence)workout.cadence=cadence;
+      if(elevationGain)workout.elevationGain=elevationGain;
+      return JSON.stringify({logged:true,workout});
     }
     case 'log_nutrition': {
       const { meal, timing='general', relatedWorkout='', date=today } = input;
@@ -736,7 +742,91 @@ function generateWeeklyPlan(events) {
   return ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day=>({day,sessions:[]}));
 }
 
-function getMockHealthWorkouts(){const types=['run','bike','swim','strength','hike'];const notes={run:['Morning run','Tempo intervals','Long run','Easy jog'],bike:['Z2 ride','Interval session','Long ride'],swim:['Pool session','Technique drills'],strength:['Gym session','Home workout'],hike:['Trail hike']};const durs={run:[25,35,45,55,70,90],bike:[45,60,75,90,120],swim:[30,40,50],strength:[45,55,65],hike:[60,90,120]};const w=[];for(let d=1;d<=14;d++){if(Math.random()>0.45){const date=new Date();date.setDate(date.getDate()-d);const sport=types[Math.floor(Math.random()*types.length)];w.push({id:`hk-${d}-${uid()}`,sport,duration:durs[sport][Math.floor(Math.random()*durs[sport].length)],notes:notes[sport][Math.floor(Math.random()*notes[sport].length)],date:date.toISOString().split('T')[0],source:'healthkit'});}}return w.sort((a,b)=>b.date.localeCompare(a.date));}
+function getMockHealthWorkouts(){
+  const rand=(a)=>a[Math.floor(Math.random()*a.length)];
+  const randBetween=(lo,hi)=>Math.round((lo+Math.random()*(hi-lo))*100)/100;
+  const fmtTime=(h,m)=>`${h}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`;
+  const templates={
+    run:{notes:['Morning run','Tempo intervals','Long run','Easy jog','Recovery run','Trail run'],durs:[25,35,45,55,70,90],dist:d=>+(d*0.095).toFixed(2),pace:d=>({min:Math.floor(600/d*10),sec:Math.round((600/d*10%1)*60)}),unit:'mi',cadence:[160,164,168,172,176,180]},
+    bike:{notes:['Z2 ride','Interval session','Long ride','Recovery spin','Indoor trainer','Hill repeats'],durs:[45,60,75,90,120,150],dist:d=>+(d*0.3).toFixed(1),unit:'mi',power:[120,135,145,160,175,190,210]},
+    swim:{notes:['Pool session','Technique drills','Open water swim','Interval set','Endurance swim'],durs:[30,40,45,50,60],dist:d=>Math.round(d*40),unit:'yds',strokes:['freestyle','mixed'],laps:d=>Math.round(d*40/50)},
+    strength:{notes:['Gym session','Home workout','Core & mobility','Upper body','Lower body'],durs:[35,45,55,65]},
+    hike:{notes:['Trail hike','Nature walk','Hill hike'],durs:[60,90,120,150],dist:d=>+(d*0.04).toFixed(1),elev:d=>Math.round(d*4),unit:'mi'}
+  };
+  const w=[];
+  for(let d=1;d<=14;d++){
+    if(Math.random()>0.45){
+      const date=new Date();date.setDate(date.getDate()-d);
+      const dateStr=date.toISOString().split('T')[0];
+      const sport=rand(Object.keys(templates));
+      const t=templates[sport];
+      const duration=rand(t.durs);
+      const startHr=rand([5,6,6,7,7,8,9,10,16,17,18]);
+      const startMin=rand([0,0,15,30,30,45]);
+      const endDate=new Date(date);endDate.setMinutes(endDate.getMinutes()+duration);
+      const endHr=startHr+Math.floor((startMin+duration)/60);
+      const endMin=(startMin+duration)%60;
+      const avgHR=sport==='strength'?Math.round(randBetween(95,130)):Math.round(randBetween(120,165));
+      const maxHR=avgHR+Math.round(randBetween(15,40));
+      const calories=Math.round(duration*(sport==='swim'?8.5:sport==='bike'?7.5:sport==='run'?10:sport==='strength'?5:6));
+      const base={
+        id:`hk-${d}-${uid()}`,sport,duration,
+        notes:rand(t.notes),date:dateStr,source:'healthkit',
+        // Time
+        startTime:fmtTime(startHr,startMin),endTime:fmtTime(endHr%24,endMin),
+        // Heart rate
+        avgHR,maxHR,
+        // Energy
+        calories,
+        // Source device
+        sourceName:'Apple Watch',
+        // Indoor/outdoor
+        isIndoor:sport==='swim'?Math.random()>.3:(sport==='bike'?Math.random()>.5:false),
+      };
+      // HR zones (approximate distribution)
+      const z2=sport==='run'||sport==='bike'?Math.round(randBetween(40,65)):Math.round(randBetween(20,40));
+      const z1=Math.round(randBetween(5,20));
+      const z3=Math.round(randBetween(10,25));
+      const z4=Math.round(randBetween(5,15));
+      const z5=Math.max(0,100-z1-z2-z3-z4);
+      base.hrZones={Z1:z1,Z2:z2,Z3:z3,Z4:z4,Z5:z5};
+      // Distance
+      if(t.dist){
+        base.distance=t.dist(duration);
+        base.distanceUnit=t.unit;
+      }
+      // Sport-specific
+      if(sport==='run'){
+        const paceTotal=duration/base.distance;
+        base.pace=`${Math.floor(paceTotal)}:${String(Math.round((paceTotal%1)*60)).padStart(2,'0')}/mi`;
+        base.cadence=rand(t.cadence);
+        if(duration>=40)base.elevationGain=Math.round(randBetween(50,350));
+      }
+      if(sport==='bike'){
+        base.avgPower=rand(t.power);
+        base.maxPower=base.avgPower+Math.round(randBetween(40,120));
+        base.cadence=Math.round(randBetween(78,98));
+        base.elevationGain=Math.round(randBetween(100,800));
+        if(base.isIndoor)base.avgSpeed=+(base.distance/(duration/60)).toFixed(1);
+      }
+      if(sport==='swim'){
+        base.laps=t.laps(duration);
+        base.strokeType=rand(t.strokes);
+        base.avgPace100=`${Math.floor(duration/base.distance*100*60/100)}:${String(Math.round(duration/base.distance*100*60%60)).padStart(2,'0')}/100${t.unit}`;
+        base.strokeCount=Math.round(base.laps*rand([14,16,18,20]));
+      }
+      if(sport==='hike'){
+        base.elevationGain=t.elev(duration);
+      }
+      // Location for outdoor activities
+      if(!base.isIndoor&&sport!=='strength'){
+        base.location=rand(['Riverside Park','Central Trail','Greenway Loop','Lake Path','Town Center','Neighborhood','Memorial Park','Oak Ridge Trail']);
+      }
+      w.push(base);
+    }
+  }
+  return w.sort((a,b)=>b.date.localeCompare(a.date));
+}
 
 // ─── Settings Page ─────────────────────────────────────────────────────────────
 function AthleteProfilePage({onClose}){
@@ -1681,8 +1771,34 @@ function WorkoutDetailSheet({workout,onClose}){
       </div>}
     </Card>}
 
+    {(workout.cadence||workout.elevationGain)&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}}>
+      {workout.cadence&&<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.mono,fontSize:20,fontWeight:700,color:C.text}}>{workout.cadence}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>{workout.sport==='swim'?'Strokes/min':'Cadence (spm)'}</div></Card>}
+      {workout.elevationGain&&<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.mono,fontSize:20,fontWeight:700,color:C.green}}>{workout.elevationGain}<span style={{fontSize:12,color:C.muted}}>ft</span></div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Elevation Gain</div></Card>}
+    </div>}
+
+    {workout.sport==='swim'&&(workout.laps||workout.strokeType||workout.strokeCount)&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <Label style={{marginBottom:8}}>Swim Details</Label>
+      <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+        {workout.laps&&<div><span style={{fontFamily:F.mono,fontSize:18,fontWeight:700,color:C.text}}>{workout.laps}</span><span style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginLeft:4}}>laps</span></div>}
+        {workout.strokeType&&<div><span style={{fontFamily:F.mono,fontSize:18,fontWeight:700,color:C.cyan}}>{workout.strokeType}</span></div>}
+        {workout.strokeCount&&<div><span style={{fontFamily:F.mono,fontSize:18,fontWeight:700,color:C.text}}>{workout.strokeCount}</span><span style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginLeft:4}}>strokes</span></div>}
+      </div>
+    </Card>}
+
+    {workout.sport==='bike'&&workout.avgPower&&workout.maxPower&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <Label style={{marginBottom:8}}>Power</Label>
+      <div style={{display:'flex',gap:16}}>
+        <div><span style={{fontFamily:F.mono,fontSize:18,fontWeight:700,color:C.cyan}}>{workout.avgPower}W</span><span style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginLeft:4}}>avg</span></div>
+        <div><span style={{fontFamily:F.mono,fontSize:18,fontWeight:700,color:C.accent}}>{workout.maxPower}W</span><span style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginLeft:4}}>max</span></div>
+      </div>
+    </Card>}
+
     {workout.location&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
       <div style={{display:'flex',alignItems:'center',gap:8}}><Icon name='pin' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:14,color:C.text}}>{workout.location}</span></div>
+    </Card>}
+
+    {workout.calories&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8}}><Icon name='flame' size={14} color={C.yellow}/><span style={{fontFamily:F.mono,fontSize:16,fontWeight:700,color:C.yellow}}>{workout.calories}</span><span style={{fontFamily:F.ui,fontSize:13,color:C.muted}}>kcal</span></div>
     </Card>}
 
     {workout.notes&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
@@ -1698,7 +1814,7 @@ function WorkoutDetailSheet({workout,onClose}){
       </Card>)}
     </div>}
 
-    {workout.source==='healthkit'&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16}}><Icon name='watch' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.cyan}}>Imported from Apple Health</span></div>}
+    {workout.source==='healthkit'&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16}}><Icon name='watch' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.cyan}}>{workout.sourceName||'Apple Health'}{workout.isIndoor?' · Indoor':''}</span></div>}
   </Sheet>);
 }
 
@@ -1758,7 +1874,7 @@ function BrickDetailSheet({brick,cardio,onDelete,onClose}){
 }
 
 // ─── Log Tab ───────────────────────────────────────────────────────────────────
-function HealthImportSheet({onImport,onClose,existingIds}){const[workouts]=useState(getMockHealthWorkouts);const[selected,setSelected]=useState(new Set());const toggle=id=>{if(existingIds.has(id))return;setSelected(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};return(<Sheet onClose={onClose} title="Import from Health"><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.65}}>Recent workouts from Apple Health. On the native app this reads real data — showing sample data for now.</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted,marginBottom:12}}>{selected.size} selected</div><div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{workouts.map(w=>{const s=SPORT_META[w.sport]||SPORT_META.other;const sel=selected.has(w.id);const done=existingIds.has(w.id);return(<div key={w.id} onClick={()=>toggle(w.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?s.color+'10':C.elevated,border:`1.5px solid ${sel?s.color:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}><Icon name={s.icon} size={22} color={s.color}/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:sel?s.color:C.text}}>{w.notes}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{fmtDateSh(w.date)} · {fmtDur(w.duration)}</div></div><div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?s.color:C.surface),border:`1.5px solid ${done?C.green:(sel?s.color:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div></div>);})}</div><Btn onClick={()=>selected.size>0&&onImport(workouts.filter(w=>selected.has(w.id)))} color={C.cyan} disabled={selected.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selected.size>0?`${selected.size} workout${selected.size>1?'s':''}`:'workouts'}</Btn></Sheet>);}
+function HealthImportSheet({onImport,onClose,existingIds}){const[workouts]=useState(getMockHealthWorkouts);const[selected,setSelected]=useState(new Set());const toggle=id=>{if(existingIds.has(id))return;setSelected(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};return(<Sheet onClose={onClose} title="Import from Health"><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.65}}>Recent workouts from Apple Health. On the native app this reads real data — showing sample data for now.</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted,marginBottom:12}}>{selected.size} selected</div><div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{workouts.map(w=>{const s=SPORT_META[w.sport]||SPORT_META.other;const sel=selected.has(w.id);const done=existingIds.has(w.id);const metrics=[];if(w.distance)metrics.push(w.distance+(w.distanceUnit==='yds'||w.distanceUnit==='m'?w.distanceUnit:' '+w.distanceUnit));if(w.avgHR)metrics.push(`♥ ${w.avgHR}`);if(w.calories)metrics.push(`${w.calories} kcal`);return(<div key={w.id} onClick={()=>toggle(w.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?s.color+'10':C.elevated,border:`1.5px solid ${sel?s.color:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}><Icon name={s.icon} size={22} color={s.color}/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:sel?s.color:C.text}}>{w.notes}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{fmtDateSh(w.date)} · {fmtDur(w.duration)}</div>{metrics.length>0&&<div style={{display:'flex',gap:8,marginTop:4,flexWrap:'wrap'}}>{metrics.map((m,i)=><span key={i} style={{fontFamily:F.mono,fontSize:11,color:C.subtle,background:C.surface,borderRadius:6,padding:'2px 6px'}}>{m}</span>)}</div>}</div><div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?s.color:C.surface),border:`1.5px solid ${done?C.green:(sel?s.color:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div></div>);})}</div><Btn onClick={()=>selected.size>0&&onImport(workouts.filter(w=>selected.has(w.id)))} color={C.cyan} disabled={selected.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selected.size>0?`${selected.size} workout${selected.size>1?'s':''}`:'workouts'}</Btn></Sheet>);}
 
 function LogWorkoutSheet({onSave,onClose}){const[sport,setSport]=useState('run');const[dur,setDur]=useState('');const[notes,setNotes]=useState('');const[date,setDate]=useState(todayStr());return(<Sheet onClose={onClose} title="Log workout"><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,marginBottom:16,scrollbarWidth:'none'}}>{Object.entries(SPORT_META).map(([k,s])=><button key={k} onClick={()=>setSport(k)} style={{flexShrink:0,background:sport===k?s.color+'18':C.elevated,border:`1.5px solid ${sport===k?s.color:C.border}`,borderRadius:12,padding:'10px 14px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,transition:'all .15s',minWidth:66}}><Icon name={s.icon} size={20} color={sport===k?s.color:C.muted}/><span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:sport===k?s.color:C.muted}}>{s.label}</span></button>)}</div><div style={{display:'flex',gap:10,marginBottom:12}}><div style={{flex:1}}><Label>Duration (min)</Label><Inp type="number" placeholder="45" value={dur} onChange={e=>setDur(e.target.value)}/></div><div style={{flex:1}}><Label>Date</Label><Inp type="date" value={date} onChange={e=>setDate(e.target.value)}/></div></div><Label>Notes</Label><Textarea placeholder="How did it go?" value={notes} onChange={e=>setNotes(e.target.value)} rows={3} style={{marginBottom:16}}/><Btn onClick={()=>dur&&onSave({sport,duration:parseInt(dur),notes,date})} color={C.accent} disabled={!dur} style={{width:'100%',padding:14,fontSize:16}}>Save workout</Btn></Sheet>);}
 
@@ -1793,7 +1909,8 @@ function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSave
         </div>);})}
     </Card>);
   }
-  return(<Card key={i} onClick={()=>setSelectedWorkout(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'other'} small/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontSize:15,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||'—'}</div><div style={{display:'flex',gap:6,marginTop:2}}>{w.source==='healthkit'&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.cyan}}>Apple Health</span>}</div></div><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text,flexShrink:0}}>{fmtDur(w.duration)}</div></div></Card>);
+  const wMeta=[];if(w.distance)wMeta.push(w.distance+(w.distanceUnit==='yds'||w.distanceUnit==='m'?w.distanceUnit:' '+(w.distanceUnit||'mi')));if(w.avgHR)wMeta.push(`♥ ${w.avgHR}`);if(w.pace)wMeta.push(w.pace);if(w.avgPower)wMeta.push(`${w.avgPower}W`);
+  return(<Card key={i} onClick={()=>setSelectedWorkout(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'other'} small/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontSize:15,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||'—'}</div><div style={{display:'flex',gap:6,marginTop:3,flexWrap:'wrap',alignItems:'center'}}>{w.source==='healthkit'&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.cyan}}>Apple Health</span>}{wMeta.map((m,mi)=><span key={mi} style={{fontFamily:F.mono,fontSize:11,color:C.subtle}}>{m}</span>)}</div></div><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text,flexShrink:0}}>{fmtDur(w.duration)}</div></div></Card>);
 });})()}</div>))}{showLog&&<LogWorkoutSheet onSave={w=>{onAddCardio(w);setShowLog(false);}} onClose={()=>setShowLog(false)}/>}{showImport&&<HealthImportSheet onImport={ws=>{onImportHealth(ws);setShowImport(false);}} onClose={()=>setShowImport(false)} existingIds={existingIds}/>}{showBrickLink&&<LinkBrickSheet cardio={cardio} bricks={bricks||[]} onSave={b=>{onSaveBrick(b);setShowBrickLink(false);}} onClose={()=>setShowBrickLink(false)}/>}{selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)}/>}{selectedBrick&&<BrickDetailSheet brick={selectedBrick} cardio={cardio} onDelete={onDeleteBrick} onClose={()=>setSelectedBrick(null)}/>}</div>);
 }
 
