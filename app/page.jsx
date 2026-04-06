@@ -288,7 +288,7 @@ function computeMultiWeekPatterns(tp, currentWeek, cardio, strength, lookback = 
 }
 
 function executeTool(name, input, appState) {
-  const { cardio=[], strength=[], prs={}, events=[], memory={}, plan=[], nutrition=[], trainingPlan=null, bricks=[] } = appState;
+  const { cardio=[], strength=[], prs={}, events=[], memory={}, nutrition=[], trainingPlan=null, bricks=[] } = appState;
   const today = new Date().toISOString().split('T')[0];
   const fD = m => { if(!m)return'0m'; const h=Math.floor(m/60),mn=m%60; return h>0?(mn>0?`${h}h ${mn}m`:`${h}h`):`${mn}m`; };
   switch (name) {
@@ -329,10 +329,7 @@ function executeTool(name, input, appState) {
         }
         return JSON.stringify(result);
       }
-      // Fallback to static plan
-      if (!plan?.length) return 'No training plan. Athlete needs to create one from the Plan tab or add a goal first.';
-      const todayC=cardio.filter(w=>w.date===today); const todayS=strength.filter(s=>s.date===today);
-      return JSON.stringify({hasPeriodizedPlan:false,today:todayName,plan:plan.map(({day,sessions})=>({day,isToday:day===todayName,sessions:sessions.map(s=>({...s,completedToday:day===todayName?(s.type==='strength'?todayS.some(sh=>sh.templateId===s.templateId):todayC.some(w=>w.sport===s.sport)):null})),isRestDay:sessions.length===0}))});
+      return 'No training plan. Athlete needs to create one from the Plan tab.';
     }
     case 'get_training_stats': {
       const { weeks=4 } = input; const stats=[];
@@ -701,43 +698,6 @@ function Toggle({ on, onToggle }) {
   );
 }
 
-// ─── Training plan generator ───────────────────────────────────────────────────
-function generateWeeklyPlan(events) {
-  const active=events.filter(e=>!e.completed);
-  if (!active.length) return [];
-  const types=[...new Set(active.map(e=>presetById(e.presetId).planType))];
-  const hasTri=types.includes('tri'),hasRun=types.includes('run'),hasStr=types.includes('strength');
-  if (hasTri) return [
-    {day:'Monday',    sessions:[{type:'strength',templateId:'str_a',label:'Strength A',notes:'Lower focus — leg press, split squats, Nordics',fuel:'Pre: light snack 60min before · Post: protein + carbs within 30min',sport:'strength'}]},
-    {day:'Tuesday',   sessions:[{type:'run',sport:'run',duration:45,label:'Easy Run',notes:'Zone 2 · conversational pace',fuel:'Pre: banana + coffee 90min before · Post: protein shake or chocolate milk'},{type:'swim',sport:'swim',duration:30,label:'Swim',notes:'Technique drills · 1500–2000m',fuel:'Pre: light snack if needed · water during'}]},
-    {day:'Wednesday', sessions:[{type:'strength',templateId:'str_b',label:'Strength B',notes:'Upper focus — pull-ups, face pulls',fuel:'Pre: light snack 60min before · Post: protein + carbs within 30min',sport:'strength'}]},
-    {day:'Thursday',  sessions:[{type:'bike',sport:'bike',duration:60,label:'Zone 2 Ride',notes:'Steady aerobic effort',fuel:'Pre: oatmeal or toast 2hrs before · During: water + electrolytes · Post: recovery meal'},{type:'run',sport:'run',duration:20,label:'Brick Run',notes:'Off the bike · easy pace',fuel:'Practice race-day nutrition — eat what you\'ll use on race day'}]},
-    {day:'Friday',    sessions:[]},
-    {day:'Saturday',  sessions:[{type:'bike',sport:'bike',duration:90,label:'Long Ride',notes:'Build endurance · practice fueling',fuel:'Pre: full breakfast 2-3hrs before (60-80g carbs) · During: 1 gel every 45min + electrolytes · Post: protein + carbs within 30min'}]},
-    {day:'Sunday',    sessions:[{type:'run',sport:'run',duration:75,label:'Long Run',notes:'Easy aerobic build',fuel:'Pre: oatmeal + banana 2hrs before · During: water, gel at 45min if needed · Post: recovery meal with protein'}]},
-  ];
-  if (hasRun) return [
-    {day:'Monday',    sessions:[{type:'strength',templateId:'str_a',label:'Strength',notes:'Strength + mobility',sport:'strength'}]},
-    {day:'Tuesday',   sessions:[{type:'run',sport:'run',duration:40,label:'Easy Run',notes:'Comfortable, conversational'}]},
-    {day:'Wednesday', sessions:[{type:'run',sport:'run',duration:50,label:'Tempo Run',notes:'Comfortably hard effort'}]},
-    {day:'Thursday',  sessions:[{type:'strength',templateId:'str_b',label:'Strength',notes:'Upper + core',sport:'strength'}]},
-    {day:'Friday',    sessions:[]},
-    {day:'Saturday',  sessions:[{type:'run',sport:'run',duration:90,label:'Long Run',notes:'Easy pace · build your base'}]},
-    {day:'Sunday',    sessions:[{type:'run',sport:'run',duration:30,label:'Recovery Run',notes:'Very easy · flush the legs'}]},
-  ];
-  if (hasStr) return [
-    {day:'Monday',    sessions:[{type:'strength',templateId:'str_a',label:'Strength A',notes:'Lower body',sport:'strength'}]},
-    {day:'Tuesday',   sessions:[{type:'other',sport:'other',duration:30,label:'Conditioning',notes:'Easy cardio · active recovery'}]},
-    {day:'Wednesday', sessions:[{type:'strength',templateId:'str_b',label:'Strength B',notes:'Upper + pull',sport:'strength'}]},
-    {day:'Thursday',  sessions:[{type:'other',sport:'other',duration:30,label:'Cardio',notes:'Light cardio of choice'}]},
-    {day:'Friday',    sessions:[{type:'strength',templateId:'str_c',label:'Strength C',notes:'Full body',sport:'strength'}]},
-    {day:'Saturday',  sessions:[]},{day:'Sunday',sessions:[]},
-  ];
-  return ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day=>({day,sessions:[]}));
-}
-
-function getMockHealthWorkouts(){const types=['run','bike','swim','strength','hike'];const notes={run:['Morning run','Tempo intervals','Long run','Easy jog'],bike:['Z2 ride','Interval session','Long ride'],swim:['Pool session','Technique drills'],strength:['Gym session','Home workout'],hike:['Trail hike']};const durs={run:[25,35,45,55,70,90],bike:[45,60,75,90,120],swim:[30,40,50],strength:[45,55,65],hike:[60,90,120]};const w=[];for(let d=1;d<=14;d++){if(Math.random()>0.45){const date=new Date();date.setDate(date.getDate()-d);const sport=types[Math.floor(Math.random()*types.length)];w.push({id:`hk-${d}-${uid()}`,sport,duration:durs[sport][Math.floor(Math.random()*durs[sport].length)],notes:notes[sport][Math.floor(Math.random()*notes[sport].length)],date:date.toISOString().split('T')[0],source:'healthkit'});}}return w.sort((a,b)=>b.date.localeCompare(a.date));}
-
 // ─── Settings Page ─────────────────────────────────────────────────────────────
 function AthleteProfilePage({onClose}){
   const[mem,setMem]=useState(()=>loadMemory());
@@ -961,7 +921,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
 }
 
 // ─── Today's Session Card ──────────────────────────────────────────────────────
-function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, trainingPlan }) {
+function TodaySessionCard({ cardio, strength, onStartStrength, setTab, trainingPlan }) {
   const today=getDayName(); const td=todayStr();
   const todayC=cardio.filter(w=>w.date===td); const todayS=strength.filter(s=>s.date===td);
 
@@ -1017,12 +977,7 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
     </Card>);
   }
 
-  // Fallback to static plan
-  const todayPlan=plan.find(d=>d.day===today);
-  if (!todayPlan) return null;
-  if (!todayPlan.sessions.length) return (<Card style={{marginBottom:16,background:`linear-gradient(135deg,${C.elevated},${C.card})`,borderColor:C.border}}><div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:44,height:44,borderRadius:14,background:C.elevated,display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='rest' size={22} color={C.muted}/></div><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>Rest Day</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:2}}>Recovery is training. Let the body adapt.</div></div></div></Card>);
-  const allDone=todayPlan.sessions.every(s=>s.type==='strength'?todayS.some(sh=>sh.templateId===s.templateId):todayC.some(w=>w.sport===s.sport));
-  return (<Card accent={allDone?C.green:C.accent} style={{marginBottom:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:allDone?C.green:C.accent}}>{allDone?'✓ Today complete':"Today's sessions"}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{getDayName()}</div></div>{allDone&&<Pill color={C.green}>Done</Pill>}</div><div style={{display:'flex',flexDirection:'column',gap:8}}>{todayPlan.sessions.map((sess,i)=>{const isStr=sess.type==='strength';const t=isStr?STRENGTH_TEMPLATES.find(t=>t.id===sess.templateId):null;const sport=SPORT_META[sess.sport||'other'];const done=isStr?todayS.some(s=>s.templateId===sess.templateId):todayC.some(w=>w.sport===sess.sport);const accent=done?C.green:(isStr?(t?.color||C.green):sport.color);return (<div key={i} onClick={isStr&&!done?()=>{onStartStrength(sess.templateId);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}><div style={{width:36,height:36,borderRadius:12,background:accent+'20',display:'flex',alignItems:'center',justifyContent:'center',}}>{done?<Icon name='check' size={17} color={C.green}/>:(isStr?<Icon name='dumbbell' size={17} color={accent}/>:<Icon name={sport.icon} size={17} color={accent}/>)}</div><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1,lineHeight:1.4}}>{sess.notes}</div></div>{!isStr&&sess.duration&&<div style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>{fmtDur(sess.duration)}</div>}{isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:t?.color||C.green}}>Start →</div>}{!isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:sport.color}}>Log →</div>}</div>);})}</div></Card>);
+  return null;
 }
 
 // ─── Push Message Card ─────────────────────────────────────────────────────────
@@ -1047,11 +1002,11 @@ function PushMessageCard({ message, personality, loading, onRefresh, hasWorkouts
 }
 
 // ─── Quick Capture ─────────────────────────────────────────────────────────────
-function QuickCaptureSheet({ onClose, onLog, plan }) {
+function QuickCaptureSheet({ onClose, onLog, trainingPlan }) {
   const[input,setInput]=useState('');const[loading,setLoading]=useState(false);const[parsed,setParsed]=useState(null);const inputRef=useRef(null);
   useEffect(()=>setTimeout(()=>inputRef.current?.focus(),100),[]);
-  const today=getDayName();const todayPlan=plan?.find(d=>d.day===today);
-  const suggestions=todayPlan?.sessions?.filter(s=>s.type!=='strength')?.map(s=>`${fmtDur(s.duration)} ${s.label.toLowerCase()}`)||[];
+  const today=getDayName();const tp=trainingPlan;const weekPlan=tp?.weeklyPlans?.[String(tp?.currentWeek)];const tpToday=weekPlan?.sessions?.find(d=>d.day===today);
+  const suggestions=(tpToday?.sessions||[]).filter(s=>s.type!=='strength').map(s=>`${s.duration?fmtDur(s.duration)+' ':''}${s.label.toLowerCase()}`)||[];
   const handleSubmit=async()=>{if(!input.trim()||loading)return;setLoading(true);try{const r=await parseQuickCapture(input,callAI);setParsed(r);}catch{toast.error('Could not parse — try "45 min easy run"');}setLoading(false);};
   const handleConfirm=()=>{if(!parsed)return;onLog(parsed);toast.success(`${SPORT_META[parsed.sport]?.label||parsed.sport} logged — ${fmtDur(parsed.duration)}`);onClose();};
   const handleSuggestion=async text=>{setInput(text);setLoading(true);try{const r=await parseQuickCapture(text,callAI);setParsed(r);}catch{}setLoading(false);};
@@ -1204,7 +1159,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[createStep,setCreateStep]=useState(null); // null | 'select' | 'confirm'
   const[selectedGoal,setSelectedGoal]=useState(null);
   const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
-  const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
+  const active=events.filter(e=>!e.completed);const today=getDayName();
   const startStrength=tid=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===tid);if(t)setTracker(t);};
   const handleSave=(completedEx,dur,newPRs)=>{onSaveStrength(completedEx,dur,newPRs,tracker);setTracker(null);setActiveWO(null);};
   const handleDiscard=()=>{setTracker(null);setActiveWO(null);};
@@ -1758,7 +1713,7 @@ function BrickDetailSheet({brick,cardio,onDelete,onClose}){
 }
 
 // ─── Log Tab ───────────────────────────────────────────────────────────────────
-function HealthImportSheet({onImport,onClose,existingIds}){const[workouts]=useState(getMockHealthWorkouts);const[selected,setSelected]=useState(new Set());const toggle=id=>{if(existingIds.has(id))return;setSelected(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};return(<Sheet onClose={onClose} title="Import from Health"><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.65}}>Recent workouts from Apple Health. On the native app this reads real data — showing sample data for now.</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted,marginBottom:12}}>{selected.size} selected</div><div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{workouts.map(w=>{const s=SPORT_META[w.sport]||SPORT_META.other;const sel=selected.has(w.id);const done=existingIds.has(w.id);return(<div key={w.id} onClick={()=>toggle(w.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?s.color+'10':C.elevated,border:`1.5px solid ${sel?s.color:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}><Icon name={s.icon} size={22} color={s.color}/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:sel?s.color:C.text}}>{w.notes}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{fmtDateSh(w.date)} · {fmtDur(w.duration)}</div></div><div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?s.color:C.surface),border:`1.5px solid ${done?C.green:(sel?s.color:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div></div>);})}</div><Btn onClick={()=>selected.size>0&&onImport(workouts.filter(w=>selected.has(w.id)))} color={C.cyan} disabled={selected.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selected.size>0?`${selected.size} workout${selected.size>1?'s':''}`:'workouts'}</Btn></Sheet>);}
+function HealthImportSheet({onImport,onClose,existingIds}){const[workouts,setWorkouts]=useState([]);useEffect(()=>{fetch('/seed-data.json').then(r=>r.json()).then(d=>setWorkouts(d.healthWorkouts||[])).catch(()=>{});},[]);const[selected,setSelected]=useState(new Set());const toggle=id=>{if(existingIds.has(id))return;setSelected(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};return(<Sheet onClose={onClose} title="Import from Health"><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.65}}>Recent workouts from Apple Health. On the native app this reads real data — showing sample data for now.</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted,marginBottom:12}}>{selected.size} selected</div><div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{workouts.map(w=>{const s=SPORT_META[w.sport]||SPORT_META.other;const sel=selected.has(w.id);const done=existingIds.has(w.id);return(<div key={w.id} onClick={()=>toggle(w.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?s.color+'10':C.elevated,border:`1.5px solid ${sel?s.color:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}><Icon name={s.icon} size={22} color={s.color}/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:sel?s.color:C.text}}>{w.notes}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{fmtDateSh(w.date)} · {fmtDur(w.duration)}</div></div><div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?s.color:C.surface),border:`1.5px solid ${done?C.green:(sel?s.color:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div></div>);})}</div><Btn onClick={()=>selected.size>0&&onImport(workouts.filter(w=>selected.has(w.id)))} color={C.cyan} disabled={selected.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selected.size>0?`${selected.size} workout${selected.size>1?'s':''}`:'workouts'}</Btn></Sheet>);}
 
 function LogWorkoutSheet({onSave,onClose}){const[sport,setSport]=useState('run');const[dur,setDur]=useState('');const[notes,setNotes]=useState('');const[date,setDate]=useState(todayStr());return(<Sheet onClose={onClose} title="Log workout"><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,marginBottom:16,scrollbarWidth:'none'}}>{Object.entries(SPORT_META).map(([k,s])=><button key={k} onClick={()=>setSport(k)} style={{flexShrink:0,background:sport===k?s.color+'18':C.elevated,border:`1.5px solid ${sport===k?s.color:C.border}`,borderRadius:12,padding:'10px 14px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,transition:'all .15s',minWidth:66}}><Icon name={s.icon} size={20} color={sport===k?s.color:C.muted}/><span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:sport===k?s.color:C.muted}}>{s.label}</span></button>)}</div><div style={{display:'flex',gap:10,marginBottom:12}}><div style={{flex:1}}><Label>Duration (min)</Label><Inp type="number" placeholder="45" value={dur} onChange={e=>setDur(e.target.value)}/></div><div style={{flex:1}}><Label>Date</Label><Inp type="date" value={date} onChange={e=>setDate(e.target.value)}/></div></div><Label>Notes</Label><Textarea placeholder="How did it go?" value={notes} onChange={e=>setNotes(e.target.value)} rows={3} style={{marginBottom:16}}/><Btn onClick={()=>dur&&onSave({sport,duration:parseInt(dur),notes,date})} color={C.accent} disabled={!dur} style={{width:'100%',padding:14,fontSize:16}}>Save workout</Btn></Sheet>);}
 
@@ -2359,7 +2314,7 @@ function GoalsTab({events,onViewGoal,onAddEvent}){
 }
 
 // ─── Home Tab ──────────────────────────────────────────────────────────────────
-function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onAddEvent,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan}){
+function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onAddEvent,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,trainingPlan}){
   const active=events.filter(e=>!e.completed);const completed=events.filter(e=>e.completed);const now=new Date();const ws=new Date(now);ws.setDate(now.getDate()-now.getDay());
   const thisWeekC=cardio.filter(w=>new Date(w.date+'T12:00:00')>=ws);const thisWeekS=strength.filter(s=>new Date(s.date+'T12:00:00')>=ws);
   const allRecent=[...cardio.map(w=>({...w,kind:'cardio'})),...strength.map(s=>({...s,sport:'strength',kind:'strength'}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
@@ -2384,7 +2339,7 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
         <button onClick={()=>setTab('plan')} style={{background:C.elevated,border:`1px solid ${C.border}`,borderRadius:8,padding:'5px 12px',fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.accent,cursor:'pointer'}}>View plan →</button>
       </div>
     </Card>}
-    {(plan.length>0||trainingPlan?.weeklyPlans?.[String(trainingPlan?.currentWeek)])&&<TodaySessionCard plan={plan} cardio={cardio} strength={strength} onStartStrength={onStartStrength} setTab={setTab} trainingPlan={trainingPlan}/>}
+    {trainingPlan?.weeklyPlans?.[String(trainingPlan?.currentWeek)]&&<TodaySessionCard cardio={cardio} strength={strength} onStartStrength={onStartStrength} setTab={setTab} trainingPlan={trainingPlan}/>}
     <PushMessageCard message={pushMessage} personality={personality} loading={pushLoading} onRefresh={onRefreshPush} hasWorkouts={hasWorkouts}/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
       <Card><Label>This week</Label><div style={{fontFamily:F.display,fontSize:44,fontWeight:800,lineHeight:1,color:C.text}}>{thisWeekC.length+thisWeekS.length}</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:500,color:C.muted,marginTop:3}}>sessions</div><div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap'}}>{thisWeekS.length>0&&<SportBadge sport="strength" small/>}{[...new Set(thisWeekC.map(w=>w.sport))].map(s=><SportBadge key={s} sport={s} small/>)}{thisWeekC.length+thisWeekS.length===0&&<span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>None yet</span>}</div></Card>
@@ -2483,8 +2438,7 @@ export default function CoachApp() {
     if(pm?.text){setPushMsg(pm.text);lastPushCount.current=pm.count||0;lastPushTime.current=pm.ts||0;}
   },[]);
 
-  const plan = useMemo(() => generateWeeklyPlan(events), [events]);
-  const getAppState = useCallback(()=>({cardio,strength:strengthH,prs,events,memory:loadMemory(),plan,nutrition,trainingPlan,bricks}),[cardio,strengthH,prs,events,plan,nutrition,trainingPlan,bricks]);
+  const getAppState = useCallback(()=>({cardio,strength:strengthH,prs,events,memory:loadMemory(),nutrition,trainingPlan,bricks}),[cardio,strengthH,prs,events,nutrition,trainingPlan,bricks]);
 
   // Brick helpers
   const saveBrick=useCallback((brick)=>{
@@ -2652,7 +2606,7 @@ export default function CoachApp() {
 
       {/* Content */}
       <div style={{padding:'20px 16px 0'}}>
-        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
+        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} trainingPlan={trainingPlan}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')}/>}
         {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}}/>}
         {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth} bricks={bricks} onSaveBrick={saveBrick} onDeleteBrick={deleteBrick}/>}
@@ -2662,7 +2616,7 @@ export default function CoachApp() {
 
       {brickPrompt&&<div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:468,zIndex:60}}><BrickPromptBanner workout={brickPrompt.workout} candidates={brickPrompt.candidates} onLink={(w1,w2)=>{saveBrick({date:w1.date,legs:[{workoutId:w2.id,sport:w2.sport},{workoutId:w1.id,sport:w1.sport}],transitionTime:null,transitionNotes:'',notes:''});setBrickPrompt(null);}} onDismiss={()=>setBrickPrompt(null)}/></div>}
       {(eventModal==='add'||(eventModal&&typeof eventModal==='object'))&&<EventModal event={eventModal==='add'?null:eventModal} onSave={saveEvent} onClose={()=>setEventModal(null)} onDelete={deleteEvent}/>}
-      {showQuick&&<QuickCaptureSheet onClose={()=>setShowQuick(false)} onLog={w=>{addCardio(w);}} plan={plan}/>}
+      {showQuick&&<QuickCaptureSheet onClose={()=>setShowQuick(false)} onLog={w=>{addCardio(w);}} trainingPlan={trainingPlan}/>}
 
       {showSettings&&<SettingsPage personality={personality} customPrompt={customPrompt} onPersonalityChange={handlePersonalityChange} onCustomPromptChange={handleCustomPromptChange} isDark={isDark} onToggleDark={()=>setIsDark(d=>{const next=!d;db.set('coach_dark_mode',next);return next;})} onClose={()=>setShowSettings(false)}/>}
 
