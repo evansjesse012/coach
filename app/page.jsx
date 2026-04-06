@@ -86,6 +86,17 @@ function Icon({name, size=20, color='currentColor', sw=1.8}) {
     check:    <><path d="M20 6L9 17l-5-5"/></>,
     arrowLeft:<><path d="M19 12H5M12 19l-7-7 7-7"/></>,
     link:     <><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></>,
+    sparkle:  <><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></>,
+    thermometer:<><path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></>,
+    utensils: <><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 002-2V2M7 2v20M21 15V2l-4 6 4 6M17 16v6"/></>,
+    mapPin:   <><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></>,
+    cloud:    <><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></>,
+    droplets: <><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"/></>,
+    flag:     <><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></>,
+    chevDown: <><path d="M6 9l6 6 6-6"/></>,
+    chevUp:   <><path d="M18 15l-6-6-6 6"/></>,
+    wind:     <><path d="M9.59 4.59A2 2 0 1111 8H2M12.59 19.41A2 2 0 1014 16H2M17.73 7.73A2.5 2.5 0 1119.5 12H2"/></>,
+    activity: <><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></>,
   };
   return <svg {...p}>{i[name]||null}</svg>;
 }
@@ -1481,6 +1492,69 @@ function KnowledgeTab(){const[articles,setArticles]=useState(()=>db.get('coach_k
 if(selected)return(<div style={{paddingBottom:48}}><button onClick={()=>{setSelected(null);setFuAnswer('');}} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:14,fontWeight:500,cursor:'pointer',marginBottom:18,padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> Library</button><div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:10}}>{selected.tags?.map(t=><Pill key={t} color={C.purple}>{t}</Pill>)}</div><div style={{fontFamily:F.display,fontSize:26,fontWeight:800,color:C.text,lineHeight:1.2,marginBottom:10,letterSpacing:'-.01em'}}>{selected.title}</div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,lineHeight:1.8,marginBottom:16}}>{selected.summary}</div>{selected.keyPoints?.length>0&&<Card accent={C.purple} style={{marginBottom:16}}><Label style={{color:C.purple,marginBottom:10}}>Key points</Label>{selected.keyPoints.map((pt,i)=><div key={i} style={{display:'flex',gap:10,padding:'7px 0',borderTop:i>0?`1px solid ${C.border}`:'none'}}><span style={{color:C.purple,flexShrink:0,fontWeight:700}}>▸</span><span style={{fontFamily:F.ui,fontSize:15,lineHeight:1.65,color:C.text}}>{pt}</span></div>)}</Card>}<div style={{fontFamily:F.ui,fontSize:15,color:C.text,lineHeight:1.85,whiteSpace:'pre-wrap',marginBottom:24}}>{selected.content}</div><Card style={{marginBottom:16}}><Label style={{marginBottom:12}}>Ask a follow-up</Label>{fuAnswer&&<div style={{fontFamily:F.ui,fontSize:15,lineHeight:1.75,marginBottom:14,padding:'12px 14px',background:C.purple+'0A',borderRadius:10,border:`1px solid ${C.purple}30`,color:C.text}}>{fuAnswer}</div>}<div style={{display:'flex',gap:8}}><Inp placeholder="e.g. How often should I do this?" value={followUp} onChange={e=>setFollowUp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&askFollowUp()} style={{flex:1}}/><button onClick={askFollowUp} disabled={fuLoading||!followUp.trim()} style={{width:48,height:48,background:fuLoading||!followUp.trim()?C.elevated:C.purple,border:'none',borderRadius:12,cursor:fuLoading||!followUp.trim()?'not-allowed':'pointer',color:fuLoading||!followUp.trim()?C.muted:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{fuLoading?<Spinner color="#fff" size={14}/>:'↑'}</button></div></Card><button onClick={()=>deleteArticle(selected.id)} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:12,padding:'11px 16px',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',width:'100%',transition:'all .15s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>Delete article</button></div>);
 return(<div style={{paddingBottom:48}}><div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,marginBottom:4}}>Research a topic</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.6}}>Ask anything — Zone 2, marathon nutrition, periodization, sleep, recovery.</div><div style={{display:'flex',gap:8,marginBottom:20}}><Inp placeholder="e.g. Zone 2 training for endurance…" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&research()} style={{flex:1}}/><button onClick={research} disabled={loading||!query.trim()} style={{width:50,height:50,background:loading||!query.trim()?C.elevated:C.purple,border:'none',borderRadius:12,cursor:loading||!query.trim()?'not-allowed':'pointer',color:loading||!query.trim()?C.muted:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .2s'}}>{loading?<Spinner color="#fff" size={14}/>:<Icon name='search' size={18} color='#fff'/>}</button></div>{loading&&<Card style={{textAlign:'center',padding:32,borderColor:C.purple+'30',background:C.purple+'05'}}><div style={{display:'flex',justifyContent:'center',marginBottom:12}}><Spinner color={C.purple} size={22}/></div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle}}>Researching "{query}"…</div></Card>}{!loading&&articles.length===0&&<Card style={{textAlign:'center',padding:40}}><div style={{marginBottom:14}}><Icon name='book' size={40} color={C.purple}/></div><div style={{fontFamily:F.display,fontSize:20,fontWeight:700,color:C.text,marginBottom:8}}>Your knowledge library</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.7}}>Research any training topic — saved forever.</div></Card>}{articles.length>0&&<><Label>{articles.length} article{articles.length>1?'s':''}</Label><div style={{display:'flex',flexDirection:'column',gap:10}}>{articles.map(a=><Card key={a.id} onClick={()=>{setSelected(a);setFuAnswer('');}} accent={C.purple}><div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:8}}>{a.tags?.slice(0,3).map(t=><Pill key={t} color={C.purple} small>{t}</Pill>)}</div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6,letterSpacing:'-.01em'}}>{a.title}</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.65,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{a.summary}</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:10}}>{fmtDateSh(a.createdAt)}</div></Card>)}</div></>}</div>);}
 
+// ─── AI Race Conditions Generator ─────────────────────────────────────────────
+async function generateRaceConditions(event) {
+  const p = presetById(event.presetId);
+  const prompt = `You are an expert endurance sports analyst. Given the following race details, provide a brief conditions analysis. Be specific and actionable.
+
+Race: ${event.name}
+Type: ${p.label}
+Location: ${event.location || 'Unknown'}
+Date: ${event.date || 'Unknown'}
+
+Respond with ONLY valid JSON in this exact format (no markdown, no code fences):
+{
+  "summary": "2-4 word summary like 'Hot, hilly, coastal'",
+  "terrain": "1-2 sentences about the course terrain and elevation profile",
+  "elevation": "Estimated elevation gain like '~800ft total gain' or 'Flat' if unknown say 'Check course map'",
+  "climate": "1-2 sentences about expected weather conditions for this location and time of year",
+  "tips": ["tip 1", "tip 2", "tip 3"]
+}
+
+For well-known races (Boston Marathon, Ironman Kona, etc.) include course-specific details. For lesser-known races, provide general analysis based on the location and time of year. Always provide 3-5 practical tips.`;
+
+  try {
+    const res = await callAI({
+      system: 'You are a sports analyst. Respond with valid JSON only. No markdown code fences.',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 512,
+    });
+    const text = res.content?.[0]?.text || '';
+    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    return { ...parsed, generatedAt: new Date().toISOString() };
+  } catch (err) {
+    console.error('AI conditions generation failed:', err);
+    return null;
+  }
+}
+
+// ─── Collapsible Section Component ────────────────────────────────────────────
+function PlanSection({ icon, iconColor, title, hasContent, defaultOpen, children }) {
+  const [open, setOpen] = useState(defaultOpen || false);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <button onClick={() => setOpen(!open)} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px',
+        background: C.card, border: `1.5px solid ${C.border}`, borderRadius: open ? '14px 14px 0 0' : 14,
+        cursor: 'pointer', transition: 'all .15s',
+      }}>
+        <div style={{ width: 32, height: 32, borderRadius: 10, background: (iconColor || C.accent) + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name={icon} size={16} color={iconColor || C.accent} />
+        </div>
+        <span style={{ flex: 1, fontFamily: F.ui, fontSize: 14, fontWeight: 700, color: C.text, textAlign: 'left' }}>{title}</span>
+        {hasContent && !open && <div style={{ width: 8, height: 8, borderRadius: 4, background: C.green, flexShrink: 0 }} />}
+        <Icon name={open ? 'chevUp' : 'chevDown'} size={16} color={C.muted} />
+      </button>
+      {open && (
+        <div style={{ padding: '16px', background: C.card, border: `1.5px solid ${C.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px' }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Event Modal ───────────────────────────────────────────────────────────────
 function EventModal({event,onSave,onClose,onDelete}){
   const MODES=[{id:'goal',label:'Goal',icon:'target'},{id:'race',label:'Past Race',icon:'trophy'},{id:'pr',label:'PR',icon:'zap'}];
@@ -1592,7 +1666,7 @@ function EventModal({event,onSave,onClose,onDelete}){
           </div>
         </>}
 
-        <div><Label>URL (optional)</Label><Inp placeholder={mode==='race'?'e.g. results page or Strava link':'e.g. race website or link'} value={form.url} onChange={e=>upd('url',e.target.value)} type="url"/></div>
+        <div><Label>Official race website (optional)</Label><Inp placeholder={mode==='race'?'e.g. results page or Strava link':'e.g. https://bostonmarathon.org'} value={form.url} onChange={e=>upd('url',e.target.value)} type="url"/></div>
       </div>
       <div style={{display:'flex',gap:10}}>
         {event&&<Btn onClick={async()=>{const ok=await confirmDialog('Delete this goal?','Your workout history will be kept.');if(ok)onDelete(event.id);}} outline style={{flex:1}}>Delete</Btn>}
@@ -1608,11 +1682,10 @@ function EventModal({event,onSave,onClose,onDelete}){
 function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const p=presetById(event.presetId);
   const isTri=p.planType==='tri';
+  const isRaceType=['run','tri','bike'].includes(p.planType);
   const days=event.date?daysUntil(event.date):null;
   const isPast=days!==null&&days<0;
   const[noteText,setNoteText]=useState('');
-  const[racePlan,setRacePlan]=useState(event.racePlan||'');
-  const[planSaved,setPlanSaved]=useState(true);
   const[showCompleteSplits,setShowCompleteSplits]=useState(false);
   const[completeSplits,setCompleteSplits]=useState(event.splits||{swim:'',t1:'',bike:'',t2:'',run:'',total:''});
   const[completeResult,setCompleteResult]=useState(event.result||'');
@@ -1621,11 +1694,62 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const[completeAGPlace,setCompleteAGPlace]=useState(event.ageGroupPlacement||'');
   const[completeBib,setCompleteBib]=useState(event.bibNumber||'');
   const[completeAG,setCompleteAG]=useState(event.ageGroup||'');
+  const[aiLoading,setAiLoading]=useState(false);
+  const[weatherData,setWeatherData]=useState(event.weather||null);
+  const[weatherLoading,setWeatherLoading]=useState(false);
+
+  // Plan sections state
+  const ps=event.planSections||{strategy:'',nutrition:{before:'',during:'',after:''},gear:'',travel:'',warmup:''};
+  const[strategy,setStrategy]=useState(ps.strategy||event.racePlan||'');
+  const[nutBefore,setNutBefore]=useState(ps.nutrition?.before||'');
+  const[nutDuring,setNutDuring]=useState(ps.nutrition?.during||'');
+  const[nutAfter,setNutAfter]=useState(ps.nutrition?.after||'');
+  const[gear,setGear]=useState(ps.gear||'');
+  const[travel,setTravel]=useState(ps.travel||'');
+  const[warmup,setWarmup]=useState(ps.warmup||'');
+  const[planDirty,setPlanDirty]=useState(false);
   const notes=event.notes||[];
+
+  // Weather auto-fetch
+  useEffect(()=>{
+    if(!event.location||!event.date||!isRaceType) return;
+    const d=daysUntil(event.date);
+    if(d<0||d>16) return;
+    // Throttle: only re-fetch if >6 hours old
+    if(weatherData?.updatedAt){
+      const age=Date.now()-new Date(weatherData.updatedAt).getTime();
+      if(age<6*60*60*1000) return;
+    }
+    setWeatherLoading(true);
+    fetch(`/api/weather?location=${encodeURIComponent(event.location)}&date=${event.date}`)
+      .then(r=>r.ok?r.json():null)
+      .then(data=>{
+        if(data?.weather){
+          const w={...data.weather,location:data.location,updatedAt:data.updatedAt};
+          setWeatherData(w);
+          onUpdate({...event,weather:w});
+        }
+      })
+      .catch(()=>{})
+      .finally(()=>setWeatherLoading(false));
+  },[event.location,event.date]);
 
   const addNote=()=>{if(!noteText.trim())return;const n={id:uid(),text:noteText.trim(),date:todayStr()};onUpdate({...event,notes:[n,...notes]});setNoteText('');toast.success('Note added');};
   const deleteNote=async(nid)=>{const ok=await confirmDialog('Delete this note?','');if(!ok)return;onUpdate({...event,notes:notes.filter(n=>n.id!==nid)});};
-  const saveRacePlan=()=>{onUpdate({...event,racePlan});setPlanSaved(true);toast.success('Race plan saved');};
+
+  const savePlanSections=()=>{
+    const updated={...event,racePlan:strategy,planSections:{strategy,nutrition:{before:nutBefore,during:nutDuring,after:nutAfter},gear,travel,warmup}};
+    onUpdate(updated);setPlanDirty(false);toast.success('Race plan saved');
+  };
+
+  const regenerateConditions=async()=>{
+    setAiLoading(true);
+    const conditions=await generateRaceConditions(event);
+    if(conditions){onUpdate({...event,aiConditions:conditions});toast.success('Conditions updated');}
+    else toast.error('Failed to generate conditions');
+    setAiLoading(false);
+  };
+
   const toggleComplete=async()=>{
     if(event.completed){onUpdate({...event,completed:false,mode:event.mode==='race'?'goal':event.mode});toast.info('Marked as active');}
     else if(isTri){setShowCompleteSplits(true);}
@@ -1642,6 +1766,10 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
     setShowCompleteSplits(false);
     toast.success('Completed!');
   };
+
+  const ai=event.aiConditions;
+  const wd=weatherData?.type==='forecast'?weatherData:null;
+  const wdClimate=weatherData?.type==='climate'?weatherData:null;
 
   return(
     <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto'}}>
@@ -1702,24 +1830,117 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
           </div>
         </div>}
 
-        {/* URL */}
+        {/* Race website link */}
         {event.url&&<Card accent={C.cyan} style={{marginBottom:16}} onClick={()=>window.open(event.url,'_blank')}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             <div style={{width:34,height:34,borderRadius:12,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='link' size={16} color={C.cyan}/></div>
             <div style={{flex:1,overflow:'hidden'}}>
-              <div style={{fontFamily:F.ui,fontWeight:600,fontSize:14,color:C.cyan}}>Race website</div>
+              <div style={{fontFamily:F.ui,fontWeight:600,fontSize:14,color:C.cyan}}>Official race website</div>
               <div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{event.url.replace(/^https?:\/\//,'')}</div>
             </div>
             <span style={{color:C.cyan,fontSize:14}}>→</span>
           </div>
         </Card>}
 
-        {/* Race plan */}
-        <div style={{marginBottom:24}}>
-          <Label>Race plan</Label>
-          <Textarea placeholder="Strategy, pacing plan, logistics, gear checklist, nutrition plan…" value={racePlan} onChange={e=>{setRacePlan(e.target.value);setPlanSaved(false);}} rows={5}/>
-          {!planSaved&&<Btn onClick={saveRacePlan} color={p.color} style={{width:'100%',marginTop:10,padding:12,fontSize:14}}>Save plan</Btn>}
-        </div>
+        {/* ═══ RACE PLANNING HUB ═══ */}
+        {isRaceType&&<div style={{marginBottom:8}}>
+          <div style={{fontFamily:F.display,fontSize:18,fontWeight:800,color:C.text,marginBottom:14,letterSpacing:'-.01em'}}>Race Planning</div>
+
+          {/* AI Race Conditions */}
+          <PlanSection icon="sparkle" iconColor={C.yellow} title="Race Conditions" hasContent={!!ai} defaultOpen={!!ai||!!wd}>
+            {ai?<>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+                <Pill color={C.yellow}>{ai.summary}</Pill>
+                <div style={{flex:1}}/>
+                <button onClick={regenerateConditions} disabled={aiLoading} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:8,padding:'5px 10px',fontSize:12,fontFamily:F.ui,fontWeight:600,color:C.muted,cursor:aiLoading?'not-allowed':'pointer',display:'flex',alignItems:'center',gap:4}}>
+                  <Icon name='refresh' size={12} color={C.muted}/>{aiLoading?'Generating…':'Refresh'}
+                </button>
+              </div>
+              <div style={{display:'grid',gap:12}}>
+                {[{label:'Terrain',value:ai.terrain,icon:'mountain',color:C.accent},{label:'Elevation',value:ai.elevation,icon:'activity',color:C.green},{label:'Climate',value:ai.climate,icon:'thermometer',color:C.yellow}].map(({label,value,icon,color})=>value?<div key={label} style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                  <div style={{width:28,height:28,borderRadius:8,background:color+'15',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:1}}><Icon name={icon} size={14} color={color}/></div>
+                  <div><div style={{fontFamily:F.ui,fontSize:11,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'.05em',marginBottom:3}}>{label}</div><div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.6}}>{value}</div></div>
+                </div>:null)}
+              </div>
+              {ai.tips?.length>0&&<div style={{marginTop:14,padding:'12px 14px',background:C.yellow+'0A',borderRadius:12,border:`1px solid ${C.yellow}20`}}>
+                <div style={{fontFamily:F.ui,fontSize:11,fontWeight:700,color:C.yellow,textTransform:'uppercase',letterSpacing:'.05em',marginBottom:8}}>Tips</div>
+                {ai.tips.map((tip,i)=><div key={i} style={{display:'flex',gap:8,padding:'4px 0'}}><span style={{color:C.yellow,flexShrink:0,fontWeight:700,fontSize:13}}>▸</span><span style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.5}}>{tip}</span></div>)}
+              </div>}
+              <div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:10}}>AI-generated{ai.generatedAt?' · '+new Date(ai.generatedAt).toLocaleDateString():''}</div>
+            </>:<div style={{textAlign:'center',padding:'12px 0'}}>
+              <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:10}}>
+                {event.location?'Generate AI analysis of race conditions':'Add a location to generate race conditions'}
+              </div>
+              {event.location&&<Btn onClick={regenerateConditions} color={C.yellow} disabled={aiLoading} style={{padding:'10px 20px',fontSize:13}}>
+                {aiLoading?'Generating…':'Generate Conditions'}
+              </Btn>}
+            </div>}
+          </PlanSection>
+
+          {/* Weather */}
+          <PlanSection icon="cloud" iconColor={C.cyan} title="Weather" hasContent={!!wd} defaultOpen={!!wd}>
+            {wd?<div>
+              <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:14}}>
+                <div style={{textAlign:'center'}}>
+                  <div style={{fontFamily:F.display,fontSize:42,fontWeight:800,color:C.text,lineHeight:1}}>{wd.tempHigh}°</div>
+                  <div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:2}}>/{wd.tempLow}° low</div>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:F.ui,fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>{wd.condition}</div>
+                  <div style={{fontFamily:F.ui,fontSize:13,color:C.subtle}}>Feels like {wd.feelsLikeHigh}°/{wd.feelsLikeLow}°</div>
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <Card style={{padding:'12px 14px',display:'flex',alignItems:'center',gap:10}}>
+                  <Icon name='wind' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.windMax} mph</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>Wind</div></div>
+                </Card>
+                <Card style={{padding:'12px 14px',display:'flex',alignItems:'center',gap:10}}>
+                  <Icon name='droplets' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.precipChance}%</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>Rain chance</div></div>
+                </Card>
+              </div>
+              {wd.location&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:10}}>{wd.location} · Updated {new Date(weatherData.updatedAt).toLocaleString()}</div>}
+            </div>:weatherLoading?<div style={{textAlign:'center',padding:16}}><Spinner color={C.cyan} size={18}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Loading forecast…</div></div>
+            :wdClimate?<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>{wdClimate.message}</div></div>
+            :<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>{event.location&&event.date?(days>16?`Forecast available in ~${days-16} days`:'Weather data unavailable'):'Add a location and date for weather'}</div></div>}
+          </PlanSection>
+
+          {/* Strategy & Pacing */}
+          <PlanSection icon="flag" iconColor={C.accent} title="Strategy & Pacing" hasContent={!!strategy}>
+            <Textarea placeholder="Pacing plan, race approach, mile-by-mile strategy…" value={strategy} onChange={e=>{setStrategy(e.target.value);setPlanDirty(true);}} rows={4}/>
+          </PlanSection>
+
+          {/* Nutrition */}
+          <PlanSection icon="utensils" iconColor={C.green} title="Nutrition" hasContent={!!(nutBefore||nutDuring||nutAfter)}>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div><Label>Before (night before + morning of)</Label><Textarea placeholder="e.g. Pasta dinner, banana + toast + coffee morning of…" value={nutBefore} onChange={e=>{setNutBefore(e.target.value);setPlanDirty(true);}} rows={2}/></div>
+              <div><Label>During race</Label><Textarea placeholder="e.g. Gel every 45min, electrolytes every aid station…" value={nutDuring} onChange={e=>{setNutDuring(e.target.value);setPlanDirty(true);}} rows={2}/></div>
+              <div><Label>After (recovery)</Label><Textarea placeholder="e.g. Protein shake within 30min, full meal within 2hrs…" value={nutAfter} onChange={e=>{setNutAfter(e.target.value);setPlanDirty(true);}} rows={2}/></div>
+            </div>
+          </PlanSection>
+
+          {/* Gear & Logistics */}
+          <PlanSection icon="clipboard" iconColor={C.purple} title="Gear & Logistics" hasContent={!!(gear||travel)}>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div><Label>Gear checklist</Label><Textarea placeholder="Race kit, shoes, watch, sunscreen, body glide…" value={gear} onChange={e=>{setGear(e.target.value);setPlanDirty(true);}} rows={3}/></div>
+              <div><Label>Travel & logistics</Label><Textarea placeholder="Parking, packet pickup, hotel, transportation…" value={travel} onChange={e=>{setTravel(e.target.value);setPlanDirty(true);}} rows={3}/></div>
+            </div>
+          </PlanSection>
+
+          {/* Warmup */}
+          <PlanSection icon="activity" iconColor={C.accent} title="Warmup Routine" hasContent={!!warmup}>
+            <Textarea placeholder="Pre-race warmup: jog, drills, strides, stretching…" value={warmup} onChange={e=>{setWarmup(e.target.value);setPlanDirty(true);}} rows={3}/>
+          </PlanSection>
+
+          {/* Save plan button */}
+          {planDirty&&<Btn onClick={savePlanSections} color={p.color} style={{width:'100%',marginBottom:16,padding:13,fontSize:14}}>Save race plan</Btn>}
+        </div>}
+
+        {/* Non-race type: keep simple race plan textarea */}
+        {!isRaceType&&<div style={{marginBottom:24}}>
+          <Label>Plan</Label>
+          <Textarea placeholder="Strategy, goals, notes…" value={strategy} onChange={e=>{setStrategy(e.target.value);setPlanDirty(true);}} rows={5}/>
+          {planDirty&&<Btn onClick={()=>{onUpdate({...event,racePlan:strategy,planSections:{...ps,strategy}});setPlanDirty(false);toast.success('Plan saved');}} color={p.color} style={{width:'100%',marginTop:10,padding:12,fontSize:14}}>Save plan</Btn>}
+        </div>}
 
         {/* Notes */}
         <div style={{marginBottom:24}}>
@@ -2010,10 +2231,31 @@ export default function CoachApp() {
   },[personality,refreshPushMessage]);
 
   const saveEvent=useCallback(ev=>{
+    // Migrate existing racePlan to planSections if needed
+    if(ev.racePlan && !ev.planSections){
+      ev.planSections = { strategy: ev.racePlan, nutrition: { before: '', during: '', after: '' }, gear: '', travel: '', warmup: '' };
+    }
+    if(!ev.planSections){
+      ev.planSections = { strategy: '', nutrition: { before: '', during: '', after: '' }, gear: '', travel: '', warmup: '' };
+    }
+    const isNew = !events.find(e=>e.id===ev.id);
     setEvents(prev=>{const u=prev.find(e=>e.id===ev.id)?prev.map(e=>e.id===ev.id?ev:e):[...prev,ev];db.set('coach_events',u);return u;});
     setEventModal(null);
     if(goalDetail?.id===ev.id) setGoalDetail(ev);
-    toast.success(events.find(e=>e.id===ev.id)?`"${ev.name}" updated`:`"${ev.name}" added`);
+    toast.success(isNew?`"${ev.name}" added`:`"${ev.name}" updated`);
+    // Auto-generate AI conditions for new races with location
+    const p = presetById(ev.presetId);
+    if(isNew && ev.location && ev.date && ev.mode==='goal' && ['run','tri','bike'].includes(p.planType) && !ev.aiConditions){
+      toast.info('Generating race conditions…');
+      generateRaceConditions(ev).then(conditions=>{
+        if(conditions){
+          const updated = {...ev, aiConditions: conditions};
+          setEvents(prev=>{const u=prev.map(e=>e.id===updated.id?updated:e);db.set('coach_events',u);return u;});
+          if(goalDetail?.id===ev.id) setGoalDetail(updated);
+          toast.success('Race conditions generated');
+        }
+      });
+    }
   },[events,goalDetail]);
 
   const updateEvent=useCallback(ev=>{
