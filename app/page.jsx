@@ -453,7 +453,16 @@ async function extractMemory(messages, callAI) {
 
 async function generatePushMessage(personality, customText, appState, callAI) {
   try {
-    const result=await runAgentLoop({personality,customText,messages:[{role:'user',content:`Generate my daily coaching push message. Use tools to gather: get_training_plan(), get_workouts(sport="all", days=7), get_training_stats(weeks=2), get_goals(). Then write 4-6 sentences: compare prescribed vs actual (be specific), call out the most important pattern, give one specific action for the next 48 hours, reference real dates. Style: ${getCommentaryStyle(personality,customText)}. Plain text only.`}],appState,callAI,maxRounds:4});
+    const result=await runAgentLoop({personality,customText,messages:[{role:'user',content:`Generate my daily coaching note. Use tools to gather: get_training_plan(), get_workouts(sport="all", days=7), get_training_stats(weeks=2), get_goals().
+
+Format the note like this:
+- Start with a **bold one-line summary** of where I stand this week
+- Then 2-3 short paragraphs (2 sentences each max): compare prescribed vs actual (be specific with numbers), call out the most important pattern, give one specific action for the next 48 hours
+- Use **bold** for key numbers and emphasis
+- Reference real dates
+- Keep it concise — this is a mobile card, not an essay
+
+Style: ${getCommentaryStyle(personality,customText)}.`}],appState,callAI,maxRounds:4});
     return result.response;
   } catch { return ''; }
 }
@@ -904,7 +913,18 @@ function PushMessageCard({ message, personality, loading, onRefresh, hasWorkouts
     ? "You haven't logged a single workout yet. The clock is ticking. Your race doesn't care about your excuses — it's coming whether you're ready or not. Add a goal above and get to work."
     : "Welcome to Coach. Add a goal above to generate your training plan, then log your first workout — I'll start tracking your progress and giving you real coaching feedback based on your actual training data.";
   const displayMsg = message || (!hasWorkouts ? defaultMsg : '');
-  return(<Card style={{marginBottom:16,borderColor:p.color+'25',position:'relative',overflow:'hidden'}}><div style={{position:'absolute',bottom:-20,right:-20,width:90,height:90,borderRadius:'50%',background:p.color+'10',pointerEvents:'none'}}/><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}><div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:24,height:24,borderRadius:8,background:p.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={p.icon} size={12} color={p.color}/></div><span style={{fontFamily:F.ui,fontWeight:600,fontSize:12,color:p.color}}>Coach</span></div>{hasWorkouts&&<button onClick={onRefresh} disabled={loading} style={{background:C.elevated,border:'none',borderRadius:8,width:28,height:28,cursor:loading?'not-allowed':'pointer',color:C.muted,fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}} onMouseEnter={e=>{if(!loading)e.currentTarget.style.color=p.color;}} onMouseLeave={e=>e.currentTarget.style.color=C.muted}><span style={{display:'inline-block',animation:loading?'spin 1s linear infinite':'none'}}>↻</span></button>}</div>{loading?<div><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Reviewing your training…</div></div>:<div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{displayMsg}</div>}</Card>);
+  return(<Card style={{marginBottom:16,borderColor:p.color+'25',position:'relative',overflow:'hidden'}}>
+    <div style={{position:'absolute',bottom:-20,right:-20,width:90,height:90,borderRadius:'50%',background:p.color+'10',pointerEvents:'none'}}/>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <div style={{width:28,height:28,borderRadius:9,background:p.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={p.icon} size={14} color={p.color}/></div>
+        <div><span style={{fontFamily:F.display,fontWeight:700,fontSize:14,color:p.color}}>Coach's Note</span></div>
+      </div>
+      {hasWorkouts&&<button onClick={onRefresh} disabled={loading} style={{background:C.elevated,border:'none',borderRadius:8,width:28,height:28,cursor:loading?'not-allowed':'pointer',color:C.muted,fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}} onMouseEnter={e=>{if(!loading)e.currentTarget.style.color=p.color;}} onMouseLeave={e=>e.currentTarget.style.color=C.muted}><span style={{display:'inline-block',animation:loading?'spin 1s linear infinite':'none'}}>↻</span></button>}
+    </div>
+    {loading?<div><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Reviewing your training…</div></div>
+    :<div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(displayMsg)}</div>}
+  </Card>);
 }
 
 // ─── Quick Capture ─────────────────────────────────────────────────────────────
