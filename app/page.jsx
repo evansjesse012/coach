@@ -2483,7 +2483,7 @@ export default function CoachApp() {
     if(pm?.text){setPushMsg(pm.text);lastPushCount.current=pm.count||0;lastPushTime.current=pm.ts||0;}
   },[]);
 
-  const plan = useMemo(() => generateWeeklyPlan(events), [events]);
+  const plan = useMemo(() => [], []);
   const getAppState = useCallback(()=>({cardio,strength:strengthH,prs,events,memory:loadMemory(),plan,nutrition,trainingPlan,bricks}),[cardio,strengthH,prs,events,plan,nutrition,trainingPlan,bricks]);
 
   // Brick helpers
