@@ -1307,6 +1307,135 @@ function BrickPromptBanner({workout,candidates,onLink,onDismiss}){
   </div>);
 }
 
+// ─── Workout Detail Sheets ────────────────────────────────────────────────────
+function WorkoutDetailSheet({workout,onClose}){
+  const s=SPORT_META[workout.sport]||SPORT_META.other;
+  const isStrength=workout.kind==='strength';
+  const fullDate=workout.date?new Date(workout.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}):'';
+  return(<Sheet onClose={onClose} title="Workout details">
+    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <div style={{width:52,height:52,borderRadius:16,background:s.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={isStrength?'dumbbell':s.icon} size={26} color={s.color}/></div>
+      <div style={{flex:1}}>
+        <div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text}}>{s.label}</div>
+        <div style={{fontFamily:F.ui,fontSize:13,color:C.muted}}>{fullDate}</div>
+      </div>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:workout.distance?'1fr 1fr 1fr':'1fr 1fr',gap:10,marginBottom:20}}>
+      <Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:C.text,lineHeight:1}}>{fmtDur(workout.duration)}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>Duration</div></Card>
+      {workout.distance&&<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:C.text,lineHeight:1}}>{workout.distance}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>Distance</div></Card>}
+      {workout.avgHR?<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:C.accent,lineHeight:1}}>{workout.avgHR}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>Avg HR</div></Card>
+      :workout.calories?<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:C.yellow,lineHeight:1}}>{workout.calories}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>Calories</div></Card>
+      :<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:s.color,lineHeight:1}}>{s.label}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5,fontWeight:500}}>Sport</div></Card>}
+    </div>
+
+    {(workout.pace||workout.avgPower)&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}}>
+      {workout.pace&&<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.mono,fontSize:20,fontWeight:700,color:C.text}}>{workout.pace}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Pace</div></Card>}
+      {workout.avgPower&&<Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.mono,fontSize:20,fontWeight:700,color:C.cyan}}>{workout.avgPower}W</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Avg Power</div></Card>}
+    </div>}
+
+    {(workout.startTime||workout.endTime)&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <div style={{display:'flex',justifyContent:'space-between'}}>
+        {workout.startTime&&<div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontWeight:600}}>Start</div><div style={{fontFamily:F.mono,fontSize:14,color:C.text,marginTop:2}}>{workout.startTime}</div></div>}
+        {workout.endTime&&<div style={{textAlign:'right'}}><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontWeight:600}}>End</div><div style={{fontFamily:F.mono,fontSize:14,color:C.text,marginTop:2}}>{workout.endTime}</div></div>}
+      </div>
+    </Card>}
+
+    {workout.avgHR&&workout.maxHR&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <Label style={{marginBottom:8}}>Heart Rate</Label>
+      <div style={{display:'flex',gap:16}}>
+        <div><span style={{fontFamily:F.mono,fontSize:18,fontWeight:700,color:C.accent}}>{workout.avgHR}</span><span style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginLeft:4}}>avg</span></div>
+        <div><span style={{fontFamily:F.mono,fontSize:18,fontWeight:700,color:C.red}}>{workout.maxHR}</span><span style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginLeft:4}}>max</span></div>
+      </div>
+      {workout.hrZones&&<div style={{marginTop:10,display:'flex',gap:3,height:8,borderRadius:4,overflow:'hidden'}}>
+        {[{z:'Z1',c:'#4890D8'},{z:'Z2',c:'#2ABF84'},{z:'Z3',c:'#F0A830'},{z:'Z4',c:'#E8604C'},{z:'Z5',c:'#CC1111'}].map(({z,c})=>{
+          const pct=workout.hrZones[z]||0;
+          return pct>0?<div key={z} style={{flex:pct,background:c,borderRadius:2}} title={`${z}: ${pct}%`}/>:null;
+        })}
+      </div>}
+      {workout.hrZones&&<div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}}>
+        {[{z:'Z1',c:'#4890D8',l:'Recovery'},{z:'Z2',c:'#2ABF84',l:'Aerobic'},{z:'Z3',c:'#F0A830',l:'Tempo'},{z:'Z4',c:'#E8604C',l:'Threshold'},{z:'Z5',c:'#CC1111',l:'VO2max'}].map(({z,c,l})=>{
+          const pct=workout.hrZones[z]||0;
+          return pct>0?<div key={z} style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontFamily:F.ui,fontSize:10,color:C.muted}}>{z} {pct}%</span></div>:null;
+        })}
+      </div>}
+    </Card>}
+
+    {workout.location&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8}}><Icon name='pin' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:14,color:C.text}}>{workout.location}</span></div>
+    </Card>}
+
+    {workout.notes&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <Label style={{marginBottom:6}}>Notes</Label>
+      <div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.7,whiteSpace:'pre-wrap'}}>{workout.notes}</div>
+    </Card>}
+
+    {isStrength&&workout.exercises&&<div style={{marginBottom:16}}>
+      <Label>Exercises</Label>
+      {workout.exercises.map((ex,i)=><Card key={i} style={{marginBottom:8,padding:'12px 16px'}}>
+        <div style={{fontFamily:F.ui,fontWeight:700,fontSize:15,color:C.text,marginBottom:6}}>{ex.name}</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{ex.sets?.filter(s=>s.completed).map((s,j)=><span key={j} style={{fontFamily:F.mono,fontSize:12,color:C.subtle,background:C.elevated,borderRadius:8,padding:'4px 10px'}}>{s.weight>0?`${s.weight}×${s.reps}`:`BW×${s.reps}`}</span>)}</div>
+      </Card>)}
+    </div>}
+
+    {workout.source==='healthkit'&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16}}><Icon name='watch' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.cyan}}>Imported from Apple Health</span></div>}
+  </Sheet>);
+}
+
+function BrickDetailSheet({brick,cardio,onDelete,onClose}){
+  const legs=(brick.legs||[]).map(l=>{const w=cardio.find(c=>c.id===l.workoutId);return{...l,workout:w};});
+  const totalDur=legs.reduce((t,l)=>t+(l.workout?.duration||0),0)+(brick.transitionTime||0);
+  return(<Sheet onClose={onClose} title="Brick workout">
+    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+      <div style={{width:52,height:52,borderRadius:16,background:C.yellow+'20',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='layers' size={26} color={C.yellow}/></div>
+      <div style={{flex:1}}>
+        <div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text}}>Brick Workout</div>
+        <div style={{fontFamily:F.ui,fontSize:13,color:C.muted}}>{brick.date?new Date(brick.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}):''}</div>
+      </div>
+    </div>
+
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:20}}>
+      <Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:C.text,lineHeight:1}}>{fmtDur(totalDur)}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Total</div></Card>
+      <Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:C.text,lineHeight:1}}>{legs.length}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Legs</div></Card>
+      <Card style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:brick.transitionTime?C.yellow:C.muted,lineHeight:1}}>{brick.transitionTime?brick.transitionTime+'m':'—'}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Transition</div></Card>
+    </div>
+
+    {legs.map((leg,i)=>{const s=SPORT_META[leg.sport]||SPORT_META.other;const w=leg.workout;return(<div key={i}>
+      {i>0&&<div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',justifyContent:'center'}}>
+        <div style={{height:1,flex:1,background:C.border}}/><span style={{fontFamily:F.ui,fontSize:11,fontWeight:700,color:C.yellow,textTransform:'uppercase',letterSpacing:'.06em'}}>T{i}</span><div style={{height:1,flex:1,background:C.border}}/>
+      </div>}
+      <Card style={{marginBottom:8,padding:'14px 16px',borderColor:s.color+'30'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:40,height:40,borderRadius:12,background:s.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={s.icon} size={20} color={s.color}/></div>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:F.ui,fontWeight:700,fontSize:16,color:C.text}}>{s.label}</div>
+            {w?.notes&&<div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:2,lineHeight:1.5}}>{w.notes}</div>}
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:C.text}}>{w?fmtDur(w.duration):'—'}</div>
+            {w?.distance&&<div style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{w.distance}</div>}
+          </div>
+        </div>
+        {w?.avgHR&&<div style={{marginTop:8,display:'flex',gap:10}}>
+          <span style={{fontFamily:F.mono,fontSize:12,color:C.accent}}>HR {w.avgHR} avg</span>
+          {w.pace&&<span style={{fontFamily:F.mono,fontSize:12,color:s.color}}>{w.pace}</span>}
+        </div>}
+      </Card>
+    </div>);})}
+
+    {brick.transitionNotes&&<Card style={{marginBottom:16,padding:'12px 16px',borderColor:C.yellow+'30'}}>
+      <Label style={{color:C.yellow,marginBottom:6}}>Transition notes</Label>
+      <div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.7}}>{brick.transitionNotes}</div>
+    </Card>}
+
+    {brick.notes&&<Card style={{marginBottom:16,padding:'12px 16px'}}>
+      <Label style={{marginBottom:6}}>Notes</Label>
+      <div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.7}}>{brick.notes}</div>
+    </Card>}
+
+    <Btn onClick={async()=>{if(onDelete){await onDelete(brick.id);onClose();}}} outline style={{width:'100%',padding:13,fontSize:14,borderColor:C.red+'50',color:C.red}}>Unlink brick</Btn>
+  </Sheet>);
+}
+
 // ─── Log Tab ───────────────────────────────────────────────────────────────────
 function HealthImportSheet({onImport,onClose,existingIds}){const[workouts]=useState(getMockHealthWorkouts);const[selected,setSelected]=useState(new Set());const toggle=id=>{if(existingIds.has(id))return;setSelected(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};return(<Sheet onClose={onClose} title="Import from Health"><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.65}}>Recent workouts from Apple Health. On the native app this reads real data — showing sample data for now.</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted,marginBottom:12}}>{selected.size} selected</div><div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{workouts.map(w=>{const s=SPORT_META[w.sport]||SPORT_META.other;const sel=selected.has(w.id);const done=existingIds.has(w.id);return(<div key={w.id} onClick={()=>toggle(w.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?s.color+'10':C.elevated,border:`1.5px solid ${sel?s.color:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}><Icon name={s.icon} size={22} color={s.color}/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:sel?s.color:C.text}}>{w.notes}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{fmtDateSh(w.date)} · {fmtDur(w.duration)}</div></div><div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?s.color:C.surface),border:`1.5px solid ${done?C.green:(sel?s.color:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div></div>);})}</div><Btn onClick={()=>selected.size>0&&onImport(workouts.filter(w=>selected.has(w.id)))} color={C.cyan} disabled={selected.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selected.size>0?`${selected.size} workout${selected.size>1?'s':''}`:'workouts'}</Btn></Sheet>);}
 
@@ -1314,13 +1443,37 @@ function LogWorkoutSheet({onSave,onClose}){const[sport,setSport]=useState('run')
 
 function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSaveBrick,onDeleteBrick}){
   const[showLog,setShowLog]=useState(false);const[showImport,setShowImport]=useState(false);const[showBrickLink,setShowBrickLink]=useState(false);const[filter,setFilter]=useState('all');
+  const[selectedWorkout,setSelectedWorkout]=useState(null);const[selectedBrick,setSelectedBrick]=useState(null);
   const existingIds=new Set(cardio.filter(w=>w.source==='healthkit').map(w=>w.id));
   const allWorkouts=[...cardio.map(w=>({...w,kind:'cardio'})),...strength.map(s=>({...s,sport:'strength',kind:'strength',notes:`${s.exercises?.reduce((t,e)=>t+(e.sets?.length||0),0)||0} sets logged`}))].sort((a,b)=>b.date.localeCompare(a.date));
   const filtered=filter==='all'?allWorkouts:allWorkouts.filter(w=>w.sport===filter);
   const groups=filtered.reduce((acc,w)=>{const key=w.date===todayStr()?'Today':w.date===new Date(Date.now()-86400000).toISOString().split('T')[0]?'Yesterday':fmtDateSh(w.date);if(!acc[key])acc[key]=[];acc[key].push(w);return acc;},{});
   const brickWorkoutIds=new Set((bricks||[]).flatMap(b=>b.legs.map(l=>l.workoutId)));
   const brickForWorkout=wId=>(bricks||[]).find(b=>b.legs.some(l=>l.workoutId===wId));
-  return(<div style={{paddingBottom:80}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:18}}><Card onClick={()=>setShowLog(true)} accent={C.accent}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='pencil' size={16} color={C.accent}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.accent,textAlign:'center'}}>Log</div></div></Card><Card onClick={()=>setShowImport(true)} accent={C.cyan}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='watch' size={16} color={C.cyan}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.cyan,textAlign:'center'}}>Import</div></div></Card><Card onClick={()=>setShowBrickLink(true)} accent={C.yellow}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.yellow+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='layers' size={16} color={C.yellow}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow,textAlign:'center'}}>Brick</div></div></Card></div><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:16,scrollbarWidth:'none'}}>{['all','run','bike','swim','strength','hike','other'].map(s=>{const meta=SPORT_META[s]||{color:C.muted,label:'All'};const sel=filter===s;const count=s==='all'?allWorkouts.length:allWorkouts.filter(w=>w.sport===s).length;return(<button key={s} onClick={()=>setFilter(s)} style={{flexShrink:0,padding:'7px 14px',borderRadius:20,background:sel?(s==='all'?C.text:meta.color+'18'):C.surface,border:`1.5px solid ${sel?(s==='all'?C.text:meta.color):C.border}`,color:sel?(s==='all'?C.bg:meta.color):C.muted,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',boxShadow:sel?S.sm:'none'}}>{s==='all'?`All (${count})`:`${meta.icon} ${meta.label}`}</button>);})}</div>{Object.keys(groups).length===0?<Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='chart' size={36} color={C.muted}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>No workouts yet</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>Log manually or import from Apple Health</div></Card>:Object.entries(groups).map(([dateLabel,wos])=>(<div key={dateLabel}><div style={{fontFamily:F.ui,fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,marginTop:6,textTransform:'uppercase',letterSpacing:'.06em'}}>{dateLabel}</div>{wos.map((w,i)=>{const brick=brickForWorkout(w.id);return(<Card key={i} style={{marginBottom:8,padding:'13px 16px',borderColor:brick?C.yellow+'30':C.border}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'other'} small/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontSize:15,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||'—'}</div><div style={{display:'flex',gap:6,marginTop:2}}>{w.source==='healthkit'&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.cyan}}>Apple Health</span>}{brick&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.yellow}}>Brick{brick.transitionTime?` · T: ${brick.transitionTime}min`:''}</span>}</div></div><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text,flexShrink:0}}>{fmtDur(w.duration)}</div></div></Card>);})}</div>))}{showLog&&<LogWorkoutSheet onSave={w=>{onAddCardio(w);setShowLog(false);}} onClose={()=>setShowLog(false)}/>}{showImport&&<HealthImportSheet onImport={ws=>{onImportHealth(ws);setShowImport(false);}} onClose={()=>setShowImport(false)} existingIds={existingIds}/>}{showBrickLink&&<LinkBrickSheet cardio={cardio} bricks={bricks||[]} onSave={b=>{onSaveBrick(b);setShowBrickLink(false);}} onClose={()=>setShowBrickLink(false)}/>}</div>);
+  return(<div style={{paddingBottom:80}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:18}}><Card onClick={()=>setShowLog(true)} accent={C.accent}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='pencil' size={16} color={C.accent}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.accent,textAlign:'center'}}>Log</div></div></Card><Card onClick={()=>setShowImport(true)} accent={C.cyan}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='watch' size={16} color={C.cyan}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.cyan,textAlign:'center'}}>Import</div></div></Card><Card onClick={()=>setShowBrickLink(true)} accent={C.yellow}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.yellow+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='layers' size={16} color={C.yellow}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow,textAlign:'center'}}>Brick</div></div></Card></div><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:16,scrollbarWidth:'none'}}>{['all','run','bike','swim','strength','hike','other'].map(s=>{const meta=SPORT_META[s]||{color:C.muted,label:'All'};const sel=filter===s;const count=s==='all'?allWorkouts.length:allWorkouts.filter(w=>w.sport===s).length;return(<button key={s} onClick={()=>setFilter(s)} style={{flexShrink:0,padding:'7px 14px',borderRadius:20,background:sel?(s==='all'?C.text:meta.color+'18'):C.surface,border:`1.5px solid ${sel?(s==='all'?C.text:meta.color):C.border}`,color:sel?(s==='all'?C.bg:meta.color):C.muted,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',boxShadow:sel?S.sm:'none'}}>{s==='all'?`All (${count})`:`${meta.icon} ${meta.label}`}</button>);})}</div>{Object.keys(groups).length===0?<Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='chart' size={36} color={C.muted}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>No workouts yet</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>Log manually or import from Apple Health</div></Card>:Object.entries(groups).map(([dateLabel,wos])=>(<div key={dateLabel}><div style={{fontFamily:F.ui,fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,marginTop:6,textTransform:'uppercase',letterSpacing:'.06em'}}>{dateLabel}</div>{(()=>{const rendered=new Set();return wos.map((w,i)=>{
+  if(rendered.has(w.id))return null;
+  const brick=brickForWorkout(w.id);
+  if(brick){
+    const otherLeg=brick.legs.find(l=>l.workoutId!==w.id);
+    const otherW=otherLeg?wos.find(x=>x.id===otherLeg.workoutId)||cardio.find(x=>x.id===otherLeg.workoutId):null;
+    brick.legs.forEach(l=>rendered.add(l.workoutId));
+    const legs=[w,otherW].filter(Boolean);
+    const totalDur=legs.reduce((t,l)=>t+l.duration,0)+(brick.transitionTime||0);
+    return(<Card key={'brick-'+brick.id} onClick={()=>setSelectedBrick(brick)} style={{marginBottom:8,padding:0,borderColor:C.yellow+'40',cursor:'pointer',overflow:'hidden'}}>
+      <div style={{padding:'8px 14px',background:C.yellow+'08',display:'flex',alignItems:'center',gap:8,borderBottom:`1px solid ${C.yellow}20`}}>
+        <Icon name='layers' size={14} color={C.yellow}/><span style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow}}>Brick</span>
+        {brick.transitionTime&&<span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>T: {brick.transitionTime}min</span>}
+        <span style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:C.text,marginLeft:'auto'}}>{fmtDur(totalDur)}</span>
+      </div>
+      {legs.map((leg,li)=>{const ls=SPORT_META[leg.sport]||SPORT_META.other;return(
+        <div key={li} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderTop:li>0?`1px solid ${C.border}`:'none'}}>
+          <SportBadge sport={leg.sport} small/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontSize:14,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{leg.notes||ls.label}</div></div>
+          <span style={{fontFamily:F.mono,fontSize:13,color:C.muted}}>{fmtDur(leg.duration)}</span>
+        </div>);})}
+    </Card>);
+  }
+  return(<Card key={i} onClick={()=>setSelectedWorkout(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'other'} small/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontSize:15,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||'—'}</div><div style={{display:'flex',gap:6,marginTop:2}}>{w.source==='healthkit'&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.cyan}}>Apple Health</span>}</div></div><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text,flexShrink:0}}>{fmtDur(w.duration)}</div></div></Card>);
+});})()}</div>))}{showLog&&<LogWorkoutSheet onSave={w=>{onAddCardio(w);setShowLog(false);}} onClose={()=>setShowLog(false)}/>}{showImport&&<HealthImportSheet onImport={ws=>{onImportHealth(ws);setShowImport(false);}} onClose={()=>setShowImport(false)} existingIds={existingIds}/>}{showBrickLink&&<LinkBrickSheet cardio={cardio} bricks={bricks||[]} onSave={b=>{onSaveBrick(b);setShowBrickLink(false);}} onClose={()=>setShowBrickLink(false)}/>}{selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)}/>}{selectedBrick&&<BrickDetailSheet brick={selectedBrick} cardio={cardio} onDelete={onDeleteBrick} onClose={()=>setSelectedBrick(null)}/>}</div>);
 }
 
 // ─── Knowledge Tab ─────────────────────────────────────────────────────────────
