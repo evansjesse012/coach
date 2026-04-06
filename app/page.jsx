@@ -596,6 +596,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
   const handleCustomSave = () => { onCustomPromptChange(localCustom); setSaved(true); setTimeout(()=>setSaved(false),2000); toast.success('Custom coach saved'); };
   const resetMemory = async () => { const ok=await confirmDialog('Reset coaching memory?','The coach will start fresh — all learned patterns and history cleared.'); if(!ok)return; saveMemory(defaultMemory()); toast.info('Coaching memory reset'); };
   const exportData = () => { const data={exportedAt:new Date().toISOString(),events:db.get('coach_events',[]),cardio:db.get('coach_cardio',[]),strength:db.get('coach_strength_history',[]),prs:db.get('coach_prs',{}),nutrition:db.get('coach_nutrition',[]),trainingPlan:db.get('coach_training_plan',null),bricks:db.get('coach_bricks',[]),memory:loadMemory()}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`coach-export-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); toast.success('Data exported'); };
+  const loadSeedData = async () => { const ok=await confirmDialog('Load test data?','This will replace all current data with sample training data for testing.'); if(!ok)return; try{const res=await fetch('/seed-data.json');const d=await res.json();db.set('coach_events',d.events||[]);db.set('coach_cardio',d.cardio||[]);db.set('coach_strength_history',d.strengthHistory||[]);db.set('coach_prs',d.prs||{});db.set('coach_nutrition',d.nutrition||[]);db.set('coach_bricks',d.bricks||[]);if(d.memory)saveMemory(d.memory);db.set('coach_messages',[]);toast.success('Test data loaded — reload the app');setTimeout(()=>window.location.reload(),1000);}catch(e){toast.error('Failed to load seed data');} };
 
   return (
     <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto'}}>
@@ -671,6 +672,9 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
           <Label>Your data</Label>
           <Card onClick={exportData} accent={C.cyan}>
             <div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:36,height:36,borderRadius:12,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='upload' size={18} color={C.cyan}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.cyan}}>Export all data</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:1}}>Download workouts, goals, and history as JSON</div></div></div>
+          </Card>
+          <Card onClick={loadSeedData} accent={C.yellow} style={{marginTop:10}}>
+            <div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:36,height:36,borderRadius:12,background:C.yellow+'18',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='zap' size={18} color={C.yellow}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.yellow}}>Load test data</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:1}}>Replace with sample triathlon training data</div></div></div>
           </Card>
         </div>
 
