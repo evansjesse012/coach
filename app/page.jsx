@@ -524,7 +524,20 @@ const todayStr  = () => new Date().toISOString().split('T')[0];
 const uid       = () => Math.random().toString(36).slice(2,10);
 const epley     = (w,r) => r===1?w:Math.round(w*(1+r/30));
 const getDayName= () => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
-function renderMd(text){if(!text)return null;return text.split('\n').map((line,i)=>{const parts=[];let last=0;const re=/\*\*(.+?)\*\*/g;let m;while((m=re.exec(line))!==null){if(m.index>last)parts.push(line.slice(last,m.index));parts.push(<strong key={`b${i}-${m.index}`}>{m[1]}</strong>);last=re.lastIndex;}if(last<line.length)parts.push(line.slice(last));const content=parts.length?parts:line;const bullet=line.match(/^[-•]\s+(.*)$/);if(bullet){const inner=[];let l2=0;const re2=/\*\*(.+?)\*\*/g;let m2;while((m2=re2.exec(bullet[1]))!==null){if(m2.index>l2)inner.push(bullet[1].slice(l2,m2.index));inner.push(<strong key={`lb${i}-${m2.index}`}>{m2[1]}</strong>);l2=re2.lastIndex;}if(l2<bullet[1].length)inner.push(bullet[1].slice(l2));return <div key={i} style={{display:'flex',gap:8,marginTop:2,marginBottom:2}}><span style={{color:C.muted,flexShrink:0}}>•</span><span>{inner.length?inner:bullet[1]}</span></div>;}return <div key={i}>{content}</div>;});}
+function renderMd(text){
+  if(!text)return null;
+  const inlineBold=(str,keyPfx)=>{const parts=[];let last=0;const re=/\*\*(.+?)\*\*/g;let m;while((m=re.exec(str))!==null){if(m.index>last)parts.push(str.slice(last,m.index));parts.push(<strong key={`${keyPfx}-${m.index}`}>{m[1]}</strong>);last=re.lastIndex;}if(last<str.length)parts.push(str.slice(last));return parts.length?parts:str;};
+  return text.split('\n').map((line,i)=>{
+    if(!line.trim())return <div key={i} style={{height:8}}/>;
+    if(line.match(/^---+$/))return <div key={i} style={{height:1,background:C.border,margin:'12px 0'}}/>;
+    const h1=line.match(/^#\s+(.*)$/);if(h1)return <div key={i} style={{fontFamily:F.display,fontSize:20,fontWeight:800,color:C.text,marginTop:16,marginBottom:6}}>{inlineBold(h1[1],`h1${i}`)}</div>;
+    const h2=line.match(/^##\s+(.*)$/);if(h2)return <div key={i} style={{fontFamily:F.display,fontSize:17,fontWeight:700,color:C.text,marginTop:14,marginBottom:4}}>{inlineBold(h2[1],`h2${i}`)}</div>;
+    const h3=line.match(/^###\s+(.*)$/);if(h3)return <div key={i} style={{fontFamily:F.ui,fontSize:15,fontWeight:700,color:C.text,marginTop:10,marginBottom:2}}>{inlineBold(h3[1],`h3${i}`)}</div>;
+    const num=line.match(/^(\d+)[.)]\s+(.*)$/);if(num)return <div key={i} style={{display:'flex',gap:8,marginTop:2,marginBottom:2}}><span style={{color:C.accent,fontWeight:700,flexShrink:0,fontFamily:F.mono,fontSize:13,minWidth:18,textAlign:'right'}}>{num[1]}.</span><span>{inlineBold(num[2],`n${i}`)}</span></div>;
+    const bullet=line.match(/^[-•*]\s+(.*)$/);if(bullet)return <div key={i} style={{display:'flex',gap:8,marginTop:2,marginBottom:2}}><span style={{color:C.muted,flexShrink:0}}>•</span><span>{inlineBold(bullet[1],`b${i}`)}</span></div>;
+    return <div key={i}>{inlineBold(line,`l${i}`)}</div>;
+  });
+}
 const db = { get(k,fb){try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}} };
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
