@@ -1156,11 +1156,6 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
     </Card>
     <CreatePlanSheet/>
     {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={onWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
-    {/* Static plan preview */}
-    <Label>Current weekly template</Label>
-    <div style={{opacity:0.6}}>
-    {plan.map(({day,sessions})=>{const isToday=day===today;return (<div key={day} style={{marginBottom:10}}><div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}><span style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:isToday?C.accent:C.subtle}}>{day}</span>{isToday&&<Pill color={C.accent} small>Today</Pill>}{sessions.length===0&&<span style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginLeft:'auto'}}>Rest</span>}</div>{sessions.length>0&&<Card style={{padding:'4px 6px',borderColor:isToday?C.accent+'30':C.border}}>{sessions.map((sess,i)=>{const isStr=sess.type==='strength';const t=isStr?STRENGTH_TEMPLATES.find(t=>t.id===sess.templateId):null;const sport=SPORT_META[sess.sport||'other'];return (<div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 10px',borderRadius:12,borderBottom:i<sessions.length-1?`1px solid ${C.border}`:'none'}}><span style={{flexShrink:0}}>{isStr?<Icon name='dumbbell' size={20} color={t?.color||C.green}/>:<Icon name={sport.icon} size={20} color={sport.color}/>}</span><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:isStr?(t?.color||C.green):C.text}}>{sess.label}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:2,lineHeight:1.5}}>{sess.notes}</div></div></div>);})}</Card>}</div>);})}
-    </div>
   </div>);
 
   // Has periodized plan — full plan UI
