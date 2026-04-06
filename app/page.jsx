@@ -691,7 +691,7 @@ function StrengthTracker({template,strengthHistory,prs,onSave,onDiscard}){
 }
 
 // ─── Plan Tab ──────────────────────────────────────────────────────────────────
-function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activeWO,setActiveWO,trainingPlan,onCreatePlan,onGenerateWeek,onAddEvent}){
+function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activeWO,setActiveWO,trainingPlan,onCreatePlan,onGenerateWeek,onAddEvent,onDisruption}){
   const[tracker,setTracker]=useState(activeWO?STRENGTH_TEMPLATES.find(t=>t.id===activeWO?.templateId)||null:null);
   const[createStep,setCreateStep]=useState(null); // null | 'select' | 'confirm'
   const[selectedGoal,setSelectedGoal]=useState(null);
@@ -904,6 +904,56 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
         </Card>}
       </div>);
     })}
+
+    {/* Disruption shortcuts */}
+    {onDisruption&&<div style={{marginTop:24}}>
+      <Label>Need to adjust?</Label>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        {[
+          {icon:'alert',label:"I'm sick",color:C.red,msg:"I'm sick and need to modify my training this week. What should I do? Check my current plan and recent workouts first."},
+          {icon:'pin',label:'Traveling',color:C.cyan,msg:"I'm traveling this week with limited equipment. Please regenerate my week with hotel/bodyweight alternatives. Check my current plan first."},
+          {icon:'rest',label:'Extra recovery',color:C.purple,msg:"I need extra recovery this week — feeling fatigued. Please regenerate a lighter week that maintains frequency but drops volume. Check my recent workouts first."},
+          {icon:'calendar',label:'Missed sessions',color:C.yellow,msg:"I missed some sessions recently. Check my workouts vs my plan and help me recalibrate the rest of this week. Don't try to make up missed volume."},
+        ].map((d,i)=><Card key={i} onClick={()=>onDisruption(d.msg)} style={{padding:'14px 12px',cursor:'pointer'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:32,height:32,borderRadius:10,background:d.color+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name={d.icon} size={16} color={d.color}/></div>
+            <span style={{fontFamily:F.ui,fontWeight:600,fontSize:13,color:C.text}}>{d.label}</span>
+          </div>
+        </Card>)}
+      </div>
+    </div>}
+
+    {/* Season week grid */}
+    <div style={{marginTop:24}}>
+      <Label>Season overview</Label>
+      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:10}}>
+        {Array.from({length:tp.totalWeeks},(_,i)=>{
+          const wk=i+1;
+          let cumWeeks=0;let phIdx=0;let weekInPhase=0;
+          for(let pi=0;pi<(tp.phases?.length||0);pi++){if(wk<=cumWeeks+tp.phases[pi].weeks){phIdx=pi;weekInPhase=wk-cumWeeks;break;}cumWeeks+=tp.phases[pi].weeks;}
+          const ph=tp.phases?.[phIdx];
+          const color=phaseColors[phIdx%phaseColors.length];
+          const isCurrent=wk===tp.currentWeek;
+          const isPast=wk<tp.currentWeek;
+          const isDeload=ph?.deloadWeek&&weekInPhase===ph.deloadWeek;
+          const isGenerated=!!tp.weeklyPlans?.[String(wk)];
+          return (<div key={wk} style={{width:28,height:28,borderRadius:6,background:isCurrent?color:(isPast?color+'30':C.elevated),border:isDeload?`2px solid ${C.yellow}80`:`1.5px solid ${isCurrent?color:isPast?color+'20':'transparent'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',cursor:'default'}}>
+            <span style={{fontFamily:F.mono,fontSize:9,fontWeight:isCurrent?700:500,color:isCurrent?'#fff':(isPast?color:C.muted)}}>{wk}</span>
+            {isGenerated&&!isCurrent&&<div style={{position:'absolute',top:-1,right:-1,width:7,height:7,borderRadius:'50%',background:C.green,border:`1.5px solid ${C.bg}`}}/>}
+          </div>);
+        })}
+      </div>
+      <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+        {[{label:'Current',color:C.accent,type:'solid'},{label:'Complete',color:C.accent+'30',type:'solid'},{label:'Upcoming',color:C.elevated,type:'solid'},{label:'Deload',color:C.yellow,type:'border'},{label:'Generated',color:C.green,type:'dot'}].map(({label,color,type})=>
+          <div key={label} style={{display:'flex',alignItems:'center',gap:5}}>
+            {type==='solid'&&<div style={{width:10,height:10,borderRadius:3,background:color}}/>}
+            {type==='border'&&<div style={{width:10,height:10,borderRadius:3,border:`2px solid ${color}`,background:'transparent'}}/>}
+            {type==='dot'&&<div style={{width:10,height:10,borderRadius:'50%',background:color}}/>}
+            <span style={{fontFamily:F.ui,fontSize:10,color:C.muted,fontWeight:500}}>{label}</span>
+          </div>
+        )}
+      </div>
+    </div>
 
     {/* Phase overview */}
     <div style={{marginTop:24}}>
@@ -1565,7 +1615,7 @@ export default function CoachApp() {
       <div style={{padding:'20px 16px 0'}}>
         {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')}/>}
-        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} onCreatePlan={goal=>{setTab('chat');setTimeout(()=>handleSend(`Create a training plan for my ${goal.name}. My goal is ${goal.goal||'to finish strong'}${goal.stretchGoal?' (stretch: '+goal.stretchGoal+')':''}. ${goal.date?'Race date: '+goal.date+'.':''} ${goal.baseline?'My current PR/baseline: '+goal.baseline+'.':''} ${goal.location?'Location: '+goal.location+'.':''} Please check my profile, workout history, and goals, then build me a full periodized plan.`),100);}} onGenerateWeek={(wk,ph)=>{setTab('chat');setTimeout(()=>handleSend(`Generate my training plan for week ${wk} (Phase ${ph}). Check my recent workouts and profile first, then create the full week with sessions, zones, nutrition, and priorities. Save it with save_weekly_plan.`),100);}}/>}
+        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} onCreatePlan={goal=>{setTab('chat');setTimeout(()=>handleSend(`Create a training plan for my ${goal.name}. My goal is ${goal.goal||'to finish strong'}${goal.stretchGoal?' (stretch: '+goal.stretchGoal+')':''}. ${goal.date?'Race date: '+goal.date+'.':''} ${goal.baseline?'My current PR/baseline: '+goal.baseline+'.':''} ${goal.location?'Location: '+goal.location+'.':''} Please check my profile, workout history, and goals, then build me a full periodized plan.`),100);}} onGenerateWeek={(wk,ph)=>{setTab('chat');setTimeout(()=>handleSend(`Generate my training plan for week ${wk} (Phase ${ph}). Check my recent workouts and profile first, then create the full week with sessions, zones, nutrition, and priorities. Save it with save_weekly_plan.`),100);}} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}}/>}
         {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth}/>}
         {tab==='chat'&&<ChatTab messages={messages} onSend={handleSend} loading={loading} isStreaming={isStreaming} streamText={streamText} personality={personality}/>}
       </div>
