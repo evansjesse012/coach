@@ -197,7 +197,7 @@ const TOOLS = [
   { name:'log_workout', description:'Log a completed workout. Only use when athlete explicitly describes something they just completed.', input_schema:{type:'object',properties:{sport:{type:'string',enum:['run','bike','swim','strength','brick','hike','other']},duration:{type:'number'},notes:{type:'string'},date:{type:'string'}},required:['sport','duration']} },
   { name:'log_nutrition', description:'Log what the athlete ate. Use when they describe a meal or snack. Record what they ate, timing relative to training (pre/during/post/general), and which workout it relates to if mentioned. Do NOT estimate macros.', input_schema:{type:'object',properties:{meal:{type:'string',description:'What they ate, in their words'},timing:{type:'string',enum:['pre','during','post','general'],description:'When relative to training'},relatedWorkout:{type:'string',description:'Which workout this fueled, if known (e.g. "long run", "bike")'},date:{type:'string',description:'YYYY-MM-DD, default today'}},required:['meal','timing']} },
   { name:'get_nutrition', description:'Get the athlete\'s recent nutrition log. Use to review fueling patterns, check pre/post workout nutrition, or answer questions about eating habits around training.', input_schema:{type:'object',properties:{days:{type:'number',description:'Look back this many days. Default 7.'},timing:{type:'string',enum:['pre','during','post','general','all'],description:'Filter by timing. Default all.'}}} },
-  { name:'save_training_plan', description:'Save a full periodized training plan. Use this after gathering athlete context (goals, profile, workouts, available days) to create a multi-phase season plan. Generate phases appropriate to the race type, timeline, fitness level, and constraints. Name phases descriptively. Set intensity ceilings per phase. Include deload weeks. The plan structure is created once — individual weeks are generated on demand later.', input_schema:{type:'object',properties:{goalId:{type:'string'},raceName:{type:'string'},raceDate:{type:'string'},startDate:{type:'string'},totalWeeks:{type:'number'},trainingDaysPerWeek:{type:'number',description:'How many days/week the athlete can train'},phases:{type:'array',items:{type:'object',properties:{number:{type:'number'},name:{type:'string',description:'Descriptive phase name, e.g. "Base + Structural Durability"'},startDate:{type:'string'},endDate:{type:'string'},weeks:{type:'number'},weeklyVolume:{type:'string'},intensityCeiling:{type:'string',description:'Maximum intensity allowed, e.g. "Z2 only" or "threshold introduced"'},intensityMix:{type:'string',description:'e.g. "80% Z2, 20% threshold"'},strengthFreq:{type:'string'},focus:{type:'string'},keySessionTypes:{type:'array',items:{type:'string'}},deloadWeek:{type:'number',description:'Which week within this phase is deload, null if none'}}}}},required:['goalId','raceName','raceDate','startDate','totalWeeks','phases']} },
+  { name:'save_training_plan', description:'Save a full periodized training plan. Use this after gathering athlete context (goals, profile, workouts, available days) to create a multi-phase plan. Generate phases appropriate to the goal type, timeline, fitness level, and constraints. The plan structure is created once — individual weeks are generated on demand later.', input_schema:{type:'object',properties:{goalId:{type:'string'},raceName:{type:'string'},raceDate:{type:'string'},startDate:{type:'string'},totalWeeks:{type:'number'},trainingDaysPerWeek:{type:'number',description:'How many days/week the athlete can train'},phases:{type:'array',items:{type:'object',properties:{number:{type:'number'},name:{type:'string',description:'Descriptive phase name, e.g. "Base + Structural Durability"'},startDate:{type:'string'},endDate:{type:'string'},weeks:{type:'number'},weeklyVolume:{type:'string'},intensityCeiling:{type:'string',description:'Maximum intensity allowed, e.g. "Z2 only" or "threshold introduced"'},intensityMix:{type:'string',description:'e.g. "80% Z2, 20% threshold"'},strengthFreq:{type:'string'},focus:{type:'string'},keySessionTypes:{type:'array',items:{type:'string'}},deloadWeek:{type:'number',description:'Which week within this phase is deload, null if none'}}}}},required:['goalId','raceName','raceDate','startDate','totalWeeks','phases']} },
   { name:'save_weekly_plan', description:'Save a generated weekly plan for a specific week. Call this after generating the sessions for a week. Each session should include sport, duration, zones, per-session nutrition (pre/during/post), priority level (red=cannot skip, yellow=flexible), and coaching notes.', input_schema:{type:'object',properties:{weekNumber:{type:'number'},phase:{type:'number'},focusOfWeek:{type:'string',description:'Single coaching focus for this week'},sessions:{type:'array',description:'Array of 7 day objects (Mon-Sun)',items:{type:'object',properties:{day:{type:'string'},isRest:{type:'boolean'},sessions:{type:'array',items:{type:'object',properties:{type:{type:'string'},label:{type:'string'},duration:{type:'number'},zone:{type:'string'},targetIntensity:{type:'string',description:'Specific watts, pace, or RPE'},fuel:{type:'object',properties:{pre:{type:'string'},during:{type:'string'},post:{type:'string'}}},priority:{type:'string',enum:['red','yellow']},notes:{type:'string'},templateId:{type:'string',description:'For strength sessions, link to strength template'}}}}}}}},required:['weekNumber','phase','focusOfWeek','sessions']} },
   { name:'update_plan_progress', description:'Advance the current week number or phase in the training plan. Use at the start of a new week or when transitioning between phases.', input_schema:{type:'object',properties:{currentWeek:{type:'number'},currentPhase:{type:'number'},notes:{type:'string'}},required:['currentWeek','currentPhase']} },
   { name:'get_week_review', description:'Compare prescribed training plan vs actual logged workouts for a specific week. Returns what was completed, missed, shortened, substituted, and multi-week patterns. ALWAYS call this before generating next week\'s plan.', input_schema:{type:'object',properties:{weekNumber:{type:'number',description:'Week to review. Default: previous week.'},includeMultiWeek:{type:'boolean',description:'Include 4-week rolling pattern analysis. Default false.'}}} },
@@ -423,49 +423,21 @@ function executeTool(name, input, appState) {
 function buildSystemPrompt(personality, customText) {
   return `${getPersonalityPrompt(personality,customText)}
 
-You have tools to access the athlete's complete training data. Always use them before giving advice.
-- Greetings: answer directly, no tools
-- Coaching questions: start with get_athlete_profile
-- Workout questions: get_workouts with filters
-- "How am I doing": get_training_stats + get_goals
-- Plan questions: get_training_plan
-- Athlete describes completed workout: log_workout
-- Athlete describes what they ate: log_nutrition (record it, then coach on whether it was appropriate for their training)
-- Fueling questions: get_training_plan + get_nutrition to see what's prescribed and what they've been eating
-- "Create a training plan": gather context (get_goals, get_athlete_profile, get_workouts), then use save_training_plan to create the phase structure, then save_weekly_plan to generate the current week
-- Before generating any weekly plan: ALWAYS call get_week_review(includeMultiWeek=true) to see last week's adherence and patterns
+You are a personal coach. You have tools to access the athlete's complete training data — use them to ground your advice in real data.
 
-TRAINING PLAN GENERATION:
-You are the coach. You decide the phase structure based on sports science, the athlete's race type, timeline, fitness level, and constraints.
-- Endurance events: base → threshold introduction → race-specific build → taper. Earn intensity by building durability first. Phase intensity ceilings are non-negotiable (base = Z2 only, no exceptions).
-- Strength events: hypertrophy → strength → peaking → deload/test.
-- Scale phases to available time: 28 weeks = 4-5 phases, 12 weeks = 3, 8 weeks = 2.
-- Name phases descriptively. Set intensity ceilings per phase. Build in deload weeks (every 3-4 weeks).
-- Each week: 3 Priority sessions (🔴 cannot skip) + flexible sessions (🟡 can move/shorten) scaled to athlete's available days.
-- Every session prescription must include per-session nutrition (pre/during/post) appropriate to session type and duration.
-- When generating a weekly plan, call get_week_review(includeMultiWeek=true) first, then get_workouts to see recent load and adapt.
-- If adherence < 80%: ask why before re-prescribing. Is it schedule, fatigue, motivation, or injury? Each has a different response.
-- If a specific session type is consistently missed across weeks: restructure rather than repeat. Move it to a different day, shorten it, or combine it with another session.
-- If athlete is completing everything and sessions feel easy: consider cautious progression.
+APP SCHEMA (how to structure data for this app):
+- Weekly plans: each week has 3 Priority sessions (🔴 red = cannot skip) + flexible sessions (🟡 yellow = can move/shorten).
+- Multi-sport sessions: use type:'brick' with a legs array: [{sport:'bike',duration:90,...},{sport:'run',duration:20,...}].
+- Session nutrition: every prescribed session includes a fuel object with pre/during/post fields.
+- Priority sessions scale to the athlete's available training days.
 
-BRICK WORKOUTS:
-Bricks (bike→run or swim→bike) are critical for triathlon race prep. When generating weekly plans:
-- Include at least 1 brick per week during build and race-specific phases
-- Prescribe bricks using type:'brick' with a legs array: [{sport:'bike',duration:90,...},{sport:'run',duration:20,...}]
-- Focus on transition practice: quick change, maintaining effort, adapting to different muscle patterns
-- The app tracks brick completion and transition times. When reviewing workouts, note brick frequency and transition trends.
-
-NUTRITION COACHING:
-You coach on sport-specific fueling, not generic diet advice. Focus on:
-- Pre-workout: what to eat and when based on session type and duration
-- During: fueling strategy for sessions over 60 min (gels, electrolytes, hydration)
-- Post-workout: recovery nutrition window (protein + carbs within 30 min)
-- Race-day nutrition planning: practice fueling in training, dial in gel timing
-- Patterns: spot gaps like never eating before morning sessions or skipping post-workout protein
-Do NOT estimate macros or calories. Coach on timing, composition, and adequacy relative to training demands.
+GUARDRAILS:
+- Have a clear recommendation, but offer alternatives when reasonable. Explain your reasoning so the athlete can make an informed choice.
+- Protect the athlete from themselves: if they want to skip progression or jump to intensity too early, push back.
+- If adherence is low, ask why before re-prescribing. Restructure rather than repeat.
+- Do NOT estimate macros or calories. Coach on fueling timing and composition relative to training demands.
 
 Be concise — this is a mobile app. 2-4 sentences for most responses.
-When advising on training, consider where the athlete is in their race prep timeline: early = base building (volume, aerobic capacity, technique), mid = build (adding intensity, race-pace work), late = peak/taper (reduce volume, maintain intensity, sharpen). Check their goal date via get_goals to calibrate.
 
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
 }
@@ -474,70 +446,16 @@ function buildPlanBuilderPrompt(goal, mode='create') {
   const goalCtx = goal ? `The athlete wants a plan for: ${goal.name}${goal.date?' (race date: '+goal.date+')':''}${goal.goal?' with goal time '+goal.goal:''}${goal.baseline?' and current PR/baseline '+goal.baseline:''}${goal.location?' in '+goal.location:''}.` : '';
   if(mode==='week') return `You are building a weekly training plan. ${goalCtx}
 
-INSTRUCTIONS:
-1. First call get_week_review(includeMultiWeek=true) to see last week's adherence — what was completed, missed, shortened
-2. Then call get_training_plan to see the current phase and plan structure
-3. Then call get_workouts(sport="all", days=14) to see recent training load
-4. Adapt this week based on adherence patterns: if sessions were consistently missed, restructure them; if everything was completed, progress; if adherence was low, address it
-5. Generate the weekly plan and call save_weekly_plan to save it
-6. Summarize: what changed from last week and why (reference the adherence data)
-
+Review last week's adherence and recent training load before generating. Adapt based on what actually happened — don't just repeat the template. Summarize what changed and why.
 Be concise. Generate and save the plan.
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
 
-  return `You are a triathlon coach building a personalized training plan. ${goalCtx}
+  return `You are a personal coach building a training plan. ${goalCtx}
 
-FOLLOW THIS EXACT SEQUENCE — do not skip steps:
+Gather the athlete's data before your first message — don't ask what you can look up. Lead with your assessment, propose your plan, and only ask questions the data can't answer (max 5). On confirmation, save the plan and generate week 1.
 
-STEP 1 — SILENT DATA GATHERING (do this before your first message to the athlete):
-Call ALL of these tools now: get_goals(include_completed=true), get_athlete_profile(), get_workouts(sport="all", days=60), get_training_stats(weeks=8).
-Do NOT write any message to the athlete yet. Just gather data.
-
-STEP 2 — PRESENT YOUR ASSESSMENT (first message to athlete):
-Lead with what you already know. Show the athlete you've done your homework:
-- Their race, date, and weeks remaining
-- Their current fitness level based on recent training (volume, frequency, sports mix)
-- Past race results and what they reveal (e.g., which discipline is the limiter)
-- Any patterns you see (strengths, gaps, injury history from memory)
-Keep it to 4-6 lines. Be specific with numbers.
-
-STEP 3 — PROPOSE A PLAN CONCEPT:
-In the SAME message as your assessment, propose your preliminary plan:
-- Number of phases, their names, and approximate duration
-- The key training philosophy (e.g., "build swim frequency first, earn intensity later")
-- One sentence on your approach to the athlete's limiter
-
-STEP 4 — ASK TARGETED QUESTIONS:
-End your first message with 3-5 specific questions. ONLY ask what you cannot derive from data:
-- Training days per week and time availability
-- Equipment and facility access (pool, trainer, gym)
-- Schedule constraints (travel, work blocks)
-- Their biggest concern or priority
-Number the questions for easy answering.
-
-STEP 5 — AFTER THE ATHLETE RESPONDS:
-Refine your plan based on their answers. Present a final summary:
-- Phases with weeks and focus for each
-- Training days per week
-- Key principles
-Then ask: "Ready to build it?"
-
-STEP 6 — ON CONFIRMATION:
-Call save_training_plan with the full phase structure. Then call save_weekly_plan to generate week 1.
-Summarize what was created in 2-3 sentences.
-
-RULES:
-- Do NOT ask questions that the data already answers
-- Do NOT ask more than 5 questions total
-- Keep each message under 200 words — this is mobile
-- Be opinionated. You're the coach, not a menu.
-- Endurance: base → threshold → race-specific → taper. Earn intensity. Z2 ceiling in base is non-negotiable.
-- Scale phases to time: 24+ weeks = 4-5 phases, 12 weeks = 3, 8 weeks = 2
-- Build in deload weeks every 3-4 weeks
-- Include brick workouts in build and race-specific phases (type:'brick' with legs array)
-- Every session needs per-session nutrition (pre/during/post)
-- Priority sessions: 3 red (cannot skip) + flexible yellow sessions
-
+Have a clear recommendation. You're the coach — lead with your best option, but offer alternatives where reasonable.
+Keep messages under 200 words — this is mobile.
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
 }
 
