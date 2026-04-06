@@ -1204,6 +1204,8 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[createStep,setCreateStep]=useState(null); // null | 'select' | 'confirm'
   const[selectedGoal,setSelectedGoal]=useState(null);
   const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
+  const[expandedPhase,setExpandedPhase]=useState(null);
+  const[showFuel,setShowFuel]=useState(null);
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
   const startStrength=tid=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===tid);if(t)setTracker(t);};
   const handleSave=(completedEx,dur,newPRs)=>{onSaveStrength(completedEx,dur,newPRs,tracker);setTracker(null);setActiveWO(null);};
@@ -1304,8 +1306,6 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const weekAdherence=weekPlan?computeWeekAdherence(tp,tp.currentWeek,cardio,strengthHistory):null;
   const multiWeekPatterns=tp.currentWeek>1?computeMultiWeekPatterns(tp,tp.currentWeek,cardio,strengthHistory):[];
   const weeksToRace=tp.raceDate?Math.max(0,Math.ceil((new Date(tp.raceDate+'T12:00:00')-new Date())/604800000)):null;
-  const[expandedPhase,setExpandedPhase]=useState(null);
-  const[showFuel,setShowFuel]=useState(null);
   const phaseColors=['#E8604C','#2BAFC4','#F0A830','#8B6FE8','#2ABF84','#4890D8'];
 
   return (<div style={{paddingBottom:48}}>
