@@ -690,8 +690,7 @@ Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('e
 }
 
 function buildPlanBuilderPrompt(goal, mode='create') {
-  const weeksToRace = goal?.date ? Math.round((new Date(goal.date+'T12:00:00') - new Date()) / (7*86400000)) : null;
-  const goalCtx = goal ? `The athlete wants a plan for: ${goal.name}${goal.date?' (race date: '+goal.date+')':''}${weeksToRace!=null?' That is approximately '+weeksToRace+' weeks away.':''}${goal.goal?' with goal time '+goal.goal:''}${goal.baseline?' and current PR/baseline '+goal.baseline:''}${goal.location?' in '+goal.location:''}.` : '';
+  const goalCtx = goal ? `The athlete wants a plan for: ${goal.name}${goal.date?' (race date: '+goal.date+')':''}${goal.goal?' with goal time '+goal.goal:''}${goal.baseline?' and current PR/baseline '+goal.baseline:''}${goal.location?' in '+goal.location:''}.` : '';
   if(mode==='week') return `You are building a weekly training plan. ${goalCtx}
 
 Review last week's adherence and recent training load before generating. Adapt based on what actually happened — don't just repeat the template. Summarize what changed and why.
@@ -723,16 +722,10 @@ For endurance: base → threshold → race-specific → taper. Earn intensity.
 For strength: hypertrophy → max strength → peaking → deload/test.
 
 TIMELINE AWARENESS:
-Use the weeks-to-race number provided in the goal context above. Apply these rules:
+Compare today's date to the race date and plan like an expert coach would:
 - 26 weeks or fewer: build a normal periodized plan through race day.
-- 27-52 weeks: build a plan spanning the full timeline, but extend the base/general development phases proportionally. Do NOT compress race-specific work into extra months — earn each phase.
-- More than 52 weeks: Do NOT build a plan all the way to the race. Instead:
-  1. Acknowledge the long timeline as a strategic advantage — this is time most athletes don't have.
-  2. Build a 12-20 week base-building / general development plan starting now.
-  3. Focus on aerobic development, injury prevention, strength foundations, and consistency habits.
-  4. Explicitly tell the athlete: "We'll build your race-specific plan closer to [race name]. For now, this plan builds the foundation that makes that plan more effective."
-  5. Save this as a real plan with phases and weekly structure — it must be actionable, not a placeholder.
-  6. Name phases descriptively (e.g., "Aerobic Foundation", "General Strength Development") — not "Pre-Pre-Base".
+- 27-52 weeks: build a plan spanning the full timeline with extended base/general development phases. Do NOT compress race-specific work into extra months — earn each phase.
+- More than 52 weeks: think in annual periodization. Map out the full macro structure from now through race day with clear phases, milestones, and tune-up races. Include general preparation, specific preparation, tune-up race blocks, transitions, and the final race-specific block. This gives the athlete a roadmap for the entire journey. Weekly plans are still generated one at a time, so you don't need every workout — just the phase architecture. Acknowledge the long timeline as a strategic advantage.
 - No race date: build a general development plan of 12-16 weeks.
 
 Have a clear recommendation. You're the coach — lead with your best option, but offer alternatives where reasonable.
