@@ -2102,8 +2102,7 @@ function PlanSection({ icon, iconColor, title, hasContent, defaultOpen, children
 }
 
 // ─── Goal Chat Sheet ──────────────────────────────────────────────────────────
-const GOAL_CHAT_TOOLS = [
-  { name:'propose_event', description:'Propose a structured goal, race, or PR based on the conversation. Call this when you have enough information to fill out the event fields. The user will review and edit before saving.', input_schema:{type:'object',properties:{
+const PROPOSE_EVENT_TOOL = { name:'propose_event', description:'Propose a structured goal, race, or PR based on the conversation. Call this when you have enough information to fill out the event fields. The user will review and edit before saving.', input_schema:{type:'object',properties:{
     mode:{type:'string',enum:['goal','race','pr'],description:'Event type: goal (future target), race (past race result), or pr (personal record)'},
     presetId:{type:'string',enum:EVENT_PRESETS.map(p=>p.id),description:'Sport/type preset ID'},
     name:{type:'string',description:'Event name, e.g. "Boston Marathon 2026"'},
@@ -2120,11 +2119,8 @@ const GOAL_CHAT_TOOLS = [
     genderPlacement:{type:'string',description:'Gender placement'},
     ageGroupPlacement:{type:'string',description:'Age group placement'},
     splits:{type:'object',description:'For triathlon races: swim, t1, bike, t2, run, total',properties:{swim:{type:'string'},t1:{type:'string'},bike:{type:'string'},t2:{type:'string'},run:{type:'string'},total:{type:'string'}}},
-  },required:['mode','presetId','name']} },
-  { name:'get_goals', description:'Get existing goals to check for duplicates or reference past performance.', input_schema:{type:'object',properties:{include_completed:{type:'boolean'}}} },
-  { name:'get_personal_records', description:'Get personal records for exercises.', input_schema:{type:'object',properties:{exercise:{type:'string'}}} },
-  { name:'get_workouts', description:'Get workout history to reference past performance.', input_schema:{type:'object',properties:{sport:{type:'string',enum:['run','bike','swim','strength','brick','hike','other','all']},days:{type:'number'},limit:{type:'number'}},required:['sport']} },
-];
+  },required:['mode','presetId','name']} };
+const GOAL_CHAT_TOOLS = [...TOOLS, PROPOSE_EVENT_TOOL];
 
 function buildGoalChatPrompt() {
   const presetList = EVENT_PRESETS.map(p=>`${p.id}: ${p.label} (${p.planType})`).join(', ');
@@ -2139,8 +2135,23 @@ CONVERSATION STYLE:
 - Keep it brief and conversational — this is a mobile app
 - Ask 1-2 questions at a time, not a long list
 - If they give you everything at once (like "I want to run Boston Marathon April 2027 in 3:15"), go straight to proposing
-- Use get_goals to check existing goals and avoid duplicates
-- Use get_workouts or get_personal_records to suggest realistic goals based on training history
+
+GATHERING CONTEXT — you have access to ALL coaching tools. Use them proactively:
+- get_goals (include_completed=true) — check existing goals, past race results, avoid duplicates
+- get_workouts — review recent training volume, long runs, key sessions to assess fitness
+- get_training_stats — weekly volume trends, consistency, sessions per week
+- get_personal_records — current PRs to set realistic baselines
+- get_athlete_profile — coaching memory: injuries, schedule, equipment, constraints, benchmarks
+- get_training_plan — current plan context, phase, weekly structure
+- get_plan_history — past plans with adherence data, what worked before
+- get_nutrition — fueling patterns relevant to race planning
+
+When suggesting goal times, ground them in REAL DATA from these tools. For example:
+- Pull past race results and use standard race equivalency reasoning (e.g. half marathon to marathon)
+- Check recent training volume to assess whether the athlete can support the goal
+- Reference actual PRs and benchmark data rather than guessing
+- Flag if training history suggests the goal may be too aggressive or too conservative
+- If you don't have enough data, say so — "I don't have enough race history to suggest a specific time, what are you thinking?"
 
 AVAILABLE PRESETS: ${presetList}
 
