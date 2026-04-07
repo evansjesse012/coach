@@ -697,7 +697,7 @@ Review last week's adherence and recent training load before generating. Adapt b
 Be concise. Generate and save the plan.
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
 
-  return `You are a personal coach building a training plan. ${goalCtx}
+  return `You are an expert athletic coach building a training plan. Think like a coach — consider the athlete's timeline, current fitness, history, and what they actually need right now. ${goalCtx}
 
 Gather the athlete's data before your first message — don't ask what you can look up. Call get_plan_history to check for past plans — their adherence data, what phases they completed, and why plans ended are critical context for building a better plan this time. Lead with your assessment, propose your plan, and only ask questions the data can't answer (max 5). On confirmation, save the plan and generate week 1.
 
@@ -779,18 +779,38 @@ async function extractMemory(messages, callAI) {
 
 async function generatePushMessage(personality, customText, appState, callAI) {
   try {
-    const result=await runAgentLoop({personality,customText,messages:[{role:'user',content:`Generate my daily coaching note. Use tools to gather: get_training_plan(), get_workouts(sport="all", days=7), get_training_stats(weeks=2), get_goals().
+    const result=await runAgentLoop({personality,customText,messages:[{role:'user',content:`Generate my coaching note. Gather context with: get_training_plan(includePhaseDetail=true), get_workouts(sport="all", days=7), get_training_stats(weeks=4), get_goals(), get_week_review(includeMultiWeek=true), get_athlete_profile().
 
-Format the note like this:
-- Start with a **bold one-line summary** of where I stand this week
-- Then 2-3 short paragraphs (2 sentences each max): compare prescribed vs actual (be specific with numbers), call out the most important pattern, give one specific action for the next 48 hours
-- Use **bold** for key numbers and emphasis
-- Reference real dates
-- Keep it concise — this is a mobile card, not an essay
+You're an expert athletic coach checking in. Look at the full picture — recent sessions, plan progress, phase timing, goal timeline, multi-week trends. Surface what matters most right now:
+- Specific session feedback or what's coming up
+- Where they are in their plan — phase progress, readiness, what's next
+- A flag if something needs attention (declining adherence, overtraining, stalled progress)
+- A question you need answered before prescribing their next session
 
-Style: ${getCommentaryStyle(personality,customText)}.`}],appState,callAI,maxRounds:4});
-    return result.response;
-  } catch { return ''; }
+Lead with what's important. Be specific with real numbers and dates. If everything looks good, keep it short. This is a mobile card — stay concise. Use **bold** sparingly for emphasis.
+
+If — and only if — your note asks the athlete a genuine question or presents a decision, append tappable response buttons as the LAST line:
+[ACTIONS: "Button label" -> "response message", "Another label" -> "another response"]
+To open full chat instead: [ACTIONS: "Let's discuss" -> CHAT "pre-filled message"]
+Rules: 2-3 actions max. Each button must be a direct answer to YOUR question. Never suggest something the data shows already exists (e.g. don't suggest generating a plan when one is loaded). Most notes won't need actions — that's fine.
+
+Style: ${getCommentaryStyle(personality,customText)}.`}],appState,callAI,maxRounds:6});
+    return parsePushActions(result.response);
+  } catch { return { text: '', actions: [] }; }
+}
+
+function parsePushActions(raw) {
+  if (!raw) return { text: '', actions: [] };
+  const match = raw.match(/\[ACTIONS:\s*(.+)\]\s*$/);
+  if (!match) return { text: raw, actions: [] };
+  const text = raw.slice(0, raw.lastIndexOf('[ACTIONS:')).trim();
+  const actions = [];
+  const re = /"([^"]+)"\s*->\s*(CHAT\s*)?"([^"]+)"/g;
+  let m;
+  while ((m = re.exec(match[1]))) {
+    actions.push({ label: m[1], message: m[3], openChat: !!m[2] });
+  }
+  return { text, actions };
 }
 
 async function parseQuickCapture(text, callAI) {
@@ -1295,7 +1315,7 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
 }
 
 // ─── Push Message Card ─────────────────────────────────────────────────────────
-function PushMessageCard({ message, personality, loading, onRefresh, hasWorkouts }) {
+function PushMessageCard({ message, actions, personality, loading, onRefresh, onAction, hasWorkouts }) {
   const p=PERSONALITIES[personality]||PERSONALITIES.normal;
   const defaultMsg = personality==='goggins'
     ? "You haven't logged a single workout yet. The clock is ticking. Your race doesn't care about your excuses — it's coming whether you're ready or not. Add a goal above and get to work."
@@ -1311,7 +1331,10 @@ function PushMessageCard({ message, personality, loading, onRefresh, hasWorkouts
       {hasWorkouts&&<button onClick={onRefresh} disabled={loading} style={{background:C.elevated,border:'none',borderRadius:8,width:28,height:28,cursor:loading?'not-allowed':'pointer',color:C.muted,fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}} onMouseEnter={e=>{if(!loading)e.currentTarget.style.color=p.color;}} onMouseLeave={e=>e.currentTarget.style.color=C.muted}><span style={{display:'inline-block',animation:loading?'spin 1s linear infinite':'none'}}>↻</span></button>}
     </div>
     {loading?<div><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Reviewing your training…</div></div>
-    :<div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(displayMsg)}</div>}
+    :<><div style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(displayMsg)}</div>
+    {actions?.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:8,marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+      {actions.map((a,i)=><button key={i} onClick={()=>onAction?.(a)} style={{background:p.color+'12',border:`1.5px solid ${p.color}30`,borderRadius:10,padding:'8px 14px',fontFamily:F.ui,fontSize:13,fontWeight:600,color:p.color,cursor:'pointer',transition:'all .15s'}} onMouseEnter={e=>{e.currentTarget.style.background=p.color+'22';}} onMouseLeave={e=>{e.currentTarget.style.background=p.color+'12';}}>{a.label}</button>)}
+    </div>}</>}
   </Card>);
 }
 
@@ -3268,7 +3291,7 @@ function GoalsTab({events,onViewGoal,onAddEvent,onAddEventChat}){
 }
 
 // ─── Home Tab ──────────────────────────────────────────────────────────────────
-function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan}){
+function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onPushAction,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan}){
   const active=events.filter(e=>!e.completed);const completed=events.filter(e=>e.completed);const now=new Date();const ws=new Date(now);ws.setDate(now.getDate()-now.getDay());
   const thisWeekC=cardio.filter(w=>new Date(w.date+'T12:00:00')>=ws);const thisWeekS=strength.filter(s=>new Date(s.date+'T12:00:00')>=ws);
   const allRecent=[...cardio.map(w=>({...w,kind:'cardio'})),...strength.map(s=>({...s,sport:'strength',kind:'strength'}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
@@ -3297,7 +3320,7 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
       </div>
     </Card>}
     {(plan.length>0||trainingPlan?.weeklyPlans?.[String(trainingPlan?.currentWeek)])&&<TodaySessionCard plan={plan} cardio={cardio} strength={strength} onStartStrength={onStartStrength} setTab={setTab} trainingPlan={trainingPlan}/>}
-    <PushMessageCard message={pushMessage} personality={personality} loading={pushLoading} onRefresh={onRefreshPush} hasWorkouts={hasWorkouts}/>
+    <PushMessageCard message={pushMessage.text} actions={pushMessage.actions} personality={personality} loading={pushLoading} onRefresh={onRefreshPush} onAction={onPushAction} hasWorkouts={hasWorkouts}/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
       <Card><Label>This week</Label><div style={{fontFamily:F.display,fontSize:44,fontWeight:800,lineHeight:1,color:C.text}}>{thisWeekC.length+thisWeekS.length}</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:500,color:C.muted,marginTop:3}}>sessions</div><div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap'}}>{thisWeekS.length>0&&<SportBadge sport="strength" small/>}{[...new Set(thisWeekC.map(w=>w.sport))].map(s=><SportBadge key={s} sport={s} small/>)}{thisWeekC.length+thisWeekS.length===0&&<span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>None yet</span>}</div></Card>
       <Card><Label>All time</Label><div style={{fontFamily:F.display,fontSize:44,fontWeight:800,lineHeight:1,color:C.text}}>{cardio.length+strength.length}</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:500,color:C.muted,marginTop:3}}>sessions</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:6}}>{strength.length} strength · {cardio.length} cardio</div></Card>
@@ -3350,7 +3373,7 @@ export default function CoachApp() {
   const [streamText,   setStreamText]  = useState('');
   const [personality,  setPersonality] = useState('normal');
   const [customPrompt, setCustomPrompt]= useState('');
-  const [pushMessage,  setPushMsg]     = useState('');
+  const [pushMessage,  setPushMsg]     = useState({ text: '', actions: [] });
   const [pushLoading,  setPushLoading] = useState(false);
   const [eventModal,   setEventModal]  = useState(null);
   const [goalDetail,   setGoalDetail]  = useState(null);
@@ -3403,7 +3426,7 @@ export default function CoachApp() {
     const savedP=db.get('coach_personality','normal'); const savedC=db.get('coach_custom_prompt','');
     setPersonality(savedP); setCustomPrompt(savedC);
     const pm=db.get('coach_push_message',null);
-    if(pm?.text){setPushMsg(pm.text);lastPushCount.current=pm.count||0;lastPushTime.current=pm.ts||0;}
+    if(pm?.text){setPushMsg({text:pm.text,actions:pm.actions||[]});lastPushCount.current=pm.count||0;lastPushTime.current=pm.ts||0;}
   },[]);
 
   const plan = useMemo(() => [], []);
@@ -3466,7 +3489,7 @@ export default function CoachApp() {
 
   const refreshPushMessage=useCallback(async(pers=null,custom=null)=>{
     setPushLoading(true);
-    try{const text=await generatePushMessage(pers||personality,custom!==null?custom:customPrompt,getAppState(),callAI);if(text){setPushMsg(text);const count=cardio.length+strengthH.length;lastPushCount.current=count;lastPushTime.current=Date.now();db.set('coach_push_message',{text,count,ts:Date.now()});}}catch{}
+    try{const result=await generatePushMessage(pers||personality,custom!==null?custom:customPrompt,getAppState(),callAI);if(result?.text){setPushMsg(result);const count=cardio.length+strengthH.length;lastPushCount.current=count;lastPushTime.current=Date.now();db.set('coach_push_message',{...result,count,ts:Date.now()});}}catch{}
     finally{setPushLoading(false);}
   },[personality,customPrompt,getAppState,cardio.length,strengthH.length]);
 
@@ -3593,7 +3616,7 @@ export default function CoachApp() {
 
       {/* Content */}
       <div style={{padding:'20px 16px 0'}}>
-        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
+        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onPushAction={a=>{setTab('chat');setTimeout(()=>handleSend(a.message),100);}} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)}/>}
         {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
               // Archive plan before deleting
