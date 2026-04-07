@@ -2541,8 +2541,6 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   // Weather auto-fetch
   useEffect(()=>{
     if(!event.location||!event.date||!isRaceType) return;
-    const d=daysUntil(event.date);
-    if(d>16) return;
     // Throttle: only re-fetch if >6 hours old
     if(weatherData?.updatedAt){
       const age=Date.now()-new Date(weatherData.updatedAt).getTime();
@@ -2585,8 +2583,8 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   };
 
   const ai=event.aiConditions;
-  const wd=(weatherData?.type==='forecast'||weatherData?.type==='historical')?weatherData:null;
-  const wdClimate=weatherData?.type==='climate'?weatherData:null;
+  const wd=(weatherData?.type==='forecast'||weatherData?.type==='historical'||(weatherData?.type==='climate'&&weatherData?.tempHigh!=null))?weatherData:null;
+  const wdClimate=(weatherData?.type==='climate'&&weatherData?.tempHigh==null)?weatherData:null;
 
   return(
     <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto',maxWidth:500,margin:'0 auto'}}>
@@ -2695,13 +2693,15 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
           </PlanSection>
 
           {/* Weather */}
-          <PlanSection icon="cloud" iconColor={C.cyan} title={wd?.type==='historical'?'Race Day Weather':'Weather'} hasContent={!!wd} defaultOpen={!!wd}>
+          <PlanSection icon="cloud" iconColor={C.cyan} title={wd?.type==='historical'?'Race Day Weather':wd?.type==='climate'?'Typical Weather':'Weather'} hasContent={!!wd} defaultOpen={!!wd}>
             {wd?<div>
               {wd.type==='historical'&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.cyan,marginBottom:10,padding:'4px 10px',background:C.cyan+'18',borderRadius:6,display:'inline-block'}}>Actual conditions on race day</div>}
+              {wd.type==='climate'&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.yellow,marginBottom:10,padding:'4px 10px',background:C.yellow+'18',borderRadius:6,display:'inline-block'}}>Typical conditions · {wd.message}{wd.daysUntilForecast>0?` · Forecast in ~${wd.daysUntilForecast} days`:''}</div>}
               <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:14}}>
                 <div style={{textAlign:'center'}}>
                   <div style={{fontFamily:F.display,fontSize:42,fontWeight:800,color:C.text,lineHeight:1}}>{wd.tempHigh}°</div>
                   <div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:2}}>/{wd.tempLow}° low</div>
+                  {wd.type==='climate'&&wd.tempHighRange&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:2}}>Range: {wd.tempHighRange[0]}–{wd.tempHighRange[1]}°</div>}
                 </div>
                 <div style={{flex:1}}>
                   <div style={{fontFamily:F.ui,fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>{wd.condition}</div>
@@ -2710,13 +2710,13 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
                 <Card style={{padding:'12px 14px',display:'flex',alignItems:'center',gap:10}}>
-                  <Icon name='wind' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.windMax} mph</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>Wind</div></div>
+                  <Icon name='wind' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.windMax} mph</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{wd.type==='climate'?'Avg. wind':'Wind'}</div></div>
                 </Card>
                 <Card style={{padding:'12px 14px',display:'flex',alignItems:'center',gap:10}}>
-                  <Icon name='droplets' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.type==='historical'?(wd.precipTotal!=null?wd.precipTotal+' mm':'--'):wd.precipChance+'%'}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{wd.type==='historical'?'Precipitation':'Rain chance'}</div></div>
+                  <Icon name='droplets' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{(wd.type==='historical'||wd.type==='climate')?(wd.precipTotal!=null?wd.precipTotal+' mm':'--'):wd.precipChance+'%'}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{wd.type==='climate'?'Avg. precipitation':wd.type==='historical'?'Precipitation':'Rain chance'}</div></div>
                 </Card>
               </div>
-              {wd.location&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:10}}>{wd.location}{wd.type==='historical'?' · Historical data':' · Updated '+new Date(weatherData.updatedAt).toLocaleString()}</div>}
+              {wd.location&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:10}}>{wd.location}{wd.type==='historical'?' · Historical data':wd.type==='climate'?` · ${wd.yearsUsed}-year avg · ±7 day window`:' · Updated '+new Date(weatherData.updatedAt).toLocaleString()}</div>}
             </div>:weatherLoading?<div style={{textAlign:'center',padding:16}}><Spinner color={C.cyan} size={18}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Loading weather…</div></div>
             :wdClimate?<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>{wdClimate.message}</div></div>
             :weatherError?<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>Could not load weather data</div><Btn onClick={fetchWeather} color={C.cyan} style={{marginTop:10,padding:'6px 16px',fontSize:12}}>Retry</Btn></div>

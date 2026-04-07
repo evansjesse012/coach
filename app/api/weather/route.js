@@ -2,7 +2,7 @@
 //
 // Proxy to Open-Meteo API for weather forecasts, historical weather, and geocoding.
 // No API key required. Supports forecast (up to 16 days), historical weather
-// for past dates, and climate context for dates further out.
+// for past dates, and climate estimates (5-year ±7 day average) for dates further out.
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -90,12 +90,8 @@ export async function GET(request) {
         };
       }
     } else if (raceDate) {
-      // Too far out for forecast — provide climate context
-      weather = {
-        type: 'climate',
-        message: `Forecast available ${daysOut > 16 ? `in ~${daysOut - 16} days` : 'closer to race day'}`,
-        daysUntilForecast: Math.max(0, daysOut - 16),
-      };
+      // Too far out for forecast — estimate from 5-year historical average (±7 day window)
+      weather = await fetchClimateEstimate(latitude, longitude, raceDate, daysOut);
     }
 
     return Response.json({
@@ -111,6 +107,102 @@ export async function GET(request) {
       { status: 500 }
     );
   }
+}
+
+async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
+  const YEARS_BACK = 5;
+  const WINDOW_DAYS = 7; // ±7 days around race date
+
+  // Build date ranges for the last 5 years
+  const ranges = [];
+  const month = raceDate.getMonth();
+  const day = raceDate.getDate();
+
+  for (let y = 1; y <= YEARS_BACK; y++) {
+    const targetYear = raceDate.getFullYear() - y;
+    // Handle Feb 29 in non-leap years
+    let centerDay = day;
+    if (month === 1 && day === 29) {
+      const isLeap = (targetYear % 4 === 0 && targetYear % 100 !== 0) || targetYear % 400 === 0;
+      if (!isLeap) centerDay = 28;
+    }
+    const center = new Date(targetYear, month, centerDay);
+    const start = new Date(center.getTime() - WINDOW_DAYS * 86400000);
+    const end = new Date(center.getTime() + WINDOW_DAYS * 86400000);
+    ranges.push({
+      start: start.toISOString().slice(0, 10),
+      end: end.toISOString().slice(0, 10),
+    });
+  }
+
+  // Fetch all 5 ranges in parallel
+  const results = await Promise.allSettled(
+    ranges.map(({ start, end }) =>
+      fetch(
+        `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,windspeed_10m_max,weathercode&timezone=auto&start_date=${start}&end_date=${end}`
+      ).then(r => {
+        if (!r.ok) throw new Error('Archive fetch failed');
+        return r.json();
+      })
+    )
+  );
+
+  // Collect all daily data points from successful fetches
+  const allTempMax = [], allTempMin = [], allFeelsHigh = [], allFeelsLow = [];
+  const allPrecip = [], allWind = [], allCodes = [];
+  let yearsUsed = 0;
+
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    const d = result.value.daily;
+    if (!d || !d.time?.length) continue;
+    yearsUsed++;
+    for (let i = 0; i < d.time.length; i++) {
+      if (d.temperature_2m_max[i] != null) allTempMax.push(d.temperature_2m_max[i]);
+      if (d.temperature_2m_min[i] != null) allTempMin.push(d.temperature_2m_min[i]);
+      if (d.apparent_temperature_max[i] != null) allFeelsHigh.push(d.apparent_temperature_max[i]);
+      if (d.apparent_temperature_min[i] != null) allFeelsLow.push(d.apparent_temperature_min[i]);
+      if (d.precipitation_sum[i] != null) allPrecip.push(d.precipitation_sum[i]);
+      if (d.windspeed_10m_max[i] != null) allWind.push(d.windspeed_10m_max[i]);
+      if (d.weathercode[i] != null) allCodes.push(d.weathercode[i]);
+    }
+  }
+
+  // Fallback if no data was retrieved
+  if (allTempMax.length === 0) {
+    return {
+      type: 'climate',
+      message: `Forecast available ${daysOut > 16 ? `in ~${daysOut - 16} days` : 'closer to race day'}`,
+      daysUntilForecast: Math.max(0, daysOut - 16),
+    };
+  }
+
+  const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const avgTempMax = avg(allTempMax);
+  const avgTempMin = avg(allTempMin);
+
+  // Most common weather code
+  const codeCounts = {};
+  for (const c of allCodes) codeCounts[c] = (codeCounts[c] || 0) + 1;
+  const mostCommonCode = Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]);
+
+  return {
+    type: 'climate',
+    tempHigh: cToF(avgTempMax),
+    tempLow: cToF(avgTempMin),
+    tempHighRange: [cToF(Math.min(...allTempMax)), cToF(Math.max(...allTempMax))],
+    feelsLikeHigh: cToF(avg(allFeelsHigh)),
+    feelsLikeLow: cToF(avg(allFeelsLow)),
+    precipTotal: Math.round(avg(allPrecip) * 100) / 100,
+    windMax: Math.round(avg(allWind) * 0.621371),
+    weatherCode: mostCommonCode,
+    condition: weatherCodeToText(mostCommonCode),
+    units: { temp: '°F', wind: 'mph', precip: 'mm' },
+    message: `Based on ${yearsUsed}-year average`,
+    daysUntilForecast: Math.max(0, daysOut - 16),
+    yearsUsed,
+    dataPoints: allTempMax.length,
+  };
 }
 
 function cToF(c) {
