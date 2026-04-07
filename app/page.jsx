@@ -367,6 +367,7 @@ const TOOLS = [
   { name:'save_weekly_plan', description:'Save a generated weekly plan for a specific week. Call this after generating the sessions for a week. Each session should include sport, duration, zones, per-session nutrition (pre/during/post), priority level (red=cannot skip, yellow=flexible), and coaching notes.', input_schema:{type:'object',properties:{weekNumber:{type:'number'},phase:{type:'number'},focusOfWeek:{type:'string',description:'Single coaching focus for this week'},sessions:{type:'array',description:'Array of 7 day objects (Mon-Sun)',items:{type:'object',properties:{day:{type:'string'},isRest:{type:'boolean'},sessions:{type:'array',items:{type:'object',properties:{type:{type:'string'},label:{type:'string'},duration:{type:'number'},zone:{type:'string'},targetIntensity:{type:'string',description:'Specific watts, pace, or RPE'},fuel:{type:'object',properties:{pre:{type:'string'},during:{type:'string'},post:{type:'string'}}},priority:{type:'string',enum:['red','yellow']},notes:{type:'string'},templateId:{type:'string',description:'For strength sessions, link to strength template'}}}}}}}},required:['weekNumber','phase','focusOfWeek','sessions']} },
   { name:'update_plan_progress', description:'Advance the current week number or phase in the training plan. Use at the start of a new week or when transitioning between phases.', input_schema:{type:'object',properties:{currentWeek:{type:'number'},currentPhase:{type:'number'},notes:{type:'string'}},required:['currentWeek','currentPhase']} },
   { name:'get_week_review', description:'Compare prescribed training plan vs actual logged workouts for a specific week. Returns what was completed, missed, shortened, substituted, and multi-week patterns. ALWAYS call this before generating next week\'s plan.', input_schema:{type:'object',properties:{weekNumber:{type:'number',description:'Week to review. Default: previous week.'},includeMultiWeek:{type:'boolean',description:'Include 4-week rolling pattern analysis. Default false.'}}} },
+  { name:'get_plan_history', description:'Get archived past training plans with adherence data. Use when creating a new plan to understand what the athlete has done before — volume handled, adherence patterns, why plans ended, what worked.', input_schema:{type:'object',properties:{}} },
 ];
 
 // ─── Adherence Computation ────────────────────────────────────────────────────
@@ -581,6 +582,19 @@ function executeTool(name, input, appState) {
       }
       return JSON.stringify(result);
     }
+    case 'get_plan_history': {
+      const history = db.get('coach_plan_history', []);
+      if (!history.length) return JSON.stringify({ message: 'No past training plans on record.' });
+      return JSON.stringify(history.map(h => ({
+        raceName: h.raceName, raceDate: h.raceDate,
+        startDate: h.startDate, endedDate: h.endedDate,
+        endReason: h.endReason, endNotes: h.endNotes || '',
+        completedWeeks: h.completedWeeks, totalWeeks: h.totalWeeks,
+        phasesCompleted: h.phasesCompleted, totalPhases: h.totalPhases,
+        phases: h.phases,
+        adherence: h.adherence
+      })));
+    }
     default: return JSON.stringify({error:`Unknown tool: ${name}`});
   }
 }
@@ -618,7 +632,9 @@ Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('e
 
   return `You are a personal coach building a training plan. ${goalCtx}
 
-Gather the athlete's data before your first message — don't ask what you can look up. Lead with your assessment, propose your plan, and only ask questions the data can't answer (max 5). On confirmation, save the plan and generate week 1.
+Gather the athlete's data before your first message — don't ask what you can look up. Call get_plan_history to check for past plans — their adherence data, what phases they completed, and why plans ended are critical context for building a better plan this time. Lead with your assessment, propose your plan, and only ask questions the data can't answer (max 5). On confirmation, save the plan and generate week 1.
+
+If past plans exist, reference what you learned: "Last plan you averaged 74% adherence with swim being the most missed — let's structure this differently." Don't repeat what didn't work.
 
 Have a clear recommendation. You're the coach — lead with your best option, but offer alternatives where reasonable.
 Keep messages under 200 words — this is mobile.
@@ -1017,7 +1033,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
   const handleCustomSave = () => { onCustomPromptChange(localCustom); setSaved(true); setTimeout(()=>setSaved(false),2000); toast.success('Custom coach saved'); };
   const resetMemory = async () => { const ok=await confirmDialog('Reset coaching memory?','The coach will start fresh — all learned patterns and history cleared.'); if(!ok)return; saveMemory(defaultMemory()); toast.info('Coaching memory reset'); };
   const exportData = () => { const data={exportedAt:new Date().toISOString(),events:db.get('coach_events',[]),cardio:db.get('coach_cardio',[]),strength:db.get('coach_strength_history',[]),prs:db.get('coach_prs',{}),nutrition:db.get('coach_nutrition',[]),trainingPlan:db.get('coach_training_plan',null),bricks:db.get('coach_bricks',[]),memory:loadMemory()}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`coach-export-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); toast.success('Data exported'); };
-  const loadSeedData = async () => { const ok=await confirmDialog('Load test data?','This will replace all current data with sample training data for testing.'); if(!ok)return; try{const res=await fetch('/seed-data.json');const d=await res.json();db.set('coach_events',d.events||[]);db.set('coach_cardio',d.cardio||[]);db.set('coach_strength_history',d.strengthHistory||[]);db.set('coach_prs',d.prs||{});db.set('coach_nutrition',d.nutrition||[]);db.set('coach_bricks',d.bricks||[]);if(d.memory)saveMemory(d.memory);db.set('coach_messages',[]);toast.success('Test data loaded — reload the app');setTimeout(()=>window.location.reload(),1000);}catch(e){toast.error('Failed to load seed data');} };
+  const loadSeedData = async () => { const ok=await confirmDialog('Load test data?','This will replace all current data with sample training data for testing.'); if(!ok)return; try{const res=await fetch('/seed-data.json');const d=await res.json();db.set('coach_events',d.events||[]);db.set('coach_cardio',d.cardio||[]);db.set('coach_strength_history',d.strengthHistory||[]);db.set('coach_prs',d.prs||{});db.set('coach_nutrition',d.nutrition||[]);db.set('coach_bricks',d.bricks||[]);db.set('coach_plan_history',d.planHistory||[]);if(d.memory)saveMemory(d.memory);db.set('coach_messages',[]);toast.success('Test data loaded — reload the app');setTimeout(()=>window.location.reload(),1000);}catch(e){toast.error('Failed to load seed data');} };
 
   return (
     <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto',maxWidth:500,margin:'0 auto'}}>
@@ -1348,6 +1364,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
   const[expandedPhase,setExpandedPhase]=useState(null);
   const[showFuel,setShowFuel]=useState(null);
+  const[showEndPlan,setShowEndPlan]=useState(false);
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
   const startStrength=tid=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===tid);if(t)setTracker(t);};
   const handleSave=(completedEx,dur,newPRs)=>{onSaveStrength(completedEx,dur,newPRs,tracker);setTracker(null);setActiveWO(null);};
@@ -1707,12 +1724,68 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
         </div>);
       })}
     </div>
-    {/* Delete plan */}
+    {/* End plan */}
     <div style={{marginTop:32,marginBottom:16}}>
-      <button onClick={async()=>{const ok=await confirmDialog('Delete training plan?','This will remove your entire training plan including all weekly plans. Your workout history will not be affected.');if(ok)onDeletePlan();}} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:12,padding:'11px 16px',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',width:'100%',transition:'all .15s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>Delete training plan</button>
+      <button onClick={()=>setShowEndPlan(true)} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:12,padding:'11px 16px',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',width:'100%',transition:'all .15s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>End training plan</button>
     </div>
+    {showEndPlan&&<EndPlanSheet trainingPlan={tp} cardio={cardio} strengthHistory={strengthHistory} onEnd={(reason,notes)=>{onDeletePlan(reason,notes);setShowEndPlan(false);}} onClose={()=>setShowEndPlan(false)}/>}
     {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={onWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
   </div>);
+}
+
+function EndPlanSheet({trainingPlan,cardio,strengthHistory,onEnd,onClose}){
+  const[reason,setReason]=useState(null);
+  const[notes,setNotes]=useState('');
+  const tp=trainingPlan;
+  const reasons=[
+    {id:'completed',label:'Completed the race/goal',icon:'trophy',color:C.green},
+    {id:'new_goal',label:'Switching to a new goal',icon:'target',color:C.cyan},
+    {id:'injury',label:'Injury or health issue',icon:'alert',color:C.red},
+    {id:'not_working',label:'Plan wasn\'t working',icon:'chart',color:C.yellow},
+    {id:'life',label:'Life got in the way',icon:'calendar',color:C.purple},
+    {id:'other',label:'Other',icon:'message',color:C.muted},
+  ];
+
+  // Compute overall adherence summary
+  const weekNums=Object.keys(tp.weeklyPlans||{}).map(Number).sort((a,b)=>a-b);
+  const weekReviews=weekNums.map(w=>computeWeekAdherence(tp,w,cardio,strengthHistory)).filter(Boolean);
+  const totalPrescribed=weekReviews.reduce((t,r)=>t+r.prescribed,0);
+  const totalCompleted=weekReviews.reduce((t,r)=>t+r.completed,0);
+  const totalMissed=weekReviews.reduce((t,r)=>t+r.missed,0);
+  const overallAdherence=totalPrescribed>0?Math.round((totalCompleted+weekReviews.reduce((t,r)=>t+r.shortened*0.5,0))/totalPrescribed*100):0;
+
+  return(<Sheet onClose={onClose} title="End training plan">
+    <Card style={{marginBottom:16,padding:'14px 16px',background:C.elevated}}>
+      <div style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:C.text,marginBottom:6}}>{tp.raceName}</div>
+      <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+        <div style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>Week {tp.currentWeek}/{tp.totalWeeks}</div>
+        {weekReviews.length>0&&<div style={{fontFamily:F.ui,fontSize:12,color:overallAdherence>=75?C.green:overallAdherence>=50?C.yellow:C.red,fontWeight:600}}>{overallAdherence}% adherence</div>}
+        <div style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>{weekReviews.length} weeks tracked</div>
+      </div>
+    </Card>
+
+    <Label>Why are you ending this plan?</Label>
+    <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16}}>
+      {reasons.map(r=>{const sel=reason===r.id;return(
+        <div key={r.id} onClick={()=>setReason(r.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',background:sel?r.color+'10':C.elevated,border:`1.5px solid ${sel?r.color:C.border}`,borderRadius:14,cursor:'pointer',transition:'all .15s'}}>
+          <div style={{width:32,height:32,borderRadius:10,background:r.color+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name={r.icon} size={16} color={r.color}/></div>
+          <span style={{fontFamily:F.ui,fontSize:14,fontWeight:sel?600:500,color:sel?r.color:C.text}}>{r.label}</span>
+          {sel&&<div style={{marginLeft:'auto',width:8,height:8,borderRadius:'50%',background:r.color}}/>}
+        </div>
+      );})}
+    </div>
+
+    <Label>Notes (optional)</Label>
+    <Textarea placeholder="Anything your coach should remember about this plan..." value={notes} onChange={e=>setNotes(e.target.value)} rows={3} style={{marginBottom:20}}/>
+
+    <div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,lineHeight:1.6,marginBottom:16,padding:'10px 14px',background:C.elevated,borderRadius:12}}>
+      Your coach will archive this plan and remember what happened — adherence, phases completed, and why it ended. Your workout history is not affected.
+    </div>
+
+    <Btn onClick={()=>{if(!reason)return;onEnd(reason,notes);}} color={reason?C.accent:C.muted} style={{width:'100%',padding:15,fontSize:16,opacity:reason?1:0.5,cursor:reason?'pointer':'not-allowed'}}>
+      End plan{reason==='completed'?' & celebrate':''}
+    </Btn>
+  </Sheet>);
 }
 
 // ─── Brick Components ─────────────────────────────────────────────────────────
@@ -2800,7 +2873,52 @@ export default function CoachApp() {
       <div style={{padding:'20px 16px 0'}}>
         {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')}/>}
-        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={()=>{setTrainingPlan(null);db.set('coach_training_plan',null);toast.info('Training plan deleted');}} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}}/>}
+        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
+              // Archive plan before deleting
+              const tp=trainingPlan;
+              if(tp){
+                const weekNums=Object.keys(tp.weeklyPlans||{}).map(Number).sort((a,b)=>a-b);
+                const weekReviews=weekNums.map(w=>computeWeekAdherence(tp,w,cardio,strengthH)).filter(Boolean);
+                const totalPrescribed=weekReviews.reduce((t,r)=>t+r.prescribed,0);
+                const totalCompleted=weekReviews.reduce((t,r)=>t+r.completed,0);
+                const overallAdherence=totalPrescribed>0?Math.round((totalCompleted+weekReviews.reduce((t,r)=>t+r.shortened*0.5,0))/totalPrescribed*100):0;
+                const missedByType={};
+                weekReviews.forEach(r=>Object.entries(r.missedByType||{}).forEach(([s,c])=>{missedByType[s]=(missedByType[s]||0)+c;}));
+                const archive={
+                  id:tp.id||uid(),
+                  raceName:tp.raceName,
+                  goalId:tp.goalId,
+                  raceDate:tp.raceDate,
+                  startDate:tp.startDate,
+                  endedDate:new Date().toISOString().split('T')[0],
+                  endReason:reason,
+                  endNotes:notes||'',
+                  totalWeeks:tp.totalWeeks,
+                  completedWeeks:tp.currentWeek,
+                  phasesCompleted:tp.currentPhase,
+                  totalPhases:tp.phases?.length||0,
+                  phases:tp.phases?.map(p=>({number:p.number,name:p.name,weeks:p.weeks}))||[],
+                  adherence:{
+                    overall:overallAdherence,
+                    weeksTracked:weekReviews.length,
+                    totalPrescribed,totalCompleted,
+                    totalMissed:weekReviews.reduce((t,r)=>t+r.missed,0),
+                    missedByType,
+                    weeklyAdherence:weekReviews.map(r=>({week:r.weekNumber,adherence:r.adherence,prescribed:r.prescribed,completed:r.completed,missed:r.missed}))
+                  }
+                };
+                const history=db.get('coach_plan_history',[]);
+                history.push(archive);
+                db.set('coach_plan_history',history);
+                // Write coaching note to memory
+                const reasonLabels={completed:'Completed race/goal',new_goal:'Switched to new goal',injury:'Injury/health issue',not_working:'Plan wasn\'t working',life:'Life circumstances',other:'Other'};
+                const mem=loadMemory();
+                const coachNote=`Plan ended: ${tp.raceName} (${tp.completedWeeks||tp.currentWeek}/${tp.totalWeeks} weeks, ${overallAdherence}% adherence). Reason: ${reasonLabels[reason]||reason}.${notes?' Notes: '+notes:''}`;
+                saveMemory(mergeMemory(mem,{observations:{coachingNotes:[coachNote]}}));
+              }
+              setTrainingPlan(null);db.set('coach_training_plan',null);
+              toast.info(reason==='completed'?'Plan completed — nice work!':'Training plan archived');
+            }} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}}/>}
         {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth} bricks={bricks} onSaveBrick={saveBrick} onDeleteBrick={deleteBrick}/>}
         {tab==='chat'&&<ChatTab messages={messages} onSend={handleSend} loading={loading} isStreaming={isStreaming} streamText={streamText} personality={personality}/>}
       </div>
