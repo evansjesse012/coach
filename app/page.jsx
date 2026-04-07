@@ -1301,6 +1301,7 @@ function SetRow({set,setNum,prev,exerciseType,onUpdate,onComplete}){
 }
 
 function StrengthTracker({workout,strengthHistory,prs,onSave,onDiscard}){
+  const[selectedExercise,setSelectedExercise]=useState(null);
   const[session]=useState(()=>({
     id:Date.now(), name:workout.label||'Strength', startTime:Date.now(),
     exercises:(workout.exercises||[]).map(ex=>({
@@ -1351,11 +1352,12 @@ function StrengthTracker({workout,strengthHistory,prs,onSave,onDiscard}){
     <div style={{height:5,background:C.border,borderRadius:4,overflow:'hidden',marginBottom:16}}><div style={{height:'100%',width:`${total>0?(done/total)*100:0}%`,background:`linear-gradient(90deg,${C.accent},${C.green})`,borderRadius:4,transition:'width .3s'}}/></div>
     {restTimer&&<RestTimer key={restTimer.key} seconds={restTimer.seconds} onDone={()=>setRest(null)}/>}
     {ex.map(exData=>{const lastPerf=getLastPerf(exData.slug);const allDone=exData.sets.every(s=>s.completed);const hdr=headerCols(exData.exerciseType);return(<Card key={exData.slug} style={{marginBottom:12}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:16,color:allDone?C.green:C.text}}>{exData.name}</div>{exData.notes&&<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{exData.notes}</div>}</div><div style={{display:'flex',alignItems:'center',gap:8}}><Pill color={C.muted} small>{exData.exerciseType}</Pill><span style={{fontFamily:F.mono,fontSize:12,color:allDone?C.green:C.muted}}>{exData.sets.filter(s=>s.completed).length}/{exData.sets.length}</span></div></div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}><div><div onClick={()=>setSelectedExercise(exData.name)} style={{fontFamily:F.ui,fontWeight:700,fontSize:16,color:allDone?C.green:C.text,cursor:'pointer',textDecoration:'underline',textDecorationColor:C.border,textUnderlineOffset:3}}>{exData.name}</div>{exData.notes&&<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{exData.notes}</div>}</div><div style={{display:'flex',alignItems:'center',gap:8}}><Pill color={C.muted} small>{exData.exerciseType}</Pill><span style={{fontFamily:F.mono,fontSize:12,color:allDone?C.green:C.muted}}>{exData.sets.filter(s=>s.completed).length}/{exData.sets.length}</span></div></div>
       <div style={{display:'grid',gridTemplateColumns:hdr.cols,gap:6,marginBottom:6,padding:'0 4px'}}>{hdr.heads.map((h,i)=><span key={i} style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.muted,textAlign:i>=2?'center':'left'}}>{h}</span>)}</div>
       {exData.sets.map((set,i)=><SetRow key={i} set={set} setNum={i+1} prev={lastPerf[i]} exerciseType={exData.exerciseType} onUpdate={u=>updateSet(exData.slug,i,u)} onComplete={()=>completeSet(exData.slug,i)}/>)}
     </Card>);})}
     <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:468,zIndex:20}}><Btn onClick={()=>done>0&&setView('summary')} color={done===total?C.green:C.accent} disabled={done===0} style={{width:'100%',padding:15,fontSize:17,borderRadius:16,boxShadow:S.md}}>{done===total?'Finish workout ✓':`Finish (${done}/${total} sets)`}</Btn></div>
+    {selectedExercise&&<ExerciseDetailSheet exerciseName={selectedExercise} strengthHistory={strengthHistory} prs={prs} onClose={()=>setSelectedExercise(null)}/>}
   </div>);
 }
 
@@ -2044,10 +2046,10 @@ function WorkoutDetailSheet({workout,onClose}){
 
     {isStrength&&workout.exercises&&<div style={{marginBottom:16}}>
       <Label>Exercises</Label>
-      {workout.exercises.map((ex,i)=><Card key={i} style={{marginBottom:8,padding:'12px 16px'}}>
+      {workout.exercises.map((ex,i)=>{const et=ex.exerciseType||'weighted';return(<Card key={i} style={{marginBottom:8,padding:'12px 16px'}}>
         <div style={{fontFamily:F.ui,fontWeight:700,fontSize:15,color:C.text,marginBottom:6}}>{ex.name}</div>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{ex.sets?.filter(s=>s.completed).map((s,j)=><span key={j} style={{fontFamily:F.mono,fontSize:12,color:C.subtle,background:C.elevated,borderRadius:8,padding:'4px 10px'}}>{s.weight>0?`${s.weight}×${s.reps}`:`BW×${s.reps}`}</span>)}</div>
-      </Card>)}
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{ex.sets?.filter(s=>s.completed).map((s,j)=><span key={j} style={{fontFamily:F.mono,fontSize:12,color:C.subtle,background:C.elevated,borderRadius:8,padding:'4px 10px'}}>{et==='timed'?`${s.duration}s`:et==='banded'?`${s.band} ×${s.reps}`:s.weight>0?`${s.weight}×${s.reps}`:`${s.reps} reps`}</span>)}</div>
+      </Card>);})}
     </div>}
 
     {workout.source==='healthkit'&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16}}><Icon name='watch' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.cyan}}>Imported from Apple Health</span></div>}
@@ -2114,16 +2116,22 @@ function HealthImportSheet({onImport,onClose,existingIds}){const[workouts]=useSt
 
 function LogWorkoutSheet({onSave,onClose}){const[sport,setSport]=useState('run');const[dur,setDur]=useState('');const[notes,setNotes]=useState('');const[date,setDate]=useState(todayStr());return(<Sheet onClose={onClose} title="Log workout"><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,marginBottom:16,scrollbarWidth:'none'}}>{Object.entries(SPORT_META).map(([k,s])=><button key={k} onClick={()=>setSport(k)} style={{flexShrink:0,background:sport===k?s.color+'18':C.elevated,border:`1.5px solid ${sport===k?s.color:C.border}`,borderRadius:12,padding:'10px 14px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,transition:'all .15s',minWidth:66}}><Icon name={s.icon} size={20} color={sport===k?s.color:C.muted}/><span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:sport===k?s.color:C.muted}}>{s.label}</span></button>)}</div><div style={{display:'flex',gap:10,marginBottom:12}}><div style={{flex:1}}><Label>Duration (min)</Label><Inp type="number" placeholder="45" value={dur} onChange={e=>setDur(e.target.value)}/></div><div style={{flex:1}}><Label>Date</Label><Inp type="date" value={date} onChange={e=>setDate(e.target.value)}/></div></div><Label>Notes</Label><Textarea placeholder="How did it go?" value={notes} onChange={e=>setNotes(e.target.value)} rows={3} style={{marginBottom:16}}/><Btn onClick={()=>dur&&onSave({sport,duration:parseInt(dur),notes,date})} color={C.accent} disabled={!dur} style={{width:'100%',padding:14,fontSize:16}}>Save workout</Btn></Sheet>);}
 
-function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSaveBrick,onDeleteBrick}){
+function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSaveBrick,onDeleteBrick,prs}){
   const[showLog,setShowLog]=useState(false);const[showImport,setShowImport]=useState(false);const[showBrickLink,setShowBrickLink]=useState(false);const[filter,setFilter]=useState('all');
   const[selectedWorkout,setSelectedWorkout]=useState(null);const[selectedBrick,setSelectedBrick]=useState(null);
+  const[viewMode,setViewMode]=useState('workouts'); // 'workouts' | 'exercises'
+  const[selectedExercise,setSelectedExercise]=useState(null);
   const existingIds=new Set(cardio.filter(w=>w.source==='healthkit').map(w=>w.id));
   const allWorkouts=[...cardio.map(w=>({...w,kind:'cardio'})),...strength.map(s=>({...s,sport:'strength',kind:'strength',notes:`${s.exercises?.reduce((t,e)=>t+(e.sets?.length||0),0)||0} sets logged`}))].sort((a,b)=>b.date.localeCompare(a.date));
   const filtered=filter==='all'?allWorkouts:allWorkouts.filter(w=>w.sport===filter);
   const groups=filtered.reduce((acc,w)=>{const key=w.date===todayStr()?'Today':w.date===new Date(Date.now()-86400000).toISOString().split('T')[0]?'Yesterday':fmtDateSh(w.date);if(!acc[key])acc[key]=[];acc[key].push(w);return acc;},{});
   const brickWorkoutIds=new Set((bricks||[]).flatMap(b=>b.legs.map(l=>l.workoutId)));
   const brickForWorkout=wId=>(bricks||[]).find(b=>b.legs.some(l=>l.workoutId===wId));
-  return(<div style={{paddingBottom:80}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:18}}><Card onClick={()=>setShowLog(true)} accent={C.accent}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='pencil' size={16} color={C.accent}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.accent,textAlign:'center'}}>Log</div></div></Card><Card onClick={()=>setShowImport(true)} accent={C.cyan}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='watch' size={16} color={C.cyan}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.cyan,textAlign:'center'}}>Import</div></div></Card><Card onClick={()=>setShowBrickLink(true)} accent={C.yellow}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.yellow+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='layers' size={16} color={C.yellow}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow,textAlign:'center'}}>Brick</div></div></Card></div><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:16,scrollbarWidth:'none'}}>{['all','run','bike','swim','strength','hike','other'].map(s=>{const meta=SPORT_META[s]||{color:C.muted,label:'All'};const sel=filter===s;const count=s==='all'?allWorkouts.length:allWorkouts.filter(w=>w.sport===s).length;return(<button key={s} onClick={()=>setFilter(s)} style={{flexShrink:0,padding:'7px 14px',borderRadius:20,background:sel?(s==='all'?C.text:meta.color+'18'):C.surface,border:`1.5px solid ${sel?(s==='all'?C.text:meta.color):C.border}`,color:sel?(s==='all'?C.bg:meta.color):C.muted,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',boxShadow:sel?S.sm:'none'}}>{s==='all'?`All (${count})`:`${meta.icon} ${meta.label}`}</button>);})}</div>{Object.keys(groups).length===0?<Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='chart' size={36} color={C.muted}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>No workouts yet</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>Log manually or import from Apple Health</div></Card>:Object.entries(groups).map(([dateLabel,wos])=>(<div key={dateLabel}><div style={{fontFamily:F.ui,fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,marginTop:6,textTransform:'uppercase',letterSpacing:'.06em'}}>{dateLabel}</div>{(()=>{const rendered=new Set();return wos.map((w,i)=>{
+  return(<div style={{paddingBottom:80}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:18}}><Card onClick={()=>setShowLog(true)} accent={C.accent}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='pencil' size={16} color={C.accent}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.accent,textAlign:'center'}}>Log</div></div></Card><Card onClick={()=>setShowImport(true)} accent={C.cyan}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='watch' size={16} color={C.cyan}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.cyan,textAlign:'center'}}>Import</div></div></Card><Card onClick={()=>setShowBrickLink(true)} accent={C.yellow}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.yellow+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='layers' size={16} color={C.yellow}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow,textAlign:'center'}}>Brick</div></div></Card></div>
+  <div style={{display:'flex',gap:6,marginBottom:16,background:C.elevated,borderRadius:12,padding:4}}>
+    {[{id:'workouts',label:'Workouts'},{id:'exercises',label:'Exercises'}].map(m=><button key={m.id} onClick={()=>setViewMode(m.id)} style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:viewMode===m.id?C.surface:'transparent',boxShadow:viewMode===m.id?S.card:'none',fontFamily:F.ui,fontSize:13,fontWeight:viewMode===m.id?700:500,color:viewMode===m.id?C.text:C.muted,cursor:'pointer',transition:'all .15s'}}>{m.label}</button>)}
+  </div>
+  {viewMode==='exercises'?<ExerciseListView strengthHistory={strength} prs={prs||{}} onSelectExercise={name=>setSelectedExercise(name)}/>:<><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:16,scrollbarWidth:'none'}}>{['all','run','bike','swim','strength','hike','other'].map(s=>{const meta=SPORT_META[s]||{color:C.muted,label:'All'};const sel=filter===s;const count=s==='all'?allWorkouts.length:allWorkouts.filter(w=>w.sport===s).length;return(<button key={s} onClick={()=>setFilter(s)} style={{flexShrink:0,padding:'7px 14px',borderRadius:20,background:sel?(s==='all'?C.text:meta.color+'18'):C.surface,border:`1.5px solid ${sel?(s==='all'?C.text:meta.color):C.border}`,color:sel?(s==='all'?C.bg:meta.color):C.muted,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',boxShadow:sel?S.sm:'none'}}>{s==='all'?`All (${count})`:`${meta.icon} ${meta.label}`}</button>);})}</div>{Object.keys(groups).length===0?<Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='chart' size={36} color={C.muted}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>No workouts yet</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>Log manually or import from Apple Health</div></Card>:Object.entries(groups).map(([dateLabel,wos])=>(<div key={dateLabel}><div style={{fontFamily:F.ui,fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,marginTop:6,textTransform:'uppercase',letterSpacing:'.06em'}}>{dateLabel}</div>{(()=>{const rendered=new Set();return wos.map((w,i)=>{
   if(rendered.has(w.id))return null;
   const brick=brickForWorkout(w.id);
   if(brick){
@@ -2146,13 +2154,154 @@ function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSave
     </Card>);
   }
   return(<Card key={i} onClick={()=>setSelectedWorkout(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'other'} small/><div style={{flex:1,minWidth:0}}><div style={{fontFamily:F.ui,fontSize:15,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||'—'}</div><div style={{display:'flex',gap:6,marginTop:2}}>{w.source==='healthkit'&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.cyan}}>Apple Health</span>}</div></div><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text,flexShrink:0}}>{fmtDur(w.duration)}</div></div></Card>);
-});})()}</div>))}{showLog&&<LogWorkoutSheet onSave={w=>{onAddCardio(w);setShowLog(false);}} onClose={()=>setShowLog(false)}/>}{showImport&&<HealthImportSheet onImport={ws=>{onImportHealth(ws);setShowImport(false);}} onClose={()=>setShowImport(false)} existingIds={existingIds}/>}{showBrickLink&&<LinkBrickSheet cardio={cardio} bricks={bricks||[]} onSave={b=>{onSaveBrick(b);setShowBrickLink(false);}} onClose={()=>setShowBrickLink(false)}/>}{selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)}/>}{selectedBrick&&<BrickDetailSheet brick={selectedBrick} cardio={cardio} onDelete={onDeleteBrick} onClose={()=>setSelectedBrick(null)}/>}</div>);
+});})()}</div>))}{showLog&&<LogWorkoutSheet onSave={w=>{onAddCardio(w);setShowLog(false);}} onClose={()=>setShowLog(false)}/>}{showImport&&<HealthImportSheet onImport={ws=>{onImportHealth(ws);setShowImport(false);}} onClose={()=>setShowImport(false)} existingIds={existingIds}/>}{showBrickLink&&<LinkBrickSheet cardio={cardio} bricks={bricks||[]} onSave={b=>{onSaveBrick(b);setShowBrickLink(false);}} onClose={()=>setShowBrickLink(false)}/>}{selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)}/>}{selectedBrick&&<BrickDetailSheet brick={selectedBrick} cardio={cardio} onDelete={onDeleteBrick} onClose={()=>setSelectedBrick(null)}/>}</>}{selectedExercise&&<ExerciseDetailSheet exerciseName={selectedExercise} strengthHistory={strength} prs={prs||{}} onClose={()=>setSelectedExercise(null)}/>}</div>);
 }
 
 // ─── Knowledge Tab ─────────────────────────────────────────────────────────────
 function KnowledgeTab(){const[articles,setArticles]=useState(()=>db.get('coach_knowledge',[]));const[query,setQuery]=useState('');const[loading,setLoading]=useState(false);const[selected,setSelected]=useState(null);const[followUp,setFollowUp]=useState('');const[fuLoading,setFuLoading]=useState(false);const[fuAnswer,setFuAnswer]=useState('');const research=async()=>{if(!query.trim()||loading)return;setLoading(true);try{const resp=await callAI({system:`Write a practical training knowledge article. Respond ONLY with JSON (no markdown): {"title":"title","summary":"2-3 sentence preview","keyPoints":["point 1","point 2","point 3"],"content":"Full article. 3-5 paragraphs. Plain text.","tags":["tag1","tag2"]}`,messages:[{role:'user',content:`Topic: ${query}\nPractical, evidence-based article for a serious recreational athlete.`}],max_tokens:1500});const raw=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';let parsed;try{parsed=JSON.parse(raw.replace(/```json\n?|\n?```/g,'').trim());}catch{parsed={title:query,summary:raw.slice(0,200),keyPoints:[],content:raw,tags:[]};}const article={id:uid(),query,...parsed,createdAt:todayStr()};const updated=[article,...articles].slice(0,50);setArticles(updated);db.set('coach_knowledge',updated);setSelected(article);setQuery('');toast.success(`"${article.title}" added`);}catch{toast.error('Research failed');}finally{setLoading(false);} };const deleteArticle=async id=>{const ok=await confirmDialog('Delete this article?','Cannot be undone.');if(!ok)return;const u=articles.filter(a=>a.id!==id);setArticles(u);db.set('coach_knowledge',u);if(selected?.id===id)setSelected(null);toast.info('Article deleted');};const askFollowUp=async()=>{if(!followUp.trim()||fuLoading||!selected)return;setFuLoading(true);setFuAnswer('');try{const resp=await callAI({system:`Answer a follow-up about this article:\n\n${selected.title}\n\n${selected.content}\n\nBe concise and practical. Plain text.`,messages:[{role:'user',content:followUp}],max_tokens:500});const text=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';setFuAnswer(text);setFollowUp('');}catch{toast.error('Failed to answer');}finally{setFuLoading(false);} };
 if(selected)return(<div style={{paddingBottom:48}}><button onClick={()=>{setSelected(null);setFuAnswer('');}} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:14,fontWeight:500,cursor:'pointer',marginBottom:18,padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> Library</button><div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:10}}>{selected.tags?.map(t=><Pill key={t} color={C.purple}>{t}</Pill>)}</div><div style={{fontFamily:F.display,fontSize:26,fontWeight:800,color:C.text,lineHeight:1.2,marginBottom:10,letterSpacing:'-.01em'}}>{selected.title}</div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,lineHeight:1.8,marginBottom:16}}>{selected.summary}</div>{selected.keyPoints?.length>0&&<Card accent={C.purple} style={{marginBottom:16}}><Label style={{color:C.purple,marginBottom:10}}>Key points</Label>{selected.keyPoints.map((pt,i)=><div key={i} style={{display:'flex',gap:10,padding:'7px 0',borderTop:i>0?`1px solid ${C.border}`:'none'}}><span style={{color:C.purple,flexShrink:0,fontWeight:700}}>▸</span><span style={{fontFamily:F.ui,fontSize:15,lineHeight:1.65,color:C.text}}>{pt}</span></div>)}</Card>}<div style={{fontFamily:F.ui,fontSize:15,color:C.text,lineHeight:1.85,whiteSpace:'pre-wrap',marginBottom:24}}>{selected.content}</div><Card style={{marginBottom:16}}><Label style={{marginBottom:12}}>Ask a follow-up</Label>{fuAnswer&&<div style={{fontFamily:F.ui,fontSize:15,lineHeight:1.75,marginBottom:14,padding:'12px 14px',background:C.purple+'0A',borderRadius:10,border:`1px solid ${C.purple}30`,color:C.text}}>{fuAnswer}</div>}<div style={{display:'flex',gap:8}}><Inp placeholder="e.g. How often should I do this?" value={followUp} onChange={e=>setFollowUp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&askFollowUp()} style={{flex:1}}/><button onClick={askFollowUp} disabled={fuLoading||!followUp.trim()} style={{width:48,height:48,background:fuLoading||!followUp.trim()?C.elevated:C.purple,border:'none',borderRadius:12,cursor:fuLoading||!followUp.trim()?'not-allowed':'pointer',color:fuLoading||!followUp.trim()?C.muted:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{fuLoading?<Spinner color="#fff" size={14}/>:'↑'}</button></div></Card><button onClick={()=>deleteArticle(selected.id)} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:12,padding:'11px 16px',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',width:'100%',transition:'all .15s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>Delete article</button></div>);
 return(<div style={{paddingBottom:48}}><div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,marginBottom:4}}>Research a topic</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.6}}>Ask anything — Zone 2, marathon nutrition, periodization, sleep, recovery.</div><div style={{display:'flex',gap:8,marginBottom:20}}><Inp placeholder="e.g. Zone 2 training for endurance…" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&research()} style={{flex:1}}/><button onClick={research} disabled={loading||!query.trim()} style={{width:50,height:50,background:loading||!query.trim()?C.elevated:C.purple,border:'none',borderRadius:12,cursor:loading||!query.trim()?'not-allowed':'pointer',color:loading||!query.trim()?C.muted:'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .2s'}}>{loading?<Spinner color="#fff" size={14}/>:<Icon name='search' size={18} color='#fff'/>}</button></div>{loading&&<Card style={{textAlign:'center',padding:32,borderColor:C.purple+'30',background:C.purple+'05'}}><div style={{display:'flex',justifyContent:'center',marginBottom:12}}><Spinner color={C.purple} size={22}/></div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle}}>Researching "{query}"…</div></Card>}{!loading&&articles.length===0&&<Card style={{textAlign:'center',padding:40}}><div style={{marginBottom:14}}><Icon name='book' size={40} color={C.purple}/></div><div style={{fontFamily:F.display,fontSize:20,fontWeight:700,color:C.text,marginBottom:8}}>Your knowledge library</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.7}}>Research any training topic — saved forever.</div></Card>}{articles.length>0&&<><Label>{articles.length} article{articles.length>1?'s':''}</Label><div style={{display:'flex',flexDirection:'column',gap:10}}>{articles.map(a=><Card key={a.id} onClick={()=>{setSelected(a);setFuAnswer('');}} accent={C.purple}><div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:8}}>{a.tags?.slice(0,3).map(t=><Pill key={t} color={C.purple} small>{t}</Pill>)}</div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6,letterSpacing:'-.01em'}}>{a.title}</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.65,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{a.summary}</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:10}}>{fmtDateSh(a.createdAt)}</div></Card>)}</div></>}</div>);}
+
+// ─── Exercise Detail & History ────────────────────────────────────────────────
+function ExerciseDetailSheet({ exerciseName, strengthHistory, prs, onClose }) {
+  const slug = exSlug(exerciseName);
+  const pr = prs[slug];
+
+  // Find all sessions containing this exercise
+  const sessions = [];
+  for (const s of strengthHistory) {
+    const ex = s.exercises?.find(e => (e.slug || exSlug(e.name || '')) === slug || e.exerciseId === slug);
+    if (ex) {
+      const completedSets = ex.sets?.filter(s => s.completed) || [];
+      if (completedSets.length > 0) {
+        const exType = ex.exerciseType || 'weighted';
+        const bestSet = exType === 'timed'
+          ? completedSets.reduce((b, s) => (s.duration || 0) > (b.duration || 0) ? s : b)
+          : exType === 'weighted'
+            ? completedSets.reduce((b, s) => epley(s.weight || 0, s.reps || 0) > epley(b.weight || 0, b.reps || 0) ? s : b)
+            : completedSets.reduce((b, s) => (s.reps || 0) > (b.reps || 0) ? s : b);
+        sessions.push({ date: s.date, name: s.name, sets: completedSets, bestSet, exerciseType: exType });
+      }
+    }
+  }
+  sessions.sort((a, b) => b.date.localeCompare(a.date));
+
+  const totalSessions = sessions.length;
+  const lastPerformed = sessions[0]?.date;
+  const exerciseType = sessions[0]?.exerciseType || 'weighted';
+
+  const fmtSet = (s, et) => et === 'timed' ? `${s.duration}s` : et === 'banded' ? `${s.band} ×${s.reps}` : s.weight > 0 ? `${s.weight} × ${s.reps}` : `${s.reps} reps`;
+  const fmtBest = (s, et) => et === 'timed' ? `${s.duration}s` : et === 'weighted' && s.weight > 0 ? `${s.weight}lb × ${s.reps}` : `${s.reps} reps`;
+
+  return (
+    <Sheet onClose={onClose} title={exerciseName}>
+      {/* Stats row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20 }}>
+        <Card style={{ textAlign: 'center', padding: '14px 8px' }}>
+          <div style={{ fontFamily: F.display, fontSize: 24, fontWeight: 700, color: C.text, lineHeight: 1 }}>{totalSessions}</div>
+          <div style={{ fontFamily: F.ui, fontSize: 11, color: C.muted, marginTop: 5 }}>Sessions</div>
+        </Card>
+        <Card style={{ textAlign: 'center', padding: '14px 8px' }}>
+          <div style={{ fontFamily: F.display, fontSize: 24, fontWeight: 700, color: C.green, lineHeight: 1 }}>{pr ? fmtPR(pr) : '—'}</div>
+          <div style={{ fontFamily: F.ui, fontSize: 11, color: C.muted, marginTop: 5 }}>PR</div>
+        </Card>
+        <Card style={{ textAlign: 'center', padding: '14px 8px' }}>
+          <div style={{ fontFamily: F.display, fontSize: 24, fontWeight: 700, color: C.cyan, lineHeight: 1 }}>{lastPerformed ? fmtDateSh(lastPerformed) : '—'}</div>
+          <div style={{ fontFamily: F.ui, fontSize: 11, color: C.muted, marginTop: 5 }}>Last done</div>
+        </Card>
+      </div>
+
+      {/* PR history timeline */}
+      {pr?.history?.length > 0 && <div style={{ marginBottom: 20 }}>
+        <Label>PR progression</Label>
+        <Card style={{ padding: '12px 16px' }}>
+          {[...(pr.history || []), { ...pr }].map((h, i, arr) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderTop: i > 0 ? `1px solid ${C.border}` : 'none' }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: i === arr.length - 1 ? C.green : C.muted, flexShrink: 0 }} />
+              <span style={{ fontFamily: F.mono, fontSize: 13, color: i === arr.length - 1 ? C.green : C.text, fontWeight: i === arr.length - 1 ? 700 : 400, flex: 1 }}>{fmtPR(h)}</span>
+              <span style={{ fontFamily: F.ui, fontSize: 11, color: C.muted }}>{h.date ? fmtDateSh(h.date) : ''}</span>
+            </div>
+          ))}
+        </Card>
+      </div>}
+
+      {/* Session history */}
+      <Label>History ({totalSessions} session{totalSessions !== 1 ? 's' : ''})</Label>
+      {sessions.map((s, i) => (
+        <Card key={i} style={{ marginBottom: 8, padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: C.text }}>{s.date ? fmtDateSh(s.date) : '—'}</span>
+            <span style={{ fontFamily: F.mono, fontSize: 12, color: C.green, fontWeight: 600 }}>Best: {fmtBest(s.bestSet, s.exerciseType)}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {s.sets.map((set, j) => (
+              <span key={j} style={{ fontFamily: F.mono, fontSize: 12, color: C.subtle, background: C.elevated, borderRadius: 8, padding: '4px 10px' }}>{fmtSet(set, s.exerciseType)}</span>
+            ))}
+          </div>
+        </Card>
+      ))}
+
+      {totalSessions === 0 && <Card style={{ textAlign: 'center', padding: 32 }}>
+        <div style={{ fontFamily: F.ui, fontSize: 14, color: C.muted }}>No history yet for this exercise.</div>
+      </Card>}
+    </Sheet>
+  );
+}
+
+function ExerciseListView({ strengthHistory, prs, onSelectExercise }) {
+  // Aggregate all unique exercises from history
+  const exerciseMap = {};
+  for (const s of strengthHistory) {
+    for (const ex of (s.exercises || [])) {
+      const name = ex.name;
+      if (!name) continue;
+      const slug = ex.slug || exSlug(name);
+      if (!exerciseMap[slug]) exerciseMap[slug] = { name, slug, exerciseType: ex.exerciseType || 'weighted', sessions: 0, lastDate: '', totalSets: 0 };
+      exerciseMap[slug].sessions++;
+      exerciseMap[slug].totalSets += (ex.sets?.filter(s => s.completed)?.length || 0);
+      if (s.date > exerciseMap[slug].lastDate) exerciseMap[slug].lastDate = s.date;
+    }
+  }
+  const exercises = Object.values(exerciseMap).sort((a, b) => b.lastDate.localeCompare(a.lastDate));
+
+  if (!exercises.length) return (
+    <Card style={{ textAlign: 'center', padding: 36 }}>
+      <div style={{ marginBottom: 12 }}><Icon name='dumbbell' size={36} color={C.muted} /></div>
+      <div style={{ fontFamily: F.display, fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 6 }}>No exercises yet</div>
+      <div style={{ fontFamily: F.ui, fontSize: 14, color: C.subtle }}>Complete a strength workout to see your exercise history.</div>
+    </Card>
+  );
+
+  return (
+    <div>
+      <Label>{exercises.length} exercise{exercises.length !== 1 ? 's' : ''}</Label>
+      {exercises.map(ex => {
+        const pr = prs[ex.slug];
+        return (
+          <Card key={ex.slug} onClick={() => onSelectExercise(ex.name)} style={{ marginBottom: 8, padding: '13px 16px', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 12, background: C.green + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon name='dumbbell' size={16} color={C.green} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: F.ui, fontWeight: 600, fontSize: 15, color: C.text, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{ex.name}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                  <span style={{ fontFamily: F.ui, fontSize: 12, color: C.muted }}>{ex.sessions}x</span>
+                  <Pill color={C.muted} small>{ex.exerciseType}</Pill>
+                  {ex.lastDate && <span style={{ fontFamily: F.ui, fontSize: 12, color: C.muted }}>{fmtDateSh(ex.lastDate)}</span>}
+                </div>
+              </div>
+              {pr && <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontFamily: F.mono, fontSize: 14, fontWeight: 700, color: C.green }}>{fmtPR(pr)}</div>
+                <div style={{ fontFamily: F.ui, fontSize: 10, color: C.muted, marginTop: 1 }}>PR</div>
+              </div>}
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── AI Race Conditions Generator ─────────────────────────────────────────────
 async function generateRaceConditions(event) {
@@ -2957,7 +3106,7 @@ export default function CoachApp() {
   const saveStrength=useCallback((completedEx,dur,newPRs,workout)=>{
     const saved={id:uid(),name:workout?.label||workout?.name||'Strength',date:todayStr(),duration:dur,exercises:completedEx};
     setSH(prev=>{const u=[...prev,saved];db.set('coach_strength_history',u);return u;});
-    const updatedPRs={...prs};for(const pr of newPRs)updatedPRs[pr.slug]={...pr,date:todayStr()};
+    const updatedPRs={...prs};for(const pr of newPRs){const prev=updatedPRs[pr.slug];const history=[...(prev?.history||[])];if(prev&&prev.date){const{history:_,...snapshot}=prev;history.push(snapshot);}updatedPRs[pr.slug]={...pr,date:todayStr(),history};}
     setPRs(updatedPRs);db.set('coach_prs',updatedPRs);setActiveWO(null);db.set('coach_active_workout',null);
     if(newPRs.length>0)toast.success(`${newPRs.length} new PR${newPRs.length>1?'s':''}!`);
     else toast.success(`${workout?.label||workout?.name||'Strength'} saved — ${fmtDur(dur)}`);
@@ -3070,7 +3219,7 @@ export default function CoachApp() {
               setTrainingPlan(null);db.set('coach_training_plan',null);
               toast.info(reason==='completed'?'Plan completed — nice work!':'Training plan archived');
             }} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}}/>}
-        {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth} bricks={bricks} onSaveBrick={saveBrick} onDeleteBrick={deleteBrick}/>}
+        {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth} bricks={bricks} onSaveBrick={saveBrick} onDeleteBrick={deleteBrick} prs={prs}/>}
         {tab==='chat'&&<ChatTab messages={messages} onSend={handleSend} loading={loading} isStreaming={isStreaming} streamText={streamText} personality={personality}/>}
       </div>
 
