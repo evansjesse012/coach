@@ -1,8 +1,8 @@
 // app/api/weather/route.js
 //
-// Proxy to Open-Meteo API for weather forecasts and geocoding.
-// No API key required. Supports forecast (up to 16 days) and
-// historical climate averages for dates further out.
+// Proxy to Open-Meteo API for weather forecasts, historical weather, and geocoding.
+// No API key required. Supports forecast (up to 16 days), historical weather
+// for past dates, and climate context for dates further out.
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -66,10 +66,31 @@ export async function GET(request) {
         // Wind is already in km/h from open-meteo, convert to mph
         weather.windMax = Math.round(weather.windMax * 0.621371);
       }
+    } else if (daysOut !== null && daysOut < 0) {
+      // Past date — use Open-Meteo historical weather archive API
+      const histRes = await fetch(
+        `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,windspeed_10m_max,weathercode&timezone=auto&start_date=${date}&end_date=${date}`
+      );
+      if (!histRes.ok) throw new Error('Historical weather fetch failed');
+      const histData = await histRes.json();
+      const d = histData.daily;
+
+      if (d && d.time?.length > 0) {
+        weather = {
+          type: 'historical',
+          tempHigh: cToF(d.temperature_2m_max[0]),
+          tempLow: cToF(d.temperature_2m_min[0]),
+          feelsLikeHigh: cToF(d.apparent_temperature_max[0]),
+          feelsLikeLow: cToF(d.apparent_temperature_min[0]),
+          precipTotal: d.precipitation_sum[0] != null ? Math.round(d.precipitation_sum[0] * 100) / 100 : null,
+          windMax: Math.round(d.windspeed_10m_max[0] * 0.621371),
+          weatherCode: d.weathercode[0],
+          condition: weatherCodeToText(d.weathercode[0]),
+          units: { temp: '°F', wind: 'mph', precip: 'mm' },
+        };
+      }
     } else if (raceDate) {
       // Too far out for forecast — provide climate context
-      // Use the month to give general climate info
-      const month = raceDate.getMonth(); // 0-indexed
       weather = {
         type: 'climate',
         message: `Forecast available ${daysOut > 16 ? `in ~${daysOut - 16} days` : 'closer to race day'}`,

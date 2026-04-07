@@ -2260,7 +2260,7 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   useEffect(()=>{
     if(!event.location||!event.date||!isRaceType) return;
     const d=daysUntil(event.date);
-    if(d<0||d>16) return;
+    if(d>16) return;
     // Throttle: only re-fetch if >6 hours old
     if(weatherData?.updatedAt){
       const age=Date.now()-new Date(weatherData.updatedAt).getTime();
@@ -2314,7 +2314,7 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   };
 
   const ai=event.aiConditions;
-  const wd=weatherData?.type==='forecast'?weatherData:null;
+  const wd=(weatherData?.type==='forecast'||weatherData?.type==='historical')?weatherData:null;
   const wdClimate=weatherData?.type==='climate'?weatherData:null;
 
   return(
@@ -2424,8 +2424,9 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
           </PlanSection>
 
           {/* Weather */}
-          <PlanSection icon="cloud" iconColor={C.cyan} title="Weather" hasContent={!!wd} defaultOpen={!!wd}>
+          <PlanSection icon="cloud" iconColor={C.cyan} title={wd?.type==='historical'?'Race Day Weather':'Weather'} hasContent={!!wd} defaultOpen={!!wd}>
             {wd?<div>
+              {wd.type==='historical'&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.cyan,marginBottom:10,padding:'4px 10px',background:C.cyan+'18',borderRadius:6,display:'inline-block'}}>Actual conditions on race day</div>}
               <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:14}}>
                 <div style={{textAlign:'center'}}>
                   <div style={{fontFamily:F.display,fontSize:42,fontWeight:800,color:C.text,lineHeight:1}}>{wd.tempHigh}°</div>
@@ -2441,11 +2442,11 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
                   <Icon name='wind' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.windMax} mph</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>Wind</div></div>
                 </Card>
                 <Card style={{padding:'12px 14px',display:'flex',alignItems:'center',gap:10}}>
-                  <Icon name='droplets' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.precipChance}%</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>Rain chance</div></div>
+                  <Icon name='droplets' size={16} color={C.cyan}/><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>{wd.type==='historical'?(wd.precipTotal!=null?wd.precipTotal+' mm':'--'):wd.precipChance+'%'}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{wd.type==='historical'?'Precipitation':'Rain chance'}</div></div>
                 </Card>
               </div>
-              {wd.location&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:10}}>{wd.location} · Updated {new Date(weatherData.updatedAt).toLocaleString()}</div>}
-            </div>:weatherLoading?<div style={{textAlign:'center',padding:16}}><Spinner color={C.cyan} size={18}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Loading forecast…</div></div>
+              {wd.location&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:10}}>{wd.location}{wd.type==='historical'?' · Historical data':' · Updated '+new Date(weatherData.updatedAt).toLocaleString()}</div>}
+            </div>:weatherLoading?<div style={{textAlign:'center',padding:16}}><Spinner color={C.cyan} size={18}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Loading weather…</div></div>
             :wdClimate?<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>{wdClimate.message}</div></div>
             :<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>{event.location&&event.date?(days>16?`Forecast available in ~${days-16} days`:'Weather data unavailable'):'Add a location and date for weather'}</div></div>}
           </PlanSection>
