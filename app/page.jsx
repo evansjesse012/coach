@@ -2085,7 +2085,7 @@ function BrickPromptBanner({workout,candidates,onLink,onDismiss}){
 }
 
 // ─── Workout Detail Sheets ────────────────────────────────────────────────────
-function WorkoutDetailSheet({workout,onClose}){
+function WorkoutDetailSheet({workout,onClose,onViewLog}){
   const s=SPORT_META[workout.sport]||SPORT_META.other;
   const isStrength=workout.kind==='strength';
   const fullDate=workout.date?new Date(workout.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}):'';
@@ -2155,6 +2155,8 @@ function WorkoutDetailSheet({workout,onClose}){
     </div>}
 
     {workout.source==='healthkit'&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16}}><Icon name='watch' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.cyan}}>Imported from Apple Health</span></div>}
+
+    {onViewLog&&<button onClick={onViewLog} style={{width:'100%',padding:'13px 16px',background:C.elevated,border:`1.5px solid ${C.border}`,borderRadius:14,fontFamily:F.ui,fontSize:14,fontWeight:600,color:C.accent,cursor:'pointer',transition:'all .15s',marginBottom:8}} onMouseEnter={e=>{e.currentTarget.style.background=C.accent+'10';e.currentTarget.style.borderColor=C.accent;}} onMouseLeave={e=>{e.currentTarget.style.background=C.elevated;e.currentTarget.style.borderColor=C.border;}}>View full log →</button>}
   </Sheet>);
 }
 
@@ -3292,6 +3294,7 @@ function GoalsTab({events,onViewGoal,onAddEvent,onAddEventChat}){
 
 // ─── Home Tab ──────────────────────────────────────────────────────────────────
 function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onPushAction,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan}){
+  const[selectedWorkout,setSelectedWorkout]=useState(null);
   const active=events.filter(e=>!e.completed);const completed=events.filter(e=>e.completed);const now=new Date();const ws=new Date(now);ws.setDate(now.getDate()-now.getDay());
   const thisWeekC=cardio.filter(w=>new Date(w.date+'T12:00:00')>=ws);const thisWeekS=strength.filter(s=>new Date(s.date+'T12:00:00')>=ws);
   const allRecent=[...cardio.map(w=>({...w,kind:'cardio'})),...strength.map(s=>({...s,sport:'strength',kind:'strength'}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
@@ -3329,8 +3332,9 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
       <Card onClick={onLog} accent={C.accent}><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:36,height:36,borderRadius:12,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='zap' size={17} color={C.accent}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.accent}}>Log workout</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>Any activity</div></div></div></Card>
       <Card onClick={onChat} accent={C.cyan}><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:36,height:36,borderRadius:12,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='message' size={17} color={C.cyan}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.cyan}}>Ask coach</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>AI logs it</div></div></div></Card>
     </div>
-    <Label>Recent activity</Label>
-    {allRecent.length===0?<Card style={{textAlign:'center',padding:28}}><div style={{fontFamily:F.ui,fontSize:15,color:C.muted}}>No sessions yet — add a goal and start training</div></Card>:allRecent.map((w,i)=>(<Card key={i} style={{marginBottom:8,padding:'13px 16px'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'strength'} small/><div style={{flex:1,fontFamily:F.ui,fontSize:14,color:C.subtle,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||(w.kind==='strength'?`${w.exercises?.reduce((t,e)=>t+(e.sets?.length||0),0)||0} sets`:'—')}</div><div style={{textAlign:'right',flexShrink:0}}><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text}}>{fmtDur(w.duration)}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontWeight:500}}>{fmtDateSh(w.date)}</div></div></div></Card>))}
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><Label style={{marginBottom:0}}>Recent activity</Label>{allRecent.length>0&&<button onClick={()=>setTab('log')} style={{background:'none',border:'none',fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent,cursor:'pointer',padding:0}}>View all →</button>}</div>
+    {allRecent.length===0?<Card style={{textAlign:'center',padding:28}}><div style={{fontFamily:F.ui,fontSize:15,color:C.muted}}>No sessions yet — add a goal and start training</div></Card>:allRecent.map((w,i)=>(<Card key={i} onClick={()=>setSelectedWorkout(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'strength'} small/><div style={{flex:1,fontFamily:F.ui,fontSize:14,color:C.subtle,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||(w.kind==='strength'?`${w.exercises?.reduce((t,e)=>t+(e.sets?.length||0),0)||0} sets`:'—')}</div><div style={{textAlign:'right',flexShrink:0}}><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text}}>{fmtDur(w.duration)}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontWeight:500}}>{fmtDateSh(w.date)}</div></div></div></Card>))}
+    {selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)} onViewLog={()=>{setSelectedWorkout(null);setTab('log');}}/>}
   </div>);}
 
 // ─── Chat Tab ──────────────────────────────────────────────────────────────────
