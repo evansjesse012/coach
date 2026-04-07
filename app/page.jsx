@@ -1756,6 +1756,13 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
 
   const handleClose=()=>{_planBuilderStartedAt=0;onClose();};
 
+  useEffect(()=>{
+    if(stage==='done'){
+      const t=setTimeout(()=>handleClose(),1500);
+      return ()=>clearTimeout(t);
+    }
+  },[stage]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return(<Sheet onClose={handleClose} title={mode==='week'?'Generating week':'Building your plan'}>
     {/* Progress stepper */}
     <div style={{display:'flex',gap:4,marginBottom:16}}>
