@@ -621,7 +621,7 @@ Cardio sessions: describe warm-up, main set with intervals/paces/zones, cool-dow
 Swim sessions: warm-up, drill set, main set with intervals and target paces, cool-down.
 Brick sessions: detail each leg separately.
 
-Strength sessions: MUST include an `exercises` array with the actual exercises to perform. Each exercise has:
+Strength sessions: MUST include an exercises array with the actual exercises to perform. Each exercise has:
 - name: exercise name (e.g. "Romanian Deadlift", "Plank", "Banded Walk")
 - exerciseType: one of 'weighted', 'bodyweight', 'banded', 'timed', 'cardio-drill'
   - weighted: tracks weight (lbs) + reps (bench press, RDL, leg press)
