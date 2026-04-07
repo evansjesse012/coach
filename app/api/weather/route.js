@@ -186,7 +186,9 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
   // Most common weather code
   const codeCounts = {};
   for (const c of allCodes) codeCounts[c] = (codeCounts[c] || 0) + 1;
-  const mostCommonCode = Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]);
+  const mostCommonCode = Object.keys(codeCounts).length > 0
+    ? Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0])
+    : 0;
 
   return {
     type: 'climate',
