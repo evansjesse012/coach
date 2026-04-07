@@ -111,5 +111,46 @@
     {"id":"n018","description":"Skipped post-workout meal, just coffee","timing":"post","relatedWorkout":"trainer ride","date":"2026-03-03"}
   ],
   "prs": {"leg_press":{"weight":200,"reps":10,"estimated1RM":267,"date":"2026-04-04"},"split_squat":{"weight":40,"reps":10,"estimated1RM":53,"date":"2026-04-04"},"pull_up":{"weight":0,"reps":8,"estimated1RM":0,"date":"2026-04-01"},"rdl":{"weight":105,"reps":10,"estimated1RM":140,"date":"2026-03-28"},"face_pull":{"weight":30,"reps":15,"estimated1RM":45,"date":"2026-04-01"},"nordic_curl":{"weight":0,"reps":6,"estimated1RM":0,"date":"2026-04-04"},"pallof_press":{"weight":25,"reps":12,"estimated1RM":35,"date":"2026-04-04"}},
-  "memory": {"profile":{"communicationStyle":"Direct, data-driven. Prefers specific numbers over vague encouragement.","preferredTimes":"Morning workouts on weekdays, longer sessions on weekends.","equipment":"Pool access (25yd), bike trainer (Wahoo Kickr), road bike, basic home gym."},"physical":{"injuries":[{"area":"left knee","status":"monitoring","notes":"Occasional tightness after long runs. Responds well to foam rolling.","date":"2026-03-15"},{"area":"right shoulder","status":"resolved","notes":"Impingement from swim volume increase. Resolved with PT exercises.","date":"2025-12-01"}],"strengths":["Cycling endurance","Mental toughness on long efforts","Consistent training schedule"],"limiters":["Swim technique — especially breathing and sighting","Run pace off the bike","Transition speed"]},"behavioral":{"patterns":["Tends to skip swim when tired — bike and run are comfort sports","Trains well in the morning, evening sessions are inconsistent","Gets motivated by seeing pace/power improvements","Skips stretching and mobility work","Good about fueling during long sessions, inconsistent on shorter ones","Sometimes skips post-workout nutrition entirely","Responds well to accountability — checking in weekly helps"],"motivators":["Race day visualization","Seeing training data improve","Competing against previous self"],"consistency":"4-6 sessions per week average. Swim is the most skipped discipline. Volume trending up over 8 weeks."},"coaching":{"openItems":["Need to increase swim frequency to 3x/week minimum","Practice race-day nutrition strategy in training","Work on T2 transition routine","Address inconsistent pre-workout fueling on shorter sessions"],"currentFocus":"Building aerobic base with emphasis on swim volume and brick consistency","sessionNotes":[]},"conversationSummaries":["Discussed race goals for Cozumel 70.3. Athlete wants to break 5:30, stretch goal 5:00. Main limiter is the run.","Reviewed Virginia 70.3 results. Swim was OK (44:29) but transitions were slow (14:48 combined). Bike solid. Run fell apart after mile 8.","Athlete reported left knee tightness. Suggested foam rolling and adjusting run volume. Monitoring.","Created initial weekly template. Athlete confirmed 5 days/week availability. Pool access 4 days.","8-week base phase in progress. Swim frequency improved from 2x to 2-3x/week. Bike power trending up (128W → 145W avg Z2). Run volume building gradually.","Completed 5 brick workouts in 8 weeks. Transition times improving (6min → 3-4min). Run-off-bike legs adapting faster."]}
+  "memory": {
+    "permanent": {
+      "equipment": ["bike trainer (Wahoo Kickr)", "road bike", "basic home gym"],
+      "facilities": ["Pool access (25yd)"],
+      "schedule": {"availableDays": 5, "preferredTimes": "Morning workouts on weekdays, longer sessions on weekends.", "constraints": ["Pool access 4 days/week"]},
+      "medicalHistory": [],
+      "dietaryConstraints": [],
+      "communicationPrefs": "Direct, data-driven. Prefers specific numbers over vague encouragement.",
+      "safetyRules": []
+    },
+    "benchmarks": [
+      {"metric": "Z2 bike avg power", "value": "145W", "testDate": "2026-04-01", "method": "8-week trend"},
+      {"metric": "Z2 run pace", "value": "9:45/mi", "testDate": "2026-03-28", "method": "easy run average"}
+    ],
+    "injuries": [
+      {"id": "left-knee", "area": "left knee", "status": "monitoring", "severity": "mild", "firstReported": "2026-03-15", "lastUpdated": "2026-03-15", "triggers": ["long runs over 7 miles"], "safeActivities": ["cycling", "swimming"], "modifications": ["foam rolling pre/post run"], "returnCriteria": "", "history": [{"date": "2026-03-15", "note": "Occasional tightness after long runs. Responds well to foam rolling."}]},
+      {"id": "right-shoulder", "area": "right shoulder", "status": "resolved", "severity": "moderate", "firstReported": "2025-12-01", "lastUpdated": "2025-12-01", "triggers": ["swim volume increase"], "safeActivities": [], "modifications": ["PT exercises"], "returnCriteria": "", "history": [{"date": "2025-12-01", "note": "Impingement from swim volume increase. Resolved with PT exercises."}]}
+    ],
+    "observations": {
+      "patterns": ["Tends to skip swim when tired — bike and run are comfort sports", "Trains well in the morning, evening sessions are inconsistent", "Gets motivated by seeing pace/power improvements", "Skips stretching and mobility work", "Good about fueling during long sessions, inconsistent on shorter ones", "Sometimes skips post-workout nutrition entirely", "Responds well to accountability — checking in weekly helps"],
+      "motivators": ["Race day visualization", "Seeing training data improve", "Competing against previous self"],
+      "consistency": "4-6 sessions per week average. Swim is the most skipped discipline. Volume trending up over 8 weeks.",
+      "currentFocus": "Building aerobic base with emphasis on swim volume and brick consistency",
+      "openItems": ["Need to increase swim frequency to 3x/week minimum", "Practice race-day nutrition strategy in training", "Work on T2 transition routine", "Address inconsistent pre-workout fueling on shorter sessions"],
+      "coachingNotes": ["Strength: Cycling endurance", "Strength: Mental toughness on long efforts", "Strength: Consistent training schedule", "Limiter: Swim technique — especially breathing and sighting", "Limiter: Run pace off the bike", "Limiter: Transition speed"]
+    },
+    "responseProfile": {
+      "volumeVsIntensity": "", "recoveryRate": "", "easyDayDiscipline": "", "sessionPreferences": "",
+      "skipPatterns": ["Skips swim when tired", "Evening sessions inconsistent"],
+      "communicationNeeds": ""
+    },
+    "conversationSummaries": [
+      {"date": "2026-02-20", "summary": "Discussed race goals for Cozumel 70.3. Athlete wants to break 5:30, stretch goal 5:00. Main limiter is the run."},
+      {"date": "2026-02-27", "summary": "Reviewed Virginia 70.3 results. Swim was OK (44:29) but transitions were slow (14:48 combined). Bike solid. Run fell apart after mile 8."},
+      {"date": "2026-03-15", "summary": "Athlete reported left knee tightness. Suggested foam rolling and adjusting run volume. Monitoring."},
+      {"date": "2026-03-20", "summary": "Created initial weekly template. Athlete confirmed 5 days/week availability. Pool access 4 days."},
+      {"date": "2026-03-28", "summary": "8-week base phase in progress. Swim frequency improved from 2x to 2-3x/week. Bike power trending up (128W to 145W avg Z2). Run volume building gradually."},
+      {"date": "2026-04-04", "summary": "Completed 5 brick workouts in 8 weeks. Transition times improving (6min to 3-4min). Run-off-bike legs adapting faster."}
+    ],
+    "periodSummaries": [],
+    "lastUpdated": "2026-04-04"
+  }
 }
