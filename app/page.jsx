@@ -2101,6 +2101,310 @@ function PlanSection({ icon, iconColor, title, hasContent, defaultOpen, children
   );
 }
 
+// ─── Goal Chat Sheet ──────────────────────────────────────────────────────────
+const GOAL_CHAT_TOOLS = [
+  { name:'propose_event', description:'Propose a structured goal, race, or PR based on the conversation. Call this when you have enough information to fill out the event fields. The user will review and edit before saving.', input_schema:{type:'object',properties:{
+    mode:{type:'string',enum:['goal','race','pr'],description:'Event type: goal (future target), race (past race result), or pr (personal record)'},
+    presetId:{type:'string',enum:EVENT_PRESETS.map(p=>p.id),description:'Sport/type preset ID'},
+    name:{type:'string',description:'Event name, e.g. "Boston Marathon 2026"'},
+    date:{type:'string',description:'YYYY-MM-DD format'},
+    location:{type:'string',description:'City, State or City, Country'},
+    goal:{type:'string',description:'Goal time or target'},
+    stretchGoal:{type:'string',description:'Ambitious stretch goal'},
+    baseline:{type:'string',description:'Current PR or best effort'},
+    result:{type:'string',description:'Actual result (for races/PRs)'},
+    url:{type:'string',description:'Official race website URL'},
+    placement:{type:'string',description:'Overall placement (for races)'},
+    bibNumber:{type:'string',description:'Bib number (for races)'},
+    ageGroup:{type:'string',description:'Age group category'},
+    genderPlacement:{type:'string',description:'Gender placement'},
+    ageGroupPlacement:{type:'string',description:'Age group placement'},
+    splits:{type:'object',description:'For triathlon races: swim, t1, bike, t2, run, total',properties:{swim:{type:'string'},t1:{type:'string'},bike:{type:'string'},t2:{type:'string'},run:{type:'string'},total:{type:'string'}}},
+  },required:['mode','presetId','name']} },
+  { name:'get_goals', description:'Get existing goals to check for duplicates or reference past performance.', input_schema:{type:'object',properties:{include_completed:{type:'boolean'}}} },
+  { name:'get_personal_records', description:'Get personal records for exercises.', input_schema:{type:'object',properties:{exercise:{type:'string'}}} },
+  { name:'get_workouts', description:'Get workout history to reference past performance.', input_schema:{type:'object',properties:{sport:{type:'string',enum:['run','bike','swim','strength','brick','hike','other','all']},days:{type:'number'},limit:{type:'number'}},required:['sport']} },
+];
+
+function buildGoalChatPrompt() {
+  const presetList = EVENT_PRESETS.map(p=>`${p.id}: ${p.label} (${p.planType})`).join(', ');
+  return `You are a friendly coaching assistant helping an athlete add a goal, race result, or personal record. Have a natural conversation to gather the details.
+
+YOUR APPROACH:
+1. Start by asking what they'd like to add — a future goal, a past race result, or a PR
+2. Listen to their natural description and ask follow-up questions to fill in gaps
+3. When you have enough info, call propose_event to show them a pre-filled form
+
+CONVERSATION STYLE:
+- Keep it brief and conversational — this is a mobile app
+- Ask 1-2 questions at a time, not a long list
+- If they give you everything at once (like "I want to run Boston Marathon April 2027 in 3:15"), go straight to proposing
+- Use get_goals to check existing goals and avoid duplicates
+- Use get_workouts or get_personal_records to suggest realistic goals based on training history
+
+AVAILABLE PRESETS: ${presetList}
+
+FIELD GUIDANCE:
+- mode: "goal" for future targets, "race" for completed races, "pr" for personal records
+- For goals: name, date, location, goal time, stretch goal, current PR (baseline) are most useful
+- For races: name, date, location, result, placement info, splits (for tris)
+- For PRs: name, date, result, previous best (baseline)
+- presetId must match one of the available presets exactly
+- date must be YYYY-MM-DD format
+- If unsure about a field, leave it out — the user can fill it in on the review form
+
+IMPORTANT:
+- Call propose_event as soon as you have a reasonable set of fields — don't over-question
+- If the athlete mentions a well-known race, fill in what you know (location, typical date month)
+- For triathlon races, gather split times if they have them
+- Always match the best presetId — e.g. a marathon = "marathon", a half = "half", Ironman 70.3 = "tri_703"
+- Today's date: ${new Date().toISOString().split('T')[0]}`;
+}
+
+function GoalChatSheet({appState,onSave,onClose}){
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[isStreaming,setIsStreaming]=useState(false);
+  const[streamText,setStreamText]=useState('');
+  const[stage,setStage]=useState('chatting'); // chatting|reviewing|done
+  const[proposedEvent,setProposedEvent]=useState(null);
+  const[form,setForm]=useState(null);
+  const bottomRef=useRef(null);
+  const inputRef=useRef(null);
+  const chainRef=useRef([]);
+
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[msgs,streamText]);
+
+  const executeGoalTool=(name,inp)=>{
+    if(name==='propose_event'){
+      return JSON.stringify({proposed:true,message:'Event proposed to user for review.'});
+    }
+    return executeTool(name,inp,appState);
+  };
+
+  const runTurn=useCallback(async(userMsgs)=>{
+    setLoading(true);
+    const systemPrompt=buildGoalChatPrompt();
+    const clean=userMsgs.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:String(m.content||'')}));
+    let chain=[...clean];
+    try{
+      for(let round=0;round<8;round++){
+        const resp=await callAI({system:systemPrompt,messages:chain,tools:GOAL_CHAT_TOOLS,tool_choice:{type:'auto'},max_tokens:1024});
+        const textContent=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'';
+        if(resp.stop_reason==='end_turn'){
+          chainRef.current=chain;
+          setLoading(false);
+          if(textContent){
+            setIsStreaming(true);setStreamText('');
+            await typewriter(textContent,chunk=>setStreamText(chunk));
+            const aMsg={role:'assistant',content:textContent};
+            setMsgs(prev=>[...prev,aMsg]);
+            chainRef.current=[...chain,{role:'assistant',content:textContent}];
+            setIsStreaming(false);setStreamText('');
+          }
+          return;
+        }
+        if(resp.stop_reason==='tool_use'){
+          const toolUses=resp.content?.filter(b=>b.type==='tool_use')||[];
+          if(!toolUses.length){chainRef.current=chain;setLoading(false);return;}
+          const toolResults=toolUses.map(tu=>{
+            let inp;try{inp=typeof tu.input==='string'?JSON.parse(tu.input):tu.input;}catch{inp={};}
+            const result=executeGoalTool(tu.name,inp);
+            // If propose_event, capture the proposed event data
+            if(tu.name==='propose_event'){
+              const preset=presetById(inp.presetId);
+              const isTri=preset?.planType==='tri';
+              const proposed={
+                presetId:inp.presetId||'custom',
+                mode:inp.mode||'goal',
+                name:inp.name||'',
+                date:inp.date||'',
+                location:inp.location||'',
+                goal:inp.goal||'',
+                stretchGoal:inp.stretchGoal||'',
+                baseline:inp.baseline||'',
+                result:inp.result||'',
+                url:inp.url||'',
+                placement:inp.placement||'',
+                bibNumber:inp.bibNumber||'',
+                ageGroup:inp.ageGroup||'',
+                genderPlacement:inp.genderPlacement||'',
+                ageGroupPlacement:inp.ageGroupPlacement||'',
+                splits:inp.splits||{swim:'',t1:'',bike:'',t2:'',run:'',total:''},
+              };
+              setProposedEvent(proposed);
+              setForm(proposed);
+              setStage('reviewing');
+            }
+            return{type:'tool_result',tool_use_id:tu.id,content:result};
+          });
+          chain=[...chain,{role:'assistant',content:resp.content},{role:'user',content:toolResults}];
+          if(textContent){
+            setIsStreaming(true);setStreamText('');
+            await typewriter(textContent,chunk=>setStreamText(chunk));
+            setMsgs(prev=>[...prev,{role:'assistant',content:textContent}]);
+            setIsStreaming(false);setStreamText('');
+          }
+          // If we just proposed an event, stop the loop
+          if(toolUses.some(tu=>tu.name==='propose_event')){
+            chainRef.current=chain;setLoading(false);return;
+          }
+          continue;
+        }
+        break;
+      }
+      chainRef.current=chain;setLoading(false);
+    }catch(err){
+      setLoading(false);setIsStreaming(false);
+      setMsgs(prev=>[...prev,{role:'assistant',content:`Something went wrong: ${err.message}. Try again.`}]);
+    }
+  },[appState]);
+
+  // Auto-start
+  useEffect(()=>{
+    const initMsg={role:'user',content:'I want to add a new goal, race, or PR.'};
+    setMsgs([initMsg]);
+    runTurn([initMsg]);
+  },[]);
+
+  const sendReply=()=>{
+    const t=input.trim();if(!t||loading||isStreaming)return;
+    const userMsg={role:'user',content:t};
+    const updated=[...msgs,userMsg];
+    setMsgs(updated);setInput('');
+    // If we were reviewing and user sends a message, go back to chatting with context
+    if(stage==='reviewing'){
+      setStage('chatting');
+      setProposedEvent(null);setForm(null);
+    }
+    const fullChain=[...chainRef.current,{role:'user',content:t}];
+    runTurn(fullChain);
+  };
+
+  const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const updSplit=(k,v)=>setForm(f=>({...f,splits:{...f.splits,[k]:v}}));
+
+  const handleSave=()=>{
+    if(!form||!form.name.trim())return;
+    const preset=presetById(form.presetId);
+    const isTri=preset?.planType==='tri';
+    const ev={
+      id:uid(),
+      presetId:form.presetId,
+      mode:form.mode,
+      name:form.name,
+      date:form.date,
+      location:form.location,
+      goal:form.goal,
+      stretchGoal:form.stretchGoal,
+      baseline:form.baseline,
+      result:isTri&&form.splits?.total?form.splits.total:form.result,
+      url:form.url,
+      placement:form.placement,
+      bibNumber:form.bibNumber,
+      ageGroup:form.ageGroup,
+      genderPlacement:form.genderPlacement,
+      ageGroupPlacement:form.ageGroupPlacement,
+      splits:form.splits,
+      completed:form.mode==='race'||form.mode==='pr',
+    };
+    onSave(ev);
+    setStage('done');
+  };
+
+  const preset=form?presetById(form.presetId):null;
+  const isTri=preset?.planType==='tri';
+  const isConversational=!loading&&!isStreaming&&msgs.length>1&&stage==='chatting';
+
+  return(<Sheet onClose={onClose} title="Add with AI">
+    {/* Chat area */}
+    <div style={{maxHeight:stage==='reviewing'?'25vh':'55vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+      {msgs.filter(m=>m.role==='assistant').map((m,i)=>(
+        <div key={i} className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(m.content)}</div>
+      ))}
+      {isStreaming&&streamText&&<div className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(streamText)}</div>}
+      {loading&&!isStreaming&&<div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0'}}><DotsLoader color={C.accent}/><span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>Thinking...</span></div>}
+      <div ref={bottomRef}/>
+    </div>
+
+    {/* Review form */}
+    {stage==='reviewing'&&form&&preset&&<>
+      <div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Review & edit</div>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16,padding:'10px 14px',background:preset.color+'10',borderRadius:12,border:`1.5px solid ${preset.color}30`}}>
+        <Icon name={preset.icon} size={18} color={preset.color}/>
+        <span style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:preset.color}}>{preset.label}</span>
+        <Pill color={form.mode==='goal'?C.accent:form.mode==='race'?C.yellow:C.green} small>{form.mode==='goal'?'Goal':form.mode==='race'?'Race':'PR'}</Pill>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+        <div><Label>Name *</Label><Inp value={form.name} onChange={e=>upd('name',e.target.value)} placeholder="Event name"/></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          <div><Label>Date</Label><Inp type="date" value={form.date} onChange={e=>upd('date',e.target.value)}/></div>
+          {form.mode!=='pr'&&<div><Label>Location</Label><Inp value={form.location} onChange={e=>upd('location',e.target.value)} placeholder="City, State"/></div>}
+        </div>
+
+        {form.mode==='goal'&&<>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            <div><Label>{preset.goalLabel||'Goal'}</Label><Inp value={form.goal} onChange={e=>upd('goal',e.target.value)} placeholder="e.g. 3:30"/></div>
+            <div><Label>Stretch goal</Label><Inp value={form.stretchGoal} onChange={e=>upd('stretchGoal',e.target.value)} placeholder="e.g. 3:15"/></div>
+          </div>
+          <div><Label>Current PR</Label><Inp value={form.baseline} onChange={e=>upd('baseline',e.target.value)} placeholder="Your best so far"/></div>
+        </>}
+
+        {form.mode==='race'&&!isTri&&<>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            <div><Label>{preset.resultLabel||'Result'}</Label><Inp value={form.result} onChange={e=>upd('result',e.target.value)} placeholder="e.g. 3:28:15"/></div>
+            <div><Label>Goal was</Label><Inp value={form.goal} onChange={e=>upd('goal',e.target.value)} placeholder="What you aimed for"/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+            <div><Label>Overall</Label><Inp value={form.placement} onChange={e=>upd('placement',e.target.value)} placeholder="e.g. 721st"/></div>
+            <div><Label>Gender</Label><Inp value={form.genderPlacement} onChange={e=>upd('genderPlacement',e.target.value)} placeholder="e.g. 551st"/></div>
+            <div><Label>Age group</Label><Inp value={form.ageGroupPlacement} onChange={e=>upd('ageGroupPlacement',e.target.value)} placeholder="e.g. 23rd"/></div>
+          </div>
+        </>}
+
+        {form.mode==='race'&&isTri&&<>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+            <div><Label>Swim</Label><Inp value={form.splits?.swim||''} onChange={e=>updSplit('swim',e.target.value)} placeholder="0:32:10"/></div>
+            <div><Label>T1</Label><Inp value={form.splits?.t1||''} onChange={e=>updSplit('t1',e.target.value)} placeholder="0:03:00"/></div>
+            <div><Label>Bike</Label><Inp value={form.splits?.bike||''} onChange={e=>updSplit('bike',e.target.value)} placeholder="2:45:00"/></div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+            <div><Label>T2</Label><Inp value={form.splits?.t2||''} onChange={e=>updSplit('t2',e.target.value)} placeholder="0:02:30"/></div>
+            <div><Label>Run</Label><Inp value={form.splits?.run||''} onChange={e=>updSplit('run',e.target.value)} placeholder="1:50:00"/></div>
+            <div><Label>Total</Label><Inp value={form.splits?.total||''} onChange={e=>updSplit('total',e.target.value)} placeholder="5:12:40"/></div>
+          </div>
+        </>}
+
+        {form.mode==='pr'&&<>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            <div><Label>{preset.resultLabel||'Result'}</Label><Inp value={form.result} onChange={e=>upd('result',e.target.value)} placeholder="e.g. 4:58 or 315 lbs"/></div>
+            <div><Label>Previous best</Label><Inp value={form.baseline} onChange={e=>upd('baseline',e.target.value)} placeholder="Old PR"/></div>
+          </div>
+        </>}
+
+        <div><Label>Race website</Label><Inp value={form.url} onChange={e=>upd('url',e.target.value)} placeholder="https://..." type="url"/></div>
+      </div>
+
+      <div style={{display:'flex',gap:10}}>
+        <Btn onClick={()=>{setStage('chatting');setProposedEvent(null);setForm(null);}} outline style={{flex:1}}>Keep chatting</Btn>
+        <Btn onClick={handleSave} color={preset.color} disabled={!form.name.trim()} style={{flex:2}}>
+          {form.mode==='goal'?'Save goal':form.mode==='race'?'Save race':'Save PR'}
+        </Btn>
+      </div>
+    </>}
+
+    {/* Done state */}
+    {stage==='done'&&<Btn onClick={onClose} color={C.green} style={{width:'100%',padding:13,fontSize:15}}>Done</Btn>}
+
+    {/* Chat input */}
+    {(isConversational||stage==='reviewing')&&<div style={{display:'flex',gap:8,marginTop:stage==='reviewing'?12:0}}>
+      <Inp ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendReply()} placeholder={stage==='reviewing'?'Want to change something? Just say it...':'Describe your goal, race, or PR...'} style={{flex:1}}/>
+      <button onClick={sendReply} disabled={!input.trim()} style={{width:48,height:48,background:!input.trim()?C.elevated:C.accent,border:'none',borderRadius:12,cursor:!input.trim()?'not-allowed':'pointer',color:!input.trim()?C.muted:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>↑</button>
+    </div>}
+  </Sheet>);
+}
+
 // ─── Event Modal ───────────────────────────────────────────────────────────────
 function EventModal({event,onSave,onClose,onDelete}){
   const MODES=[{id:'goal',label:'Goal',icon:'target'},{id:'race',label:'Past Race',icon:'trophy'},{id:'pr',label:'PR',icon:'zap'}];
@@ -2548,7 +2852,7 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
 }
 
 // ─── Goals Tab ────────────────────────────────────────────────────────────────
-function GoalsTab({events,onViewGoal,onAddEvent}){
+function GoalsTab({events,onViewGoal,onAddEvent,onAddEventChat}){
   const upcoming=events.filter(e=>!e.completed).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
   const pastRaces=events.filter(e=>e.completed&&e.mode==='race').sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const prs=events.filter(e=>e.completed&&e.mode==='pr').sort((a,b)=>(b.date||'').localeCompare(a.date||''));
@@ -2583,10 +2887,16 @@ function GoalsTab({events,onViewGoal,onAddEvent}){
   return(<div style={{paddingBottom:80}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
       <div><div style={{fontFamily:F.display,fontSize:24,fontWeight:800,color:C.text}}>Goals & Races</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{upcoming.length} active{pastRaces.length>0?` · ${pastRaces.length} race${pastRaces.length>1?'s':''}`:''}{prs.length>0?` · ${prs.length} PR${prs.length>1?'s':''}`:''}{completed.length>0?` · ${completed.length} completed`:''}</div></div>
-      <Btn onClick={onAddEvent} color={C.accent} style={{padding:'10px 18px',fontSize:14}}>+ Add</Btn>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={onAddEventChat} style={{padding:'10px 14px',background:C.purple+'18',border:`1.5px solid ${C.purple}40`,borderRadius:14,fontFamily:F.display,fontSize:14,fontWeight:700,color:C.purple,cursor:'pointer',display:'flex',alignItems:'center',gap:6,transition:'all .15s'}} title="Add with AI chat"><Icon name='sparkle' size={14} color={C.purple}/>AI</button>
+        <Btn onClick={onAddEvent} color={C.accent} style={{padding:'10px 18px',fontSize:14}}>+ Add</Btn>
+      </div>
     </div>
 
-    {upcoming.length===0&&pastRaces.length===0&&prs.length===0&&completed.length===0&&<Card onClick={onAddEvent} accent={C.accent} style={{textAlign:'center',padding:36,marginBottom:16}}><div style={{marginBottom:10}}><Icon name='target' size={32} color={C.accent}/></div><div style={{fontFamily:F.display,fontSize:20,fontWeight:700,color:C.accent,marginBottom:6}}>Add your first goal</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.6}}>Goals, past races, PRs — track your full history.</div></Card>}
+    {upcoming.length===0&&pastRaces.length===0&&prs.length===0&&completed.length===0&&<div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+      <Card onClick={onAddEventChat} accent={C.purple} style={{textAlign:'center',padding:32}}><div style={{marginBottom:10}}><Icon name='sparkle' size={32} color={C.purple}/></div><div style={{fontFamily:F.display,fontSize:20,fontWeight:700,color:C.purple,marginBottom:6}}>Describe your goal</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.6}}>Tell your coach about your next race or goal — they'll fill in the details.</div></Card>
+      <Card onClick={onAddEvent} style={{textAlign:'center',padding:20}}><div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><Icon name='plus' size={18} color={C.muted}/><span style={{fontFamily:F.ui,fontWeight:600,fontSize:14,color:C.muted}}>Or fill out the form manually</span></div></Card>
+    </div>}
 
     {upcoming.length>0&&<><Label>Upcoming</Label>{upcoming.map(e=><GoalRow key={e.id} e={e}/>)}</>}
     {pastRaces.length>0&&<div style={{marginTop:upcoming.length?24:0}}><Label>Race History</Label>{pastRaces.map(e=><GoalRow key={e.id} e={e}/>)}</div>}
@@ -2596,7 +2906,7 @@ function GoalsTab({events,onViewGoal,onAddEvent}){
 }
 
 // ─── Home Tab ──────────────────────────────────────────────────────────────────
-function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onAddEvent,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan}){
+function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan}){
   const active=events.filter(e=>!e.completed);const completed=events.filter(e=>e.completed);const now=new Date();const ws=new Date(now);ws.setDate(now.getDate()-now.getDay());
   const thisWeekC=cardio.filter(w=>new Date(w.date+'T12:00:00')>=ws);const thisWeekS=strength.filter(s=>new Date(s.date+'T12:00:00')>=ws);
   const allRecent=[...cardio.map(w=>({...w,kind:'cardio'})),...strength.map(s=>({...s,sport:'strength',kind:'strength'}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
@@ -2606,7 +2916,10 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
       <Label style={{marginBottom:0}}>Training for</Label>
       {events.length>0&&<button onClick={onViewAllGoals} style={{background:'none',border:'none',fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent,cursor:'pointer',padding:0}}>All goals{completed.length>0?` (${completed.length} past)`:''} →</button>}
     </div>
-    {active.length===0?<Card onClick={onAddEvent} accent={C.accent} style={{marginBottom:16,textAlign:'center',padding:28}}><div style={{marginBottom:8}}><Icon name='target' size={28} color={C.accent}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.accent,marginBottom:4}}>Add your first goal</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>Marathon, lifting PR, triathlon…</div></Card>
+    {active.length===0?<div style={{marginBottom:16,display:'flex',gap:10}}>
+      <Card onClick={onAddEventChat} accent={C.purple} style={{flex:1,textAlign:'center',padding:22}}><div style={{marginBottom:6}}><Icon name='sparkle' size={24} color={C.purple}/></div><div style={{fontFamily:F.display,fontSize:15,fontWeight:700,color:C.purple,marginBottom:3}}>Describe a goal</div><div style={{fontFamily:F.ui,fontSize:12,color:C.subtle}}>Chat with AI</div></Card>
+      <Card onClick={onAddEvent} accent={C.accent} style={{flex:1,textAlign:'center',padding:22}}><div style={{marginBottom:6}}><Icon name='plus' size={24} color={C.accent}/></div><div style={{fontFamily:F.display,fontSize:15,fontWeight:700,color:C.accent,marginBottom:3}}>Add manually</div><div style={{fontFamily:F.ui,fontSize:12,color:C.subtle}}>Fill out a form</div></Card>
+    </div>
     :<div style={{display:'flex',gap:12,overflowX:'auto',paddingBottom:8,marginBottom:16,scrollbarWidth:'none',msOverflowStyle:'none'}}>
       {active.map(e=>{const p=presetById(e.presetId);const days=e.date?daysUntil(e.date):null;const isPast=days!==null&&days<0;return(<div key={e.id} onClick={()=>onViewGoal(e)} style={{flexShrink:0,width:190,borderRadius:18,background:C.surface,border:`1.5px solid ${p.color}30`,padding:'16px',boxShadow:S.card,position:'relative',overflow:'hidden',cursor:'pointer',transition:'all .15s'}} onMouseEnter={x=>{x.currentTarget.style.transform='translateY(-2px)';x.currentTarget.style.boxShadow=S.md;}} onMouseLeave={x=>{x.currentTarget.style.transform='none';x.currentTarget.style.boxShadow=S.card;}}><div style={{position:'absolute',top:-20,right:-20,width:80,height:80,borderRadius:'50%',background:p.color+'18',pointerEvents:'none'}}/><div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}><Icon name={p.icon} size={14} color={p.color}/><span style={{fontFamily:F.ui,fontSize:11,fontWeight:700,color:p.color,textTransform:'uppercase',letterSpacing:'.06em'}}>{p.label}</span></div><div style={{fontFamily:F.display,fontSize:17,fontWeight:700,lineHeight:1.2,marginBottom:4,letterSpacing:'-.01em',color:C.text}}>{e.name}</div>{e.location&&<div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginBottom:8}}>{e.location}</div>}<div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}><div>{e.goal&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:p.color}}>Goal: {e.goal}</div>}</div>{days!==null?<div style={{textAlign:'right'}}><div style={{fontFamily:F.display,fontSize:30,fontWeight:800,color:isPast?C.muted:C.text,lineHeight:1}}>{isPast?'Done':days}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontWeight:500}}>{isPast?e.date:'days'}</div></div>:<div style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>Ongoing</div>}</div></div>);})}
       <div onClick={onAddEvent} style={{flexShrink:0,width:72,borderRadius:18,border:`2px dashed ${C.border}`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,cursor:'pointer',transition:'all .15s',background:C.surface}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.background=C.accent+'06';}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.surface;}}><Icon name='plus' size={20} color={C.muted}/><span style={{fontFamily:F.ui,fontSize:10,fontWeight:600,color:C.muted,textTransform:'uppercase',textAlign:'center',lineHeight:1.3}}>Add</span></div>
@@ -2679,6 +2992,7 @@ export default function CoachApp() {
   const [pushLoading,  setPushLoading] = useState(false);
   const [eventModal,   setEventModal]  = useState(null);
   const [goalDetail,   setGoalDetail]  = useState(null);
+  const [goalChat,     setGoalChat]    = useState(false);
   const [showQuick,    setShowQuick]   = useState(false);
   const [bricks,       setBricks]     = useState([]);
   const [brickPrompt,  setBrickPrompt]= useState(null); // {workout, candidates} for auto-suggest
@@ -2889,8 +3203,8 @@ export default function CoachApp() {
 
       {/* Content */}
       <div style={{padding:'20px 16px 0'}}>
-        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
-        {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')}/>}
+        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
+        {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)}/>}
         {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
               // Archive plan before deleting
               const tp=trainingPlan;
@@ -2944,6 +3258,7 @@ export default function CoachApp() {
 
       {brickPrompt&&<div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:468,zIndex:60}}><BrickPromptBanner workout={brickPrompt.workout} candidates={brickPrompt.candidates} onLink={(w1,w2)=>{saveBrick({date:w1.date,legs:[{workoutId:w2.id,sport:w2.sport},{workoutId:w1.id,sport:w1.sport}],transitionTime:null,transitionNotes:'',notes:''});setBrickPrompt(null);}} onDismiss={()=>setBrickPrompt(null)}/></div>}
       {(eventModal==='add'||(eventModal&&typeof eventModal==='object'))&&<EventModal event={eventModal==='add'?null:eventModal} onSave={saveEvent} onClose={()=>setEventModal(null)} onDelete={deleteEvent}/>}
+      {goalChat&&<GoalChatSheet appState={getAppState()} onSave={ev=>{saveEvent(ev);setGoalChat(false);}} onClose={()=>setGoalChat(false)}/>}
       {showQuick&&<QuickCaptureSheet onClose={()=>setShowQuick(false)} onLog={w=>{addCardio(w);}} plan={plan}/>}
 
       {showSettings&&<SettingsPage personality={personality} customPrompt={customPrompt} onPersonalityChange={handlePersonalityChange} onCustomPromptChange={handleCustomPromptChange} isDark={isDark} onToggleDark={()=>setIsDark(d=>{const next=!d;db.set('coach_dark_mode',next);return next;})} onClose={()=>setShowSettings(false)}/>}
