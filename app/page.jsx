@@ -2422,6 +2422,8 @@ For well-known races (Boston Marathon, Ironman Kona, etc.) include course-specif
 // ─── Collapsible Section Component ────────────────────────────────────────────
 function PlanSection({ icon, iconColor, title, hasContent, defaultOpen, children }) {
   const [open, setOpen] = useState(defaultOpen || false);
+  // Auto-open when content arrives (e.g., weather data loads after mount)
+  useEffect(() => { if (defaultOpen && !open) setOpen(true); }, [defaultOpen]);
   return (
     <div style={{ marginBottom: 12 }}>
       <button onClick={() => setOpen(!open)} style={{

@@ -4,6 +4,10 @@
 // No API key required. Supports forecast (up to 16 days), historical weather
 // for past dates, and climate estimates (5-year ±7 day average) for dates further out.
 
+// Force dynamic rendering and disable Next.js fetch data cache for this route
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
 async function fetchWithTimeout(url, timeoutMs = 10000) {
   const attempt = async () => {
     const controller = new AbortController();
