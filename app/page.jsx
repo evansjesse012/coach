@@ -720,7 +720,7 @@ If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.cur
   const hasBehavioral=mem.behavioral?.patterns?.length||mem.behavioral?.motivators?.length||mem.behavioral?.consistency;
   const hasCoaching=mem.coaching?.currentFocus||mem.coaching?.openItems?.length;
 
-  return(<div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto'}}>
+  return(<div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto',maxWidth:500,margin:'0 auto'}}>
     <div style={{background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`,padding:'16px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10}}>
       <button onClick={onClose} style={{borderRadius:12,background:C.elevated,border:`1.5px solid ${C.border}`,color:C.text,cursor:'pointer',display:'flex',alignItems:'center',gap:4,padding:'8px 14px 8px 10px',flexShrink:0}}><Icon name='arrowLeft' size={16}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600}}>Back</span></button>
       <div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-.01em'}}>Athlete Profile</div>
@@ -796,7 +796,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
   const loadSeedData = async () => { const ok=await confirmDialog('Load test data?','This will replace all current data with sample training data for testing.'); if(!ok)return; try{const res=await fetch('/seed-data.json');const d=await res.json();db.set('coach_events',d.events||[]);db.set('coach_cardio',d.cardio||[]);db.set('coach_strength_history',d.strengthHistory||[]);db.set('coach_prs',d.prs||{});db.set('coach_nutrition',d.nutrition||[]);db.set('coach_bricks',d.bricks||[]);if(d.memory)saveMemory(d.memory);db.set('coach_messages',[]);toast.success('Test data loaded — reload the app');setTimeout(()=>window.location.reload(),1000);}catch(e){toast.error('Failed to load seed data');} };
 
   return (
-    <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto'}}>
+    <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto',maxWidth:500,margin:'0 auto'}}>
       <div style={{background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`,padding:'16px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10}}>
         <button onClick={onClose} style={{borderRadius:12,background:C.elevated,border:`1.5px solid ${C.border}`,color:C.text,cursor:'pointer',display:'flex',alignItems:'center',gap:4,padding:'8px 14px 8px 10px',flexShrink:0}}><Icon name='arrowLeft' size={16}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600}}>Back</span></button>
         <div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-.01em'}}>Settings</div>
@@ -2000,7 +2000,7 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const wdClimate=weatherData?.type==='climate'?weatherData:null;
 
   return(
-    <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto'}}>
+    <div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto',maxWidth:500,margin:'0 auto'}}>
       <div style={{background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`,padding:'16px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10}}>
         <button onClick={onClose} style={{width:36,height:36,borderRadius:12,background:C.elevated,border:'none',color:C.subtle,fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>←</button>
         <div style={{flex:1,fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-.01em',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{event.name}</div>
