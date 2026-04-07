@@ -3447,6 +3447,23 @@ export default function CoachApp() {
     if(total>0&&(total!==lastPushCount.current||stale)) refreshPushMessage();
   },[cardio.length,strengthH.length]);
 
+  // Version check — detect new deploys and prompt reload
+  const[updateAvailable,setUpdateAvailable]=useState(false);
+  useEffect(()=>{
+    let knownVersion=null;
+    const check=async()=>{
+      try{
+        const res=await fetch('/api/version',{cache:'no-store'});
+        const{v}=await res.json();
+        if(!knownVersion)knownVersion=v;
+        else if(v!==knownVersion)setUpdateAvailable(true);
+      }catch{}
+    };
+    check();
+    const interval=setInterval(check,5*60*1000); // check every 5 min
+    return()=>clearInterval(interval);
+  },[]);
+
   const refreshPushMessage=useCallback(async(pers=null,custom=null)=>{
     setPushLoading(true);
     try{const text=await generatePushMessage(pers||personality,custom!==null?custom:customPrompt,getAppState(),callAI);if(text){setPushMsg(text);const count=cardio.length+strengthH.length;lastPushCount.current=count;lastPushTime.current=Date.now();db.set('coach_push_message',{text,count,ts:Date.now()});}}catch{}
@@ -3551,6 +3568,7 @@ export default function CoachApp() {
 
   return(
     <div style={{background:C.bg,minHeight:'100svh',color:C.text,fontFamily:F.ui,maxWidth:500,margin:'0 auto',position:'relative'}}>
+      {updateAvailable&&<div onClick={()=>window.location.reload()} style={{position:'fixed',top:0,left:0,right:0,zIndex:200,maxWidth:500,margin:'0 auto',padding:'10px 20px',background:C.accent,color:'#fff',fontFamily:F.ui,fontSize:13,fontWeight:600,textAlign:'center',cursor:'pointer'}}>New version available — tap to update</div>}
       {/* Top bar */}
       <div style={{position:'sticky',top:0,zIndex:50,background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 0'}}>
