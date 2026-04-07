@@ -2927,16 +2927,24 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
           const w={...data.weather,location:data.location,updatedAt:data.updatedAt};
           setWeatherData(w);
           onUpdate({...event,weather:w});
+        } else {
+          setWeatherData(null);
+          onUpdate({...event,weather:null});
         }
       })
-      .catch(()=>setWeatherError(true))
+      .catch(()=>{setWeatherError(true);setWeatherData(null);})
       .finally(()=>setWeatherLoading(false));
   };
   // Weather auto-fetch
   useEffect(()=>{
     if(!event.location||!event.date||!isRaceType) return;
+    // Invalidate corrupted cached data (e.g., from pre-fix deprecated params)
+    if(weatherData&&!weatherData.type){
+      setWeatherData(null);
+      onUpdate({...event,weather:null});
+    }
     // Throttle: only re-fetch if >6 hours old
-    if(weatherData?.updatedAt){
+    if(weatherData?.updatedAt&&weatherData?.type){
       const age=Date.now()-new Date(weatherData.updatedAt).getTime();
       if(age<6*60*60*1000) return;
     }

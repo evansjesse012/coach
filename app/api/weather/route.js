@@ -4,6 +4,23 @@
 // No API key required. Supports forecast (up to 16 days), historical weather
 // for past dates, and climate estimates (5-year ±7 day average) for dates further out.
 
+async function fetchWithTimeout(url, timeoutMs = 10000) {
+  const attempt = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { signal: controller.signal, cache: 'no-store' });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  try {
+    return await attempt();
+  } catch {
+    return await attempt();
+  }
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const location = searchParams.get('location');
@@ -15,7 +32,7 @@ export async function GET(request) {
 
   try {
     // Step 1: Geocode the location string
-    const geoRes = await fetch(
+    const geoRes = await fetchWithTimeout(
       `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`
     );
     if (!geoRes.ok) throw new Error('Geocoding failed');
@@ -37,7 +54,7 @@ export async function GET(request) {
 
     if (daysOut !== null && daysOut >= 0 && daysOut <= 16) {
       // Forecast available — use Open-Meteo forecast API
-      const forecastRes = await fetch(
+      const forecastRes = await fetchWithTimeout(
         `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max,weather_code&timezone=auto&start_date=${date}&end_date=${date}`
       );
       if (!forecastRes.ok) throw new Error('Forecast fetch failed');
@@ -68,7 +85,7 @@ export async function GET(request) {
       }
     } else if (daysOut !== null && daysOut < 0) {
       // Past date — use Open-Meteo historical weather archive API
-      const histRes = await fetch(
+      const histRes = await fetchWithTimeout(
         `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,wind_speed_10m_max,weather_code&timezone=auto&start_date=${date}&end_date=${date}`
       );
       if (!histRes.ok) throw new Error('Historical weather fetch failed');
@@ -140,7 +157,7 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
   // Fetch all 5 ranges in parallel
   const results = await Promise.allSettled(
     ranges.map(({ start, end }) =>
-      fetch(
+      fetchWithTimeout(
         `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,wind_speed_10m_max,weather_code&timezone=auto&start_date=${start}&end_date=${end}`
       ).then(r => {
         if (!r.ok) throw new Error('Archive fetch failed');
@@ -179,7 +196,7 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
     };
   }
 
-  const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const avg = arr => arr.length === 0 ? null : arr.reduce((a, b) => a + b, 0) / arr.length;
   const avgTempMax = avg(allTempMax);
   const avgTempMin = avg(allTempMin);
 
@@ -195,10 +212,10 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
     tempHigh: cToF(avgTempMax),
     tempLow: cToF(avgTempMin),
     tempHighRange: [cToF(Math.min(...allTempMax)), cToF(Math.max(...allTempMax))],
-    feelsLikeHigh: cToF(avg(allFeelsHigh)),
-    feelsLikeLow: cToF(avg(allFeelsLow)),
-    precipTotal: Math.round(avg(allPrecip) * 100) / 100,
-    windMax: Math.round(avg(allWind) * 0.621371),
+    feelsLikeHigh: allFeelsHigh.length ? cToF(avg(allFeelsHigh)) : null,
+    feelsLikeLow: allFeelsLow.length ? cToF(avg(allFeelsLow)) : null,
+    precipTotal: allPrecip.length ? Math.round(avg(allPrecip) * 100) / 100 : null,
+    windMax: allWind.length ? Math.round(avg(allWind) * 0.621371) : null,
     weatherCode: mostCommonCode,
     condition: weatherCodeToText(mostCommonCode),
     units: { temp: '°F', wind: 'mph', precip: 'mm' },
