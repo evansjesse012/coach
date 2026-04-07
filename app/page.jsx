@@ -789,10 +789,10 @@ You're an expert athletic coach checking in. Look at the full picture — recent
 
 Lead with what's important. Be specific with real numbers and dates. If everything looks good, keep it short. This is a mobile card — stay concise. Use **bold** sparingly for emphasis.
 
-If your note ends with a question or offers choices, append tappable actions as the LAST line:
+If — and only if — your note asks the athlete a genuine question or presents a decision, append tappable response buttons as the LAST line:
 [ACTIONS: "Button label" -> "response message", "Another label" -> "another response"]
 To open full chat instead: [ACTIONS: "Let's discuss" -> CHAT "pre-filled message"]
-Keep to 2-3 actions max. Only include when there's a real question — not every note needs actions.
+Rules: 2-3 actions max. Each button must be a direct answer to YOUR question. Never suggest something the data shows already exists (e.g. don't suggest generating a plan when one is loaded). Most notes won't need actions — that's fine.
 
 Style: ${getCommentaryStyle(personality,customText)}.`}],appState,callAI,maxRounds:6});
     return parsePushActions(result.response);
