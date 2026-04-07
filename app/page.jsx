@@ -1077,7 +1077,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
   const [saved, setSaved] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const mem = loadMemory();
-  const hasMemory = mem.observations?.patterns?.length||mem.injuries?.length||mem.observations?.openItems?.length;
+  const hasMemory = !!(mem.observations?.patterns?.length||mem.injuries?.length||mem.observations?.openItems?.length);
 
   const handleCustomSave = () => { onCustomPromptChange(localCustom); setSaved(true); setTimeout(()=>setSaved(false),2000); toast.success('Custom coach saved'); };
   const resetMemory = async () => { const ok=await confirmDialog('Reset coaching memory?','The coach will start fresh — all learned patterns and history cleared.'); if(!ok)return; saveMemory(defaultMemory()); toast.info('Coaching memory reset'); };
