@@ -364,7 +364,7 @@ const TOOLS = [
   { name:'log_nutrition', description:'Log what the athlete ate. Use when they describe a meal or snack. Record what they ate, timing relative to training (pre/during/post/general), and which workout it relates to if mentioned. Do NOT estimate macros.', input_schema:{type:'object',properties:{meal:{type:'string',description:'What they ate, in their words'},timing:{type:'string',enum:['pre','during','post','general'],description:'When relative to training'},relatedWorkout:{type:'string',description:'Which workout this fueled, if known (e.g. "long run", "bike")'},date:{type:'string',description:'YYYY-MM-DD, default today'}},required:['meal','timing']} },
   { name:'get_nutrition', description:'Get the athlete\'s recent nutrition log. Use to review fueling patterns, check pre/post workout nutrition, or answer questions about eating habits around training.', input_schema:{type:'object',properties:{days:{type:'number',description:'Look back this many days. Default 7.'},timing:{type:'string',enum:['pre','during','post','general','all'],description:'Filter by timing. Default all.'}}} },
   { name:'save_training_plan', description:'Save a full periodized training plan. Use this after gathering athlete context (goals, profile, workouts, available days) to create a multi-phase plan. Generate phases appropriate to the goal type, timeline, fitness level, and constraints. The plan structure is created once — individual weeks are generated on demand later.', input_schema:{type:'object',properties:{goalId:{type:'string'},raceName:{type:'string'},raceDate:{type:'string'},startDate:{type:'string'},totalWeeks:{type:'number'},trainingDaysPerWeek:{type:'number',description:'How many days/week the athlete can train'},phases:{type:'array',items:{type:'object',properties:{number:{type:'number'},name:{type:'string',description:'Descriptive phase name, e.g. "Base + Structural Durability"'},startDate:{type:'string'},endDate:{type:'string'},weeks:{type:'number'},weeklyVolume:{type:'string'},intensityCeiling:{type:'string',description:'Maximum intensity allowed, e.g. "Z2 only" or "threshold introduced"'},intensityMix:{type:'string',description:'e.g. "80% Z2, 20% threshold"'},strengthFreq:{type:'string'},focus:{type:'string'},keySessionTypes:{type:'array',items:{type:'string'}},deloadWeek:{type:'number',description:'Which week within this phase is deload, null if none'}}}}},required:['goalId','raceName','raceDate','startDate','totalWeeks','phases']} },
-  { name:'save_weekly_plan', description:'Save a generated weekly plan for a specific week. Each session must include purpose (why this session matters), workout (the actual workout detail to follow), sport, duration, zones, per-session nutrition (pre/during/post), priority level (red=cannot skip, yellow=flexible), and modification notes.', input_schema:{type:'object',properties:{weekNumber:{type:'number'},phase:{type:'number'},focusOfWeek:{type:'string',description:'Single coaching focus for this week'},sessions:{type:'array',description:'Array of 7 day objects (Mon-Sun)',items:{type:'object',properties:{day:{type:'string'},isRest:{type:'boolean'},sessions:{type:'array',items:{type:'object',properties:{type:{type:'string'},label:{type:'string'},duration:{type:'number'},zone:{type:'string'},targetIntensity:{type:'string',description:'Specific watts, pace, or RPE'},purpose:{type:'string',description:'Why this session matters — what adaptation it builds'},workout:{type:'string',description:'The actual workout: intervals, sets/reps, paces, rest periods. Be specific.'},fuel:{type:'object',properties:{pre:{type:'string'},during:{type:'string'},post:{type:'string'}}},priority:{type:'string',enum:['red','yellow']},notes:{type:'string',description:'Modification guidance: what to adjust if fatigued, time-crunched, or feeling great'},templateId:{type:'string',description:'For strength sessions, link to strength template'}}}}}}}},required:['weekNumber','phase','focusOfWeek','sessions']} },
+  { name:'save_weekly_plan', description:'Save a generated weekly plan for a specific week. Each session must include purpose (why this session matters), workout (the actual workout detail to follow), sport, duration, zones, per-session nutrition (pre/during/post), priority level (red=cannot skip, yellow=flexible), and modification notes.', input_schema:{type:'object',properties:{weekNumber:{type:'number'},phase:{type:'number'},focusOfWeek:{type:'string',description:'Single coaching focus for this week'},sessions:{type:'array',description:'Array of 7 day objects (Mon-Sun)',items:{type:'object',properties:{day:{type:'string'},isRest:{type:'boolean'},sessions:{type:'array',items:{type:'object',properties:{type:{type:'string'},label:{type:'string'},duration:{type:'number'},zone:{type:'string'},targetIntensity:{type:'string',description:'Specific watts, pace, or RPE'},purpose:{type:'string',description:'Why this session matters — what adaptation it builds'},workout:{type:'string',description:'The actual workout: intervals, sets/reps, paces, rest periods. Be specific.'},fuel:{type:'object',properties:{pre:{type:'string'},during:{type:'string'},post:{type:'string'}}},priority:{type:'string',enum:['red','yellow']},notes:{type:'string',description:'Modification guidance: what to adjust if fatigued, time-crunched, or feeling great'},exercises:{type:'array',description:'For strength sessions: full exercise prescriptions',items:{type:'object',properties:{name:{type:'string'},exerciseType:{type:'string',enum:['weighted','bodyweight','banded','timed','cardio-drill']},sets:{type:'number'},reps:{type:'number'},weight:{type:'number'},duration:{type:'number',description:'For timed exercises, in seconds'},band:{type:'string',description:'For banded: light/medium/heavy'},rest:{type:'number',description:'Rest between sets in seconds'},notes:{type:'string'}}}}}}}}}}},required:['weekNumber','phase','focusOfWeek','sessions']} },
   { name:'update_plan_progress', description:'Advance the current week number or phase in the training plan. Use at the start of a new week or when transitioning between phases.', input_schema:{type:'object',properties:{currentWeek:{type:'number'},currentPhase:{type:'number'},notes:{type:'string'}},required:['currentWeek','currentPhase']} },
   { name:'get_week_review', description:'Compare prescribed training plan vs actual logged workouts for a specific week. Returns what was completed, missed, shortened, substituted, and multi-week patterns. ALWAYS call this before generating next week\'s plan.', input_schema:{type:'object',properties:{weekNumber:{type:'number',description:'Week to review. Default: previous week.'},includeMultiWeek:{type:'boolean',description:'Include 4-week rolling pattern analysis. Default false.'}}} },
   { name:'get_plan_history', description:'Get archived past training plans with adherence data. Use when creating a new plan to understand what the athlete has done before — volume handled, adherence patterns, why plans ended, what worked.', input_schema:{type:'object',properties:{}} },
@@ -398,7 +398,7 @@ function computeWeekAdherence(tp, weekNum, cardio, strength) {
       }
       const isStr = sess.type === 'strength';
       if (isStr) {
-        const match = dayStrength.find(s => s.templateId === sess.templateId);
+        const match = dayStrength.find(s => s.name === sess.label || s.templateId === sess.templateId);
         if (match) return { ...sess, status: 'completed', actualDuration: match.duration, dateStr };
         return { ...sess, status: isPast ? 'missed' : 'upcoming', dateStr };
       }
@@ -499,7 +499,7 @@ function executeTool(name, input, appState) {
       // Fallback to static plan
       if (!plan?.length) return 'No training plan. Athlete needs to create one from the Plan tab or add a goal first.';
       const todayC=cardio.filter(w=>w.date===today); const todayS=strength.filter(s=>s.date===today);
-      return JSON.stringify({hasPeriodizedPlan:false,today:todayName,plan:plan.map(({day,sessions})=>({day,isToday:day===todayName,sessions:sessions.map(s=>({...s,completedToday:day===todayName?(s.type==='strength'?todayS.some(sh=>sh.templateId===s.templateId):todayC.some(w=>w.sport===s.sport)):null})),isRestDay:sessions.length===0}))});
+      return JSON.stringify({hasPeriodizedPlan:false,today:todayName,plan:plan.map(({day,sessions})=>({day,isToday:day===todayName,sessions:sessions.map(s=>({...s,completedToday:day===todayName?(s.type==='strength'?todayS.some(sh=>sh.name===s.label||sh.templateId===s.templateId):todayC.some(w=>w.sport===s.sport)):null})),isRestDay:sessions.length===0}))});
     }
     case 'get_training_stats': {
       const { weeks=4 } = input; const stats=[];
@@ -613,13 +613,26 @@ APP SCHEMA (how to structure data for this app):
 
 SESSION PRESCRIPTIONS:
 Every session must include:
-- purpose: one sentence explaining what adaptation this session builds and why it matters this week (e.g. "Building lactate clearance — this is the key workout of the week")
-- workout: the actual workout detail the athlete follows. Be specific:
-  - Cardio: warm-up, main set with specific intervals/paces/zones, cool-down (e.g. "15min easy jog → 5x4min at 8:15/mi with 2min jog recovery → 10min easy cooldown")
-  - Strength: exercises with sets, reps, rest periods, and weight guidance based on their PRs (e.g. "4x8 RDL at 70% 1RM (95lb), 90s rest → 3x10 split squat each leg at 40lb, 60s rest")
-  - Swim: warm-up, drill set, main set with intervals and target paces, cool-down (e.g. "200 easy → 4x50 drill/swim → 6x100 at CSS pace (1:50) on 2:10 → 200 easy")
-  - Brick: detail each leg separately
-- notes: modification guidance — what to do if fatigued, time-crunched, or feeling great. This is the "if/then" coaching.
+- purpose: one sentence explaining what adaptation this session builds and why it matters this week
+- workout: human-readable summary of the workout (e.g. "4x8 RDL → 3x10 split squat → 3x30s plank")
+- notes: modification guidance — what to do if fatigued, time-crunched, or feeling great
+
+Cardio sessions: describe warm-up, main set with intervals/paces/zones, cool-down in the workout field.
+Swim sessions: warm-up, drill set, main set with intervals and target paces, cool-down.
+Brick sessions: detail each leg separately.
+
+Strength sessions: MUST include an `exercises` array with the actual exercises to perform. Each exercise has:
+- name: exercise name (e.g. "Romanian Deadlift", "Plank", "Banded Walk")
+- exerciseType: one of 'weighted', 'bodyweight', 'banded', 'timed', 'cardio-drill'
+  - weighted: tracks weight (lbs) + reps (bench press, RDL, leg press)
+  - bodyweight: tracks reps only (push-ups, pull-ups, air squats)
+  - banded: tracks band level (light/medium/heavy) + reps (banded walks, pull-aparts)
+  - timed: tracks duration in seconds (plank, wall sit, dead hang)
+  - cardio-drill: tracks reps, no load (high knees, mountain climbers)
+- sets, reps (or duration for timed), weight (for weighted), band (for banded)
+- rest: seconds between sets
+- notes: form cues or execution notes
+You can prescribe ANY exercise — you are not limited to a fixed library. Base weight guidance on the athlete's PRs.
 
 GUARDRAILS:
 - Have a clear recommendation, but offer alternatives when reasonable. Explain your reasoning so the athlete can make an informed choice.
@@ -754,20 +767,8 @@ const EVENT_PRESETS = [
 ];
 const presetById = id => EVENT_PRESETS.find(p=>p.id===id)||EVENT_PRESETS.at(-1);
 
-const EX = {
-  leg_press:{name:'Leg Press',cat:'lower',rest:120}, split_squat:{name:'Bulgarian Split Squat',cat:'lower',rest:90,hint:'Each leg'},
-  nordic_curl:{name:'Nordic Curl',cat:'lower',rest:90,hint:'Band assist if needed'}, rdl:{name:'Romanian Deadlift',cat:'lower',rest:90},
-  pull_up:{name:'Pull-Up',cat:'upper',rest:90,hint:'Band for assist'}, face_pull:{name:'Face Pull',cat:'upper',rest:60,hint:'Cable or band'},
-  pallof_press:{name:'Pallof Press',cat:'core',rest:60,hint:'Anti-rotation · each side'}, dead_bug:{name:'Dead Bug',cat:'core',rest:45},
-  bench_press:{name:'Bench Press',cat:'upper',rest:120}, deadlift:{name:'Deadlift',cat:'lower',rest:180},
-  squat:{name:'Back Squat',cat:'lower',rest:150}, ohp:{name:'Overhead Press',cat:'upper',rest:90},
-};
-
-const STRENGTH_TEMPLATES = [
-  {id:'str_a',name:'Strength A',tag:'Lower Focus',color:'#E8604C',exercises:[{id:'leg_press',sets:3,reps:10,weight:0},{id:'split_squat',sets:3,reps:10,weight:35},{id:'nordic_curl',sets:3,reps:6,weight:0},{id:'pallof_press',sets:2,reps:12,weight:20}]},
-  {id:'str_b',name:'Strength B',tag:'Upper Focus',color:'#2BAFC4',exercises:[{id:'pull_up',sets:3,reps:8,weight:0},{id:'face_pull',sets:3,reps:15,weight:30},{id:'split_squat',sets:3,reps:10,weight:35},{id:'pallof_press',sets:2,reps:12,weight:20}]},
-  {id:'str_c',name:'Strength C',tag:'Full Body',color:'#2ABF84',exercises:[{id:'leg_press',sets:3,reps:10,weight:0},{id:'rdl',sets:3,reps:10,weight:95},{id:'pull_up',sets:3,reps:8,weight:0},{id:'face_pull',sets:3,reps:15,weight:30}]},
-];
+// Exercise library and templates removed — the AI coach now prescribes
+// exercises inline in weekly plan sessions with full exercise definitions.
 
 const SPORT_META = {
   run:{icon:'run',color:'#E8604C',label:'Run'}, bike:{icon:'bike',color:'#2BAFC4',label:'Bike'},
@@ -783,6 +784,44 @@ const fmtDateSh = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month
 const todayStr  = () => new Date().toISOString().split('T')[0];
 const uid       = () => Math.random().toString(36).slice(2,10);
 const epley     = (w,r) => r===1?w:Math.round(w*(1+r/30));
+const exSlug    = name => name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+const computeExPR = (exerciseType, sets) => {
+  const completed = sets.filter(s => s.completed);
+  if (!completed.length) return null;
+  if (exerciseType === 'weighted') {
+    const best = completed.reduce((b,s) => epley(s.weight,s.reps) > epley(b.weight,b.reps) ? s : b);
+    return { weight: best.weight, reps: best.reps, estimated1RM: epley(best.weight, best.reps), type: 'weighted' };
+  }
+  if (exerciseType === 'timed') {
+    const best = Math.max(...completed.map(s => s.duration || 0));
+    return { bestDuration: best, type: 'timed' };
+  }
+  // bodyweight, banded, cardio-drill → max reps
+  const best = Math.max(...completed.map(s => s.reps || 0));
+  const result = { bestReps: best, type: exerciseType };
+  if (exerciseType === 'banded') result.band = completed[0]?.band || '';
+  return result;
+};
+const getPRValue = pr => {
+  if (!pr) return 0;
+  if (pr.estimated1RM) return pr.estimated1RM;
+  if (pr.bestDuration) return pr.bestDuration;
+  if (pr.bestReps) return pr.bestReps;
+  return 0;
+};
+const isPRBetter = (newPR, oldPR) => {
+  if (!oldPR) return true;
+  if (newPR.type === 'weighted') return (newPR.estimated1RM || 0) > (oldPR.estimated1RM || 0);
+  if (newPR.type === 'timed') return (newPR.bestDuration || 0) > (oldPR.bestDuration || 0);
+  return (newPR.bestReps || 0) > (oldPR.bestReps || 0);
+};
+const fmtPR = pr => {
+  if (!pr) return '—';
+  if (pr.estimated1RM) return pr.weight > 0 ? `${pr.weight}lb × ${pr.reps}` : `${pr.reps} reps`;
+  if (pr.bestDuration) return `${pr.bestDuration}s`;
+  if (pr.bestReps) return `${pr.bestReps} reps`;
+  return '—';
+};
 const getDayName= () => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
 function renderMd(text){
   if(!text)return null;
@@ -840,29 +879,29 @@ function generateWeeklyPlan(events) {
   const types=[...new Set(active.map(e=>presetById(e.presetId).planType))];
   const hasTri=types.includes('tri'),hasRun=types.includes('run'),hasStr=types.includes('strength');
   if (hasTri) return [
-    {day:'Monday',    sessions:[{type:'strength',templateId:'str_a',label:'Strength A',notes:'Lower focus — leg press, split squats, Nordics',fuel:'Pre: light snack 60min before · Post: protein + carbs within 30min',sport:'strength'}]},
+    {day:'Monday',    sessions:[{type:'strength',label:'Strength A',notes:'Lower focus — leg press, split squats, Nordics',fuel:'Pre: light snack 60min before · Post: protein + carbs within 30min',sport:'strength'}]},
     {day:'Tuesday',   sessions:[{type:'run',sport:'run',duration:45,label:'Easy Run',notes:'Zone 2 · conversational pace',fuel:'Pre: banana + coffee 90min before · Post: protein shake or chocolate milk'},{type:'swim',sport:'swim',duration:30,label:'Swim',notes:'Technique drills · 1500–2000m',fuel:'Pre: light snack if needed · water during'}]},
-    {day:'Wednesday', sessions:[{type:'strength',templateId:'str_b',label:'Strength B',notes:'Upper focus — pull-ups, face pulls',fuel:'Pre: light snack 60min before · Post: protein + carbs within 30min',sport:'strength'}]},
+    {day:'Wednesday', sessions:[{type:'strength',label:'Strength B',notes:'Upper focus — pull-ups, face pulls',fuel:'Pre: light snack 60min before · Post: protein + carbs within 30min',sport:'strength'}]},
     {day:'Thursday',  sessions:[{type:'bike',sport:'bike',duration:60,label:'Zone 2 Ride',notes:'Steady aerobic effort',fuel:'Pre: oatmeal or toast 2hrs before · During: water + electrolytes · Post: recovery meal'},{type:'run',sport:'run',duration:20,label:'Brick Run',notes:'Off the bike · easy pace',fuel:'Practice race-day nutrition — eat what you\'ll use on race day'}]},
     {day:'Friday',    sessions:[]},
     {day:'Saturday',  sessions:[{type:'bike',sport:'bike',duration:90,label:'Long Ride',notes:'Build endurance · practice fueling',fuel:'Pre: full breakfast 2-3hrs before (60-80g carbs) · During: 1 gel every 45min + electrolytes · Post: protein + carbs within 30min'}]},
     {day:'Sunday',    sessions:[{type:'run',sport:'run',duration:75,label:'Long Run',notes:'Easy aerobic build',fuel:'Pre: oatmeal + banana 2hrs before · During: water, gel at 45min if needed · Post: recovery meal with protein'}]},
   ];
   if (hasRun) return [
-    {day:'Monday',    sessions:[{type:'strength',templateId:'str_a',label:'Strength',notes:'Strength + mobility',sport:'strength'}]},
+    {day:'Monday',    sessions:[{type:'strength',label:'Strength',notes:'Strength + mobility',sport:'strength'}]},
     {day:'Tuesday',   sessions:[{type:'run',sport:'run',duration:40,label:'Easy Run',notes:'Comfortable, conversational'}]},
     {day:'Wednesday', sessions:[{type:'run',sport:'run',duration:50,label:'Tempo Run',notes:'Comfortably hard effort'}]},
-    {day:'Thursday',  sessions:[{type:'strength',templateId:'str_b',label:'Strength',notes:'Upper + core',sport:'strength'}]},
+    {day:'Thursday',  sessions:[{type:'strength',label:'Strength',notes:'Upper + core',sport:'strength'}]},
     {day:'Friday',    sessions:[]},
     {day:'Saturday',  sessions:[{type:'run',sport:'run',duration:90,label:'Long Run',notes:'Easy pace · build your base'}]},
     {day:'Sunday',    sessions:[{type:'run',sport:'run',duration:30,label:'Recovery Run',notes:'Very easy · flush the legs'}]},
   ];
   if (hasStr) return [
-    {day:'Monday',    sessions:[{type:'strength',templateId:'str_a',label:'Strength A',notes:'Lower body',sport:'strength'}]},
+    {day:'Monday',    sessions:[{type:'strength',label:'Strength A',notes:'Lower body',sport:'strength'}]},
     {day:'Tuesday',   sessions:[{type:'other',sport:'other',duration:30,label:'Conditioning',notes:'Easy cardio · active recovery'}]},
-    {day:'Wednesday', sessions:[{type:'strength',templateId:'str_b',label:'Strength B',notes:'Upper + pull',sport:'strength'}]},
+    {day:'Wednesday', sessions:[{type:'strength',label:'Strength B',notes:'Upper + pull',sport:'strength'}]},
     {day:'Thursday',  sessions:[{type:'other',sport:'other',duration:30,label:'Cardio',notes:'Light cardio of choice'}]},
-    {day:'Friday',    sessions:[{type:'strength',templateId:'str_c',label:'Strength C',notes:'Full body',sport:'strength'}]},
+    {day:'Friday',    sessions:[{type:'strength',label:'Strength C',notes:'Full body',sport:'strength'}]},
     {day:'Saturday',  sessions:[]},{day:'Sunday',sessions:[]},
   ];
   return ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day=>({day,sessions:[]}));
@@ -1141,7 +1180,7 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
   if(tpToday){
     const daySessions=tpToday.sessions||[];
     if(tpToday.isRest||!daySessions.length) return (<Card style={{marginBottom:16,background:`linear-gradient(135deg,${C.elevated},${C.card})`,borderColor:C.border}}><div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:44,height:44,borderRadius:14,background:C.elevated,display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='rest' size={22} color={C.muted}/></div><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>Rest Day</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:2}}>Recovery is training. Let the body adapt.</div></div></div></Card>);
-    const isSessDone=s=>{if(s.type==='brick')return(s.legs||[]).every(l=>todayC.some(w=>w.sport===l.sport));if(s.type==='strength')return todayS.some(sh=>sh.templateId===s.templateId);return todayC.some(w=>w.sport===s.type);};
+    const isSessDone=s=>{if(s.type==='brick')return(s.legs||[]).every(l=>todayC.some(w=>w.sport===l.sport));if(s.type==='strength')return todayS.some(sh=>sh.name===s.label||sh.templateId===s.templateId);return todayC.some(w=>w.sport===s.type);};
     const allDone=daySessions.every(isSessDone);
     return (<Card accent={allDone?C.green:C.accent} style={{marginBottom:16}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
@@ -1171,7 +1210,7 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
         const isStr=sess.type==='strength';
         const done=isSessDone(sess);
         const accent=done?C.green:sport.color;
-        return (<div key={i} onClick={isStr&&!done&&sess.templateId?()=>{onStartStrength(sess.templateId);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}>
+        return (<div key={i} onClick={isStr&&!done&&sess.exercises?()=>{onStartStrength(sess);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}>
           <div style={{width:36,height:36,borderRadius:12,background:accent+'20',display:'flex',alignItems:'center',justifyContent:'center'}}>{done?<Icon name='check' size={17} color={C.green}/>:<Icon name={isStr?'dumbbell':sport.icon} size={17} color={accent}/>}</div>
           <div style={{flex:1}}>
             <div style={{display:'flex',alignItems:'center',gap:6}}>{sess.priority&&<div style={{width:6,height:6,borderRadius:'50%',background:sess.priority==='red'?C.accent:C.yellow}}/>}<div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div></div>
@@ -1189,8 +1228,8 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
   const todayPlan=plan.find(d=>d.day===today);
   if (!todayPlan) return null;
   if (!todayPlan.sessions.length) return (<Card style={{marginBottom:16,background:`linear-gradient(135deg,${C.elevated},${C.card})`,borderColor:C.border}}><div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:44,height:44,borderRadius:14,background:C.elevated,display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='rest' size={22} color={C.muted}/></div><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>Rest Day</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:2}}>Recovery is training. Let the body adapt.</div></div></div></Card>);
-  const allDone=todayPlan.sessions.every(s=>s.type==='strength'?todayS.some(sh=>sh.templateId===s.templateId):todayC.some(w=>w.sport===s.sport));
-  return (<Card accent={allDone?C.green:C.accent} style={{marginBottom:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:allDone?C.green:C.accent}}>{allDone?'✓ Today complete':"Today's sessions"}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{getDayName()}</div></div>{allDone&&<Pill color={C.green}>Done</Pill>}</div><div style={{display:'flex',flexDirection:'column',gap:8}}>{todayPlan.sessions.map((sess,i)=>{const isStr=sess.type==='strength';const t=isStr?STRENGTH_TEMPLATES.find(t=>t.id===sess.templateId):null;const sport=SPORT_META[sess.sport||'other'];const done=isStr?todayS.some(s=>s.templateId===sess.templateId):todayC.some(w=>w.sport===sess.sport);const accent=done?C.green:(isStr?(t?.color||C.green):sport.color);return (<div key={i} onClick={isStr&&!done?()=>{onStartStrength(sess.templateId);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}><div style={{width:36,height:36,borderRadius:12,background:accent+'20',display:'flex',alignItems:'center',justifyContent:'center',}}>{done?<Icon name='check' size={17} color={C.green}/>:(isStr?<Icon name='dumbbell' size={17} color={accent}/>:<Icon name={sport.icon} size={17} color={accent}/>)}</div><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1,lineHeight:1.4}}>{sess.notes}</div></div>{!isStr&&sess.duration&&<div style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>{fmtDur(sess.duration)}</div>}{isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:t?.color||C.green}}>Start →</div>}{!isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:sport.color}}>Log →</div>}</div>);})}</div></Card>);
+  const allDone=todayPlan.sessions.every(s=>s.type==='strength'?todayS.some(sh=>sh.name===s.label||sh.templateId===s.templateId):todayC.some(w=>w.sport===s.sport));
+  return (<Card accent={allDone?C.green:C.accent} style={{marginBottom:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:allDone?C.green:C.accent}}>{allDone?'✓ Today complete':"Today's sessions"}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{getDayName()}</div></div>{allDone&&<Pill color={C.green}>Done</Pill>}</div><div style={{display:'flex',flexDirection:'column',gap:8}}>{todayPlan.sessions.map((sess,i)=>{const isStr=sess.type==='strength';const sport=SPORT_META[sess.sport||'other'];const done=isStr?todayS.some(s=>s.name===sess.label||s.templateId===sess.templateId):todayC.some(w=>w.sport===sess.sport);const accent=done?C.green:(isStr?C.green:sport.color);return (<div key={i} onClick={isStr&&!done&&sess.exercises?()=>{onStartStrength(sess);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}><div style={{width:36,height:36,borderRadius:12,background:accent+'20',display:'flex',alignItems:'center',justifyContent:'center',}}>{done?<Icon name='check' size={17} color={C.green}/>:(isStr?<Icon name='dumbbell' size={17} color={accent}/>:<Icon name={sport.icon} size={17} color={accent}/>)}</div><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1,lineHeight:1.4}}>{sess.notes}</div></div>{!isStr&&sess.duration&&<div style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>{fmtDur(sess.duration)}</div>}{isStr&&!done&&sess.exercises&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Start →</div>}{!isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:sport.color}}>Log →</div>}</div>);})}</div></Card>);
 }
 
 // ─── Push Message Card ─────────────────────────────────────────────────────────
@@ -1229,18 +1268,95 @@ function QuickCaptureSheet({ onClose, onLog, plan }) {
 // ─── Strength Tracker ──────────────────────────────────────────────────────────
 function RestTimer({seconds,onDone}){const[rem,setRem]=useState(seconds);useEffect(()=>{if(rem<=0){onDone();return;}const t=setTimeout(()=>setRem(r=>r-1),1000);return()=>clearTimeout(t);},[rem]);const pct=(rem/seconds)*100;return(<div style={{background:C.elevated,borderRadius:12,padding:'10px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:14,boxShadow:S.sm}}><div style={{flex:1}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted}}>Rest</span><span style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:pct>33?C.cyan:C.yellow}}>{rem}s</span></div><div style={{height:4,background:C.border,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${pct}%`,background:`linear-gradient(90deg,${C.yellow},${C.cyan})`,borderRadius:4,transition:'width 1s linear'}}/></div></div><button onClick={onDone} style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,padding:'6px 13px',color:C.subtle,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',flexShrink:0}}>Skip</button></div>);}
 
-function SetRow({set,setNum,prev,onUpdate,onComplete}){const[ew,setEw]=useState(false);const[er,setEr]=useState(false);const inp={background:'transparent',border:'none',borderBottom:`2px solid ${C.accent}`,outline:'none',fontFamily:F.mono,fontSize:16,color:C.text,width:52,textAlign:'center',padding:'4px 0'};const cell={fontFamily:F.mono,fontSize:16,textAlign:'center',cursor:'pointer',padding:'5px',borderRadius:8,transition:'background .12s',minHeight:44,display:'flex',alignItems:'center',justifyContent:'center'};if(set.completed)return(<div style={{display:'grid',gridTemplateColumns:'28px 1fr 60px 60px 44px',gap:6,alignItems:'center',padding:'9px 4px',background:C.green+'14',borderRadius:10,marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>—</span><span style={{fontFamily:F.mono,fontSize:16,color:C.green,textAlign:'center',fontWeight:500}}>{set.weight||'BW'}</span><span style={{fontFamily:F.mono,fontSize:16,color:C.green,textAlign:'center',fontWeight:500}}>{set.reps}</span><span style={{textAlign:'center',color:C.green,fontSize:18}}>✓</span></div>);return(<div style={{display:'grid',gridTemplateColumns:'28px 1fr 60px 60px 44px',gap:6,alignItems:'center',padding:'6px 4px',marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{prev?`${prev.weight||'BW'}×${prev.reps}`:'-'}</span>{ew?<input autoFocus type="number" defaultValue={set.weight} style={inp} onBlur={e=>{onUpdate({weight:parseFloat(e.target.value)||0});setEw(false);}} onKeyDown={e=>e.key==='Enter'&&e.target.blur()}/>:<div onClick={()=>setEw(true)} style={{...cell,color:set.weight?C.text:C.muted}} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.weight||'BW'}</div>}{er?<input autoFocus type="number" defaultValue={set.reps} style={inp} onBlur={e=>{onUpdate({reps:parseInt(e.target.value)||0});setEr(false);}} onKeyDown={e=>e.key==='Enter'&&e.target.blur()}/>:<div onClick={()=>setEr(true)} style={cell} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.reps}</div>}<button onClick={onComplete} style={{width:44,height:44,borderRadius:12,background:C.elevated,border:`1.5px solid ${C.border}`,color:C.muted,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .14s'}} onMouseEnter={e=>{e.currentTarget.style.background=C.green+'18';e.currentTarget.style.borderColor=C.green;e.currentTarget.style.color=C.green;}} onMouseLeave={e=>{e.currentTarget.style.background=C.elevated;e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>✓</button></div>);}
+function SetRow({set,setNum,prev,exerciseType,onUpdate,onComplete}){
+  const[ew,setEw]=useState(false);const[er,setEr]=useState(false);const[ed,setEd]=useState(false);const[eb,setEb]=useState(false);
+  const inp={background:'transparent',border:'none',borderBottom:`2px solid ${C.accent}`,outline:'none',fontFamily:F.mono,fontSize:16,color:C.text,width:52,textAlign:'center',padding:'4px 0'};
+  const cell={fontFamily:F.mono,fontSize:16,textAlign:'center',cursor:'pointer',padding:'5px',borderRadius:8,transition:'background .12s',minHeight:44,display:'flex',alignItems:'center',justifyContent:'center'};
+  const checkBtn=<button onClick={onComplete} style={{width:44,height:44,borderRadius:12,background:C.elevated,border:`1.5px solid ${C.border}`,color:C.muted,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .14s'}} onMouseEnter={e=>{e.currentTarget.style.background=C.green+'18';e.currentTarget.style.borderColor=C.green;e.currentTarget.style.color=C.green;}} onMouseLeave={e=>{e.currentTarget.style.background=C.elevated;e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>✓</button>;
+  const prevFmt = prev ? (exerciseType==='timed' ? `${prev.duration||0}s` : exerciseType==='weighted' ? `${prev.weight||'BW'}×${prev.reps}` : `${prev.reps}`) : '-';
+  const eType = exerciseType || 'weighted';
 
-function StrengthTracker({template,strengthHistory,prs,onSave,onDiscard}){
-  const[session]=useState(()=>({id:Date.now(),templateId:template.id,name:template.name,startTime:Date.now(),exercises:template.exercises.map(te=>({exerciseId:te.id,name:EX[te.id]?.name||te.id,sets:Array.from({length:te.sets},(_,i)=>({setNum:i+1,weight:te.weight,reps:te.reps,completed:false}))}))}));
+  if(eType==='timed'){
+    const cols='28px 1fr 80px 44px';
+    if(set.completed) return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'9px 4px',background:C.green+'14',borderRadius:10,marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>—</span><span style={{fontFamily:F.mono,fontSize:16,color:C.green,textAlign:'center',fontWeight:500}}>{set.duration}s</span><span style={{textAlign:'center',color:C.green,fontSize:18}}>✓</span></div>);
+    return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'6px 4px',marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{prevFmt}</span>{ed?<input autoFocus type="number" defaultValue={set.duration} style={inp} onBlur={e=>{onUpdate({duration:parseInt(e.target.value)||0});setEd(false);}} onKeyDown={e=>e.key==='Enter'&&e.target.blur()}/>:<div onClick={()=>setEd(true)} style={cell} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.duration||0}s</div>}{checkBtn}</div>);
+  }
+
+  if(eType==='banded'){
+    const cols='28px 1fr 60px 60px 44px';
+    if(set.completed) return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'9px 4px',background:C.green+'14',borderRadius:10,marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>—</span><span style={{fontFamily:F.mono,fontSize:14,color:C.green,textAlign:'center',fontWeight:500}}>{set.band||'—'}</span><span style={{fontFamily:F.mono,fontSize:16,color:C.green,textAlign:'center',fontWeight:500}}>{set.reps}</span><span style={{textAlign:'center',color:C.green,fontSize:18}}>✓</span></div>);
+    return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'6px 4px',marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{prevFmt}</span>{eb?<select autoFocus defaultValue={set.band||'medium'} style={{...inp,width:60,borderBottom:`2px solid ${C.accent}`}} onChange={e=>{onUpdate({band:e.target.value});setEb(false);}} onBlur={()=>setEb(false)}><option value="light">Light</option><option value="medium">Med</option><option value="heavy">Heavy</option></select>:<div onClick={()=>setEb(true)} style={{...cell,fontSize:14}} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.band||'Med'}</div>}{er?<input autoFocus type="number" defaultValue={set.reps} style={inp} onBlur={e=>{onUpdate({reps:parseInt(e.target.value)||0});setEr(false);}} onKeyDown={e=>e.key==='Enter'&&e.target.blur()}/>:<div onClick={()=>setEr(true)} style={cell} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.reps}</div>}{checkBtn}</div>);
+  }
+
+  if(eType==='bodyweight'||eType==='cardio-drill'){
+    const cols='28px 1fr 80px 44px';
+    if(set.completed) return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'9px 4px',background:C.green+'14',borderRadius:10,marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>—</span><span style={{fontFamily:F.mono,fontSize:16,color:C.green,textAlign:'center',fontWeight:500}}>{set.reps} reps</span><span style={{textAlign:'center',color:C.green,fontSize:18}}>✓</span></div>);
+    return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'6px 4px',marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{prevFmt}</span>{er?<input autoFocus type="number" defaultValue={set.reps} style={inp} onBlur={e=>{onUpdate({reps:parseInt(e.target.value)||0});setEr(false);}} onKeyDown={e=>e.key==='Enter'&&e.target.blur()}/>:<div onClick={()=>setEr(true)} style={cell} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.reps} reps</div>}{checkBtn}</div>);
+  }
+
+  // Default: weighted
+  const cols='28px 1fr 60px 60px 44px';
+  if(set.completed) return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'9px 4px',background:C.green+'14',borderRadius:10,marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>—</span><span style={{fontFamily:F.mono,fontSize:16,color:C.green,textAlign:'center',fontWeight:500}}>{set.weight||'BW'}</span><span style={{fontFamily:F.mono,fontSize:16,color:C.green,textAlign:'center',fontWeight:500}}>{set.reps}</span><span style={{textAlign:'center',color:C.green,fontSize:18}}>✓</span></div>);
+  return(<div style={{display:'grid',gridTemplateColumns:cols,gap:6,alignItems:'center',padding:'6px 4px',marginBottom:5}}><span style={{fontFamily:F.mono,fontSize:11,color:C.muted,textAlign:'center'}}>{setNum}</span><span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{prevFmt}</span>{ew?<input autoFocus type="number" defaultValue={set.weight} style={inp} onBlur={e=>{onUpdate({weight:parseFloat(e.target.value)||0});setEw(false);}} onKeyDown={e=>e.key==='Enter'&&e.target.blur()}/>:<div onClick={()=>setEw(true)} style={{...cell,color:set.weight?C.text:C.muted}} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.weight||'BW'}</div>}{er?<input autoFocus type="number" defaultValue={set.reps} style={inp} onBlur={e=>{onUpdate({reps:parseInt(e.target.value)||0});setEr(false);}} onKeyDown={e=>e.key==='Enter'&&e.target.blur()}/>:<div onClick={()=>setEr(true)} style={cell} onMouseEnter={e=>e.currentTarget.style.background=C.elevated} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{set.reps}</div>}{checkBtn}</div>);
+}
+
+function StrengthTracker({workout,strengthHistory,prs,onSave,onDiscard}){
+  const[session]=useState(()=>({
+    id:Date.now(), name:workout.label||'Strength', startTime:Date.now(),
+    exercises:(workout.exercises||[]).map(ex=>({
+      slug:exSlug(ex.name), name:ex.name, exerciseType:ex.exerciseType||'weighted', rest:ex.rest||60, notes:ex.notes||'',
+      sets:Array.from({length:ex.sets||3},(_,i)=>({
+        setNum:i+1, completed:false,
+        ...(ex.exerciseType==='timed' ? {duration:ex.duration||30} :
+            ex.exerciseType==='banded' ? {band:ex.band||'medium',reps:ex.reps||10} :
+            ex.exerciseType==='bodyweight'||ex.exerciseType==='cardio-drill' ? {reps:ex.reps||10} :
+            {weight:ex.weight||0,reps:ex.reps||10})
+      }))
+    }))
+  }));
   const[ex,setEx]=useState(session.exercises);const[restTimer,setRest]=useState(null);const[view,setView]=useState('active');
   const total=ex.reduce((s,e)=>s+e.sets.length,0);const done=ex.reduce((s,e)=>s+e.sets.filter(x=>x.completed).length,0);
-  const getLastPerf=exId=>{for(const s of [...strengthHistory].reverse()){const e=s.exercises?.find(e=>e.exerciseId===exId);if(e?.sets?.length)return e.sets.filter(s=>s.completed);}return[];};
-  const updateSet=(exId,idx,upd)=>setEx(prev=>prev.map(e=>e.exerciseId!==exId?e:{...e,sets:e.sets.map((s,i)=>i!==idx?s:{...s,...upd})}));
-  const completeSet=(exId,idx)=>{setEx(prev=>prev.map(e=>e.exerciseId!==exId?e:{...e,sets:e.sets.map((s,i)=>i!==idx?s:{...s,completed:true})}));const e=EX[exId];if(e?.rest)setRest({exId,seconds:e.rest,key:`${exId}-${idx}`});};
+  const getLastPerf=slug=>{for(const s of [...strengthHistory].reverse()){const e=s.exercises?.find(e=>(e.slug||exSlug(e.name||''))=== slug || e.exerciseId===slug);if(e?.sets?.length)return e.sets.filter(s=>s.completed);}return[];};
+  const updateSet=(slug,idx,upd)=>setEx(prev=>prev.map(e=>e.slug!==slug?e:{...e,sets:e.sets.map((s,i)=>i!==idx?s:{...s,...upd})}));
+  const completeSet=(slug,idx)=>{setEx(prev=>prev.map(e=>e.slug!==slug?e:{...e,sets:e.sets.map((s,i)=>i!==idx?s:{...s,completed:true})}));const exData=ex.find(e=>e.slug===slug);if(exData?.rest)setRest({slug,seconds:exData.rest,key:`${slug}-${idx}`});};
   const handleDiscard=async()=>{const ok=await confirmDialog('Discard workout?','All progress will be lost.');if(ok)onDiscard();};
-  if(view==='summary'){const dur=Math.round((Date.now()-session.startTime)/60000);const completed=ex.map(e=>({...e,sets:e.sets.filter(s=>s.completed)})).filter(e=>e.sets.length>0);const totalVol=completed.reduce((s,e)=>s+e.sets.reduce((ss,set)=>ss+(set.weight*set.reps),0),0);const newPRs=[];for(const e of completed){const bestE=Math.max(...e.sets.map(s=>epley(s.weight,s.reps)));if(bestE>0&&bestE>(prs[e.exerciseId]?.estimated1RM||0)){const best=e.sets.reduce((b,s)=>epley(s.weight,s.reps)>epley(b.weight,b.reps)?s:b);newPRs.push({exerciseId:e.exerciseId,name:e.name,weight:best.weight,reps:best.reps,estimated1RM:bestE});}}return(<div className="fade-up" style={{paddingBottom:40}}><div style={{textAlign:'center',padding:'24px 0 20px'}}><div style={{marginBottom:8}}><Icon name='star' size={48} color={C.green}/></div><div style={{fontFamily:F.display,fontSize:32,fontWeight:800,color:C.text}}>Workout done!</div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,marginTop:4}}>{template.name}</div></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:16}}>{[{l:'Time',v:fmtDur(dur),c:C.cyan},{l:'Sets',v:completed.reduce((s,e)=>s+e.sets.length,0),c:C.text},{l:'Volume',v:totalVol>0?`${(totalVol/1000).toFixed(1)}k`:'—',c:C.text}].map(({l,v,c})=><Card key={l} style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:c,lineHeight:1}}>{v}</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:5,fontWeight:500}}>{l}</div></Card>)}</div>{newPRs.length>0&&<Card accent={C.yellow} style={{marginBottom:14}}><Label style={{color:C.yellow,marginBottom:10}}>New Personal Records</Label>{newPRs.map((pr,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',padding:'7px 0',borderTop:i>0?`1px solid ${C.border}`:'none'}}><span style={{fontFamily:F.ui,fontSize:15,fontWeight:500,color:C.text}}>{pr.name}</span><span style={{fontFamily:F.mono,fontSize:14,color:C.yellow}}>{pr.weight>0?`${pr.weight} lb × ${pr.reps}`:`${pr.reps} reps`}</span></div>)}</Card>}<Label>Breakdown</Label>{completed.map((e,i)=><Card key={i} style={{marginBottom:8,padding:'13px 16px'}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,marginBottom:8,color:C.text}}>{e.name}</div><div style={{display:'flex',gap:7,flexWrap:'wrap'}}>{e.sets.map((s,j)=><span key={j} style={{fontFamily:F.mono,fontSize:12,color:C.subtle,background:C.elevated,borderRadius:8,padding:'4px 10px'}}>{s.weight>0?`${s.weight}×${s.reps}`:`BW×${s.reps}`}</span>)}</div></Card>)}<div style={{display:'flex',gap:10,marginTop:16}}><Btn onClick={handleDiscard} outline style={{flex:1}}>Discard</Btn><Btn onClick={()=>onSave(completed,dur,newPRs)} color={C.green} style={{flex:2}}>Save workout</Btn></div></div>);}
-  return(<div className="fade-up" style={{paddingBottom:88}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><div><div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text}}>{template.name}</div><div style={{fontFamily:F.ui,fontSize:14,color:C.muted,marginTop:2}}>{done} of {total} sets</div></div><button onClick={handleDiscard} style={{background:C.elevated,border:'none',borderRadius:10,padding:'7px 14px',color:C.subtle,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer'}}>Discard</button></div><div style={{height:5,background:C.border,borderRadius:4,overflow:'hidden',marginBottom:16}}><div style={{height:'100%',width:`${total>0?(done/total)*100:0}%`,background:`linear-gradient(90deg,${C.accent},${C.green})`,borderRadius:4,transition:'width .3s'}}/></div>{restTimer&&<RestTimer key={restTimer.key} seconds={restTimer.seconds} onDone={()=>setRest(null)}/>}{ex.map(exData=>{const e=EX[exData.exerciseId]||{};const lastPerf=getLastPerf(exData.exerciseId);const allDone=exData.sets.every(s=>s.completed);const catColors={lower:C.accent,upper:C.cyan,core:C.purple};return(<Card key={exData.exerciseId} style={{marginBottom:12}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:16,color:allDone?C.green:C.text}}>{e.name}</div>{e.hint&&<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{e.hint}</div>}</div><div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:catColors[e.cat]||C.muted,background:(catColors[e.cat]||C.muted)+'15',borderRadius:8,padding:'2px 9px'}}>{e.cat}</span><span style={{fontFamily:F.mono,fontSize:12,color:allDone?C.green:C.muted}}>{exData.sets.filter(s=>s.completed).length}/{exData.sets.length}</span></div></div><div style={{display:'grid',gridTemplateColumns:'28px 1fr 60px 60px 44px',gap:6,marginBottom:6,padding:'0 4px'}}>{['#','Prev','Lbs','Reps',''].map((h,i)=><span key={i} style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.muted,textAlign:i>=2?'center':'left'}}>{h}</span>)}</div>{exData.sets.map((set,i)=><SetRow key={i} set={set} setNum={i+1} prev={lastPerf[i]} onUpdate={u=>updateSet(exData.exerciseId,i,u)} onComplete={()=>completeSet(exData.exerciseId,i)}/>)}</Card>);})} <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:468,zIndex:20}}><Btn onClick={()=>done>0&&setView('summary')} color={done===total?C.green:C.accent} disabled={done===0} style={{width:'100%',padding:15,fontSize:17,borderRadius:16,boxShadow:S.md}}>{done===total?'Finish workout ✓':`Finish (${done}/${total} sets)`}</Btn></div></div>);
+
+  if(view==='summary'){
+    const dur=Math.round((Date.now()-session.startTime)/60000);
+    const completed=ex.map(e=>({...e,sets:e.sets.filter(s=>s.completed)})).filter(e=>e.sets.length>0);
+    const totalVol=completed.reduce((s,e)=>e.exerciseType==='weighted'?s+e.sets.reduce((ss,set)=>ss+((set.weight||0)*(set.reps||0)),0):s,0);
+    const totalReps=completed.reduce((s,e)=>s+e.sets.reduce((ss,set)=>ss+(set.reps||0),0),0);
+    const newPRs=[];
+    for(const e of completed){
+      const pr=computeExPR(e.exerciseType,e.sets);
+      if(pr&&isPRBetter(pr,prs[e.slug])){newPRs.push({slug:e.slug,name:e.name,exerciseType:e.exerciseType,...pr});}
+    }
+    return(<div className="fade-up" style={{paddingBottom:40}}>
+      <div style={{textAlign:'center',padding:'24px 0 20px'}}><div style={{marginBottom:8}}><Icon name='star' size={48} color={C.green}/></div><div style={{fontFamily:F.display,fontSize:32,fontWeight:800,color:C.text}}>Workout done!</div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,marginTop:4}}>{session.name}</div></div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:16}}>{[
+        {l:'Time',v:fmtDur(dur),c:C.cyan},
+        {l:'Sets',v:completed.reduce((s,e)=>s+e.sets.length,0),c:C.text},
+        {l:totalVol>0?'Volume':'Reps',v:totalVol>0?`${(totalVol/1000).toFixed(1)}k`:totalReps,c:C.text}
+      ].map(({l,v,c})=><Card key={l} style={{textAlign:'center',padding:'14px 8px'}}><div style={{fontFamily:F.display,fontSize:28,fontWeight:700,color:c,lineHeight:1}}>{v}</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:5,fontWeight:500}}>{l}</div></Card>)}</div>
+      {newPRs.length>0&&<Card accent={C.yellow} style={{marginBottom:14}}><Label style={{color:C.yellow,marginBottom:10}}>New Personal Records</Label>{newPRs.map((pr,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',padding:'7px 0',borderTop:i>0?`1px solid ${C.border}`:'none'}}><span style={{fontFamily:F.ui,fontSize:15,fontWeight:500,color:C.text}}>{pr.name}</span><span style={{fontFamily:F.mono,fontSize:14,color:C.yellow}}>{fmtPR(pr)}</span></div>)}</Card>}
+      <Label>Breakdown</Label>{completed.map((e,i)=><Card key={i} style={{marginBottom:8,padding:'13px 16px'}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,marginBottom:8,color:C.text}}>{e.name}</div><div style={{display:'flex',gap:7,flexWrap:'wrap'}}>{e.sets.map((s,j)=><span key={j} style={{fontFamily:F.mono,fontSize:12,color:C.subtle,background:C.elevated,borderRadius:8,padding:'4px 10px'}}>{e.exerciseType==='timed'?`${s.duration}s`:e.exerciseType==='banded'?`${s.band} ×${s.reps}`:s.weight>0?`${s.weight}×${s.reps}`:`${s.reps} reps`}</span>)}</div></Card>)}
+      <div style={{display:'flex',gap:10,marginTop:16}}><Btn onClick={handleDiscard} outline style={{flex:1}}>Discard</Btn><Btn onClick={()=>onSave(completed,dur,newPRs)} color={C.green} style={{flex:2}}>Save workout</Btn></div>
+    </div>);
+  }
+
+  const headerCols = eType => eType==='timed'?{cols:'28px 1fr 80px 44px',heads:['#','Prev','Secs','']} : eType==='bodyweight'||eType==='cardio-drill'?{cols:'28px 1fr 80px 44px',heads:['#','Prev','Reps','']} : eType==='banded'?{cols:'28px 1fr 60px 60px 44px',heads:['#','Prev','Band','Reps','']} : {cols:'28px 1fr 60px 60px 44px',heads:['#','Prev','Lbs','Reps','']};
+
+  return(<div className="fade-up" style={{paddingBottom:88}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><div><div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text}}>{session.name}</div><div style={{fontFamily:F.ui,fontSize:14,color:C.muted,marginTop:2}}>{done} of {total} sets</div></div><button onClick={handleDiscard} style={{background:C.elevated,border:'none',borderRadius:10,padding:'7px 14px',color:C.subtle,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer'}}>Discard</button></div>
+    <div style={{height:5,background:C.border,borderRadius:4,overflow:'hidden',marginBottom:16}}><div style={{height:'100%',width:`${total>0?(done/total)*100:0}%`,background:`linear-gradient(90deg,${C.accent},${C.green})`,borderRadius:4,transition:'width .3s'}}/></div>
+    {restTimer&&<RestTimer key={restTimer.key} seconds={restTimer.seconds} onDone={()=>setRest(null)}/>}
+    {ex.map(exData=>{const lastPerf=getLastPerf(exData.slug);const allDone=exData.sets.every(s=>s.completed);const hdr=headerCols(exData.exerciseType);return(<Card key={exData.slug} style={{marginBottom:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:16,color:allDone?C.green:C.text}}>{exData.name}</div>{exData.notes&&<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{exData.notes}</div>}</div><div style={{display:'flex',alignItems:'center',gap:8}}><Pill color={C.muted} small>{exData.exerciseType}</Pill><span style={{fontFamily:F.mono,fontSize:12,color:allDone?C.green:C.muted}}>{exData.sets.filter(s=>s.completed).length}/{exData.sets.length}</span></div></div>
+      <div style={{display:'grid',gridTemplateColumns:hdr.cols,gap:6,marginBottom:6,padding:'0 4px'}}>{hdr.heads.map((h,i)=><span key={i} style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.muted,textAlign:i>=2?'center':'left'}}>{h}</span>)}</div>
+      {exData.sets.map((set,i)=><SetRow key={i} set={set} setNum={i+1} prev={lastPerf[i]} exerciseType={exData.exerciseType} onUpdate={u=>updateSet(exData.slug,i,u)} onComplete={()=>completeSet(exData.slug,i)}/>)}
+    </Card>);})}
+    <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:468,zIndex:20}}><Btn onClick={()=>done>0&&setView('summary')} color={done===total?C.green:C.accent} disabled={done===0} style={{width:'100%',padding:15,fontSize:17,borderRadius:16,boxShadow:S.md}}>{done===total?'Finish workout ✓':`Finish (${done}/${total} sets)`}</Btn></div>
+  </div>);
 }
 
 // ─── Plan Builder Sheet ───────────────────────────────────────────────────────
@@ -1368,7 +1484,7 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
 
 // ─── Plan Tab ──────────────────────────────────────────────────────────────────
 function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activeWO,setActiveWO,trainingPlan,onPlanCreated,onWeekGenerated,onAddEvent,onDisruption,onDeletePlan,appState}){
-  const[tracker,setTracker]=useState(activeWO?STRENGTH_TEMPLATES.find(t=>t.id===activeWO?.templateId)||null:null);
+  const[tracker,setTracker]=useState(activeWO&&activeWO.exercises?activeWO:null);
   const[createStep,setCreateStep]=useState(null); // null | 'select' | 'confirm'
   const[selectedGoal,setSelectedGoal]=useState(null);
   const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
@@ -1376,13 +1492,13 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[showFuel,setShowFuel]=useState(null);
   const[showEndPlan,setShowEndPlan]=useState(false);
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
-  const startStrength=tid=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===tid);if(t)setTracker(t);};
+  const startStrength=sess=>{if(sess?.exercises)setTracker(sess);};
   const handleSave=(completedEx,dur,newPRs)=>{onSaveStrength(completedEx,dur,newPRs,tracker);setTracker(null);setActiveWO(null);};
   const handleDiscard=()=>{setTracker(null);setActiveWO(null);};
 
   const handleSelectGoal=(e)=>{setSelectedGoal(e);setCreateStep('confirm');};
 
-  if(tracker)return (<div style={{paddingBottom:48}}><button onClick={()=>setTracker(null)} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',marginBottom:16,padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> Back to plan</button><StrengthTracker template={tracker} strengthHistory={strengthHistory} prs={prs} onSave={handleSave} onDiscard={handleDiscard}/></div>);
+  if(tracker)return (<div style={{paddingBottom:48}}><button onClick={()=>setTracker(null)} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',marginBottom:16,padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> Back to plan</button><StrengthTracker workout={tracker} strengthHistory={strengthHistory} prs={prs} onSave={handleSave} onDiscard={handleDiscard}/></div>);
 
   if(!active.length)return (<div style={{paddingBottom:48}}><Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='calendar' size={36} color={C.muted}/></div><div style={{fontFamily:F.display,fontSize:20,fontWeight:700,color:C.text,marginBottom:8}}>No active goals</div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,lineHeight:1.7}}>Add a goal from the Goals tab first, then come back to create your training plan.</div></Card></div>);
 
@@ -1512,7 +1628,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
       </Card>}
     </div>
 
-    {activeWO&&<Card accent={C.yellow} onClick={()=>setTracker(STRENGTH_TEMPLATES.find(t=>t.id===activeWO.templateId))} style={{marginBottom:16}}><div style={{display:'flex',alignItems:'center',gap:10}}><Icon name='timer' size={20} color={C.yellow}/><div><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:C.yellow}}>Workout in progress</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{activeWO.name} · tap to continue</div></div><span style={{marginLeft:'auto',color:C.yellow}}>→</span></div></Card>}
+    {activeWO&&activeWO.exercises&&<Card accent={C.yellow} onClick={()=>setTracker(activeWO)} style={{marginBottom:16}}><div style={{display:'flex',alignItems:'center',gap:10}}><Icon name='timer' size={20} color={C.yellow}/><div><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:C.yellow}}>Workout in progress</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{activeWO.label||activeWO.name||'Strength'} · tap to continue</div></div><span style={{marginLeft:'auto',color:C.yellow}}>→</span></div></Card>}
 
     {/* Current week sessions */}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:weekAdherence?6:10}}>
@@ -1593,7 +1709,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
             }
             const sport=SPORT_META[sess.type]||SPORT_META.other;
             const isStr=sess.type==='strength';
-            const done=isStr?dayStrength.some(sh=>sh.templateId===sess.templateId):dayCardio.some(w=>w.sport===sess.type);
+            const done=isStr?dayStrength.some(sh=>sh.name===sess.label||sh.templateId===sess.templateId):dayCardio.some(w=>w.sport===sess.type);
             const adhSess=adhDay?.sessions?.[si];
             const sessStatus=adhSess?.status||'upcoming';
             const isMissed=sessStatus==='missed';
@@ -1602,7 +1718,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
             const priorityColor=sess.priority==='red'?C.accent:C.yellow;
             const fuelKey=`${di}-${si}`;
             return (<div key={si}>
-              <div onClick={isStr&&sess.templateId&&!done?()=>startStrength(sess.templateId):undefined} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 10px',borderRadius:12,cursor:isStr&&sess.templateId&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'08':(isMissed?C.red+'06':'transparent')}}>
+              <div onClick={isStr&&sess.exercises&&!done?()=>startStrength(sess):undefined} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 10px',borderRadius:12,cursor:isStr&&sess.exercises&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'08':(isMissed?C.red+'06':'transparent')}}>
                 <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2}}>
                   {done?<Icon name='check' size={18} color={C.green}/>:isMissed?<span style={{fontFamily:F.ui,fontSize:14,color:C.red}}>✕</span>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
                 </div>
@@ -1630,7 +1746,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                 </div>
                 <div style={{textAlign:'right',flexShrink:0}}>
                   {sess.duration&&<div style={{fontFamily:F.mono,fontSize:13,color:done?C.green:C.muted}}>{fmtDur(sess.duration)}</div>}
-                  {isStr&&sess.templateId&&!done&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,marginTop:4}}>Start →</div>}
+                  {isStr&&sess.exercises&&!done&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,marginTop:4}}>Start →</div>}
                 </div>
               </div>
             </div>);
@@ -2716,10 +2832,20 @@ export default function CoachApp() {
     setCardio(db.get('coach_cardio',[]));
     setNutrition(db.get('coach_nutrition',[]));
     setSH(db.get('coach_strength_history',[]));
-    setPRs(db.get('coach_prs',{}));
+    // Migrate old PR keys (exerciseId format) to slug format
+    const rawPRs=db.get('coach_prs',{});
+    const oldToSlug={leg_press:'leg-press',split_squat:'bulgarian-split-squat',nordic_curl:'nordic-curl',rdl:'romanian-deadlift',pull_up:'pull-up',face_pull:'face-pull',pallof_press:'pallof-press',dead_bug:'dead-bug',bench_press:'bench-press',deadlift:'deadlift',squat:'back-squat',ohp:'overhead-press'};
+    let migrated=false;
+    const migratedPRs={...rawPRs};
+    Object.entries(oldToSlug).forEach(([oldId,newSlug])=>{if(rawPRs[oldId]&&!rawPRs[newSlug]){migratedPRs[newSlug]=rawPRs[oldId];delete migratedPRs[oldId];migrated=true;}});
+    if(migrated)db.set('coach_prs',migratedPRs);
+    setPRs(migratedPRs);
     setTrainingPlan(db.get('coach_training_plan',null));
     setBricks(db.get('coach_bricks',[]));
-    setActiveWO(db.get('coach_active_workout',null));
+    // Discard old-format activeWO (has templateId but no exercises)
+    const savedWO=db.get('coach_active_workout',null);
+    setActiveWO(savedWO&&savedWO.exercises?savedWO:null);
+    if(savedWO&&!savedWO.exercises)db.set('coach_active_workout',null);
     setMessages(db.get('coach_messages',[]));
     const savedP=db.get('coach_personality','normal'); const savedC=db.get('coach_custom_prompt','');
     setPersonality(savedP); setCustomPrompt(savedC);
@@ -2828,13 +2954,13 @@ export default function CoachApp() {
   const addCardioWithToast=useCallback(w=>{const nw=addCardio(w);const s=SPORT_META[w.sport]||SPORT_META.other;toast.success(`${s.label} logged — ${fmtDur(w.duration)}`);setTimeout(()=>detectBrickCandidate(nw),300);},[addCardio,detectBrickCandidate]);
   const importHealth=useCallback(workouts=>{let added=0;setCardio(prev=>{const ids=new Set(prev.map(w=>w.id));const newOnes=workouts.filter(w=>!ids.has(w.id));added=newOnes.length;const u=[...newOnes,...prev];db.set('coach_cardio',u);return u;});setTimeout(()=>toast.success(`${added} workout${added!==1?'s':''} imported`),100);},[]);
 
-  const saveStrength=useCallback((completedEx,dur,newPRs,template)=>{
-    const saved={id:uid(),templateId:template?.id,name:template?.name||'Strength',date:todayStr(),duration:dur,exercises:completedEx};
+  const saveStrength=useCallback((completedEx,dur,newPRs,workout)=>{
+    const saved={id:uid(),name:workout?.label||workout?.name||'Strength',date:todayStr(),duration:dur,exercises:completedEx};
     setSH(prev=>{const u=[...prev,saved];db.set('coach_strength_history',u);return u;});
-    const updatedPRs={...prs};for(const pr of newPRs)updatedPRs[pr.exerciseId]={weight:pr.weight,reps:pr.reps,estimated1RM:pr.estimated1RM,date:todayStr()};
+    const updatedPRs={...prs};for(const pr of newPRs)updatedPRs[pr.slug]={...pr,date:todayStr()};
     setPRs(updatedPRs);db.set('coach_prs',updatedPRs);setActiveWO(null);db.set('coach_active_workout',null);
     if(newPRs.length>0)toast.success(`${newPRs.length} new PR${newPRs.length>1?'s':''}!`);
-    else toast.success(`${template?.name||'Strength'} saved — ${fmtDur(dur)}`);
+    else toast.success(`${workout?.label||workout?.name||'Strength'} saved — ${fmtDur(dur)}`);
   },[prs]);
 
   const handleSend=useCallback(async text=>{
@@ -2896,7 +3022,7 @@ export default function CoachApp() {
 
       {/* Content */}
       <div style={{padding:'20px 16px 0'}}>
-        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={id=>{const t=STRENGTH_TEMPLATES.find(t=>t.id===id);if(t){const s={id:Date.now(),templateId:t.id,name:t.name,startTime:Date.now()};setActiveWO(s);db.set('coach_active_workout',s);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
+        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onAddEvent={()=>setEventModal('add')} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')}/>}
         {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
               // Archive plan before deleting

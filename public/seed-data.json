@@ -110,7 +110,7 @@
     {"id":"n017","description":"Nothing — forgot to eat before run","timing":"pre","relatedWorkout":"easy run","date":"2026-03-10"},
     {"id":"n018","description":"Skipped post-workout meal, just coffee","timing":"post","relatedWorkout":"trainer ride","date":"2026-03-03"}
   ],
-  "prs": {"leg_press":{"weight":200,"reps":10,"estimated1RM":267,"date":"2026-04-04"},"split_squat":{"weight":40,"reps":10,"estimated1RM":53,"date":"2026-04-04"},"pull_up":{"weight":0,"reps":8,"estimated1RM":0,"date":"2026-04-01"},"rdl":{"weight":105,"reps":10,"estimated1RM":140,"date":"2026-03-28"},"face_pull":{"weight":30,"reps":15,"estimated1RM":45,"date":"2026-04-01"},"nordic_curl":{"weight":0,"reps":6,"estimated1RM":0,"date":"2026-04-04"},"pallof_press":{"weight":25,"reps":12,"estimated1RM":35,"date":"2026-04-04"}},
+  "prs": {"leg-press":{"weight":200,"reps":10,"estimated1RM":267,"type":"weighted","date":"2026-04-04"},"bulgarian-split-squat":{"weight":40,"reps":10,"estimated1RM":53,"type":"weighted","date":"2026-04-04"},"pull-up":{"bestReps":8,"type":"bodyweight","date":"2026-04-01"},"romanian-deadlift":{"weight":105,"reps":10,"estimated1RM":140,"type":"weighted","date":"2026-03-28"},"face-pull":{"weight":30,"reps":15,"estimated1RM":45,"type":"weighted","date":"2026-04-01"},"nordic-curl":{"bestReps":6,"type":"bodyweight","date":"2026-04-04"},"pallof-press":{"weight":25,"reps":12,"estimated1RM":35,"type":"weighted","date":"2026-04-04"}},
   "memory": {
     "permanent": {
       "equipment": ["bike trainer (Wahoo Kickr)", "road bike", "basic home gym"],
