@@ -2243,6 +2243,7 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const[aiLoading,setAiLoading]=useState(false);
   const[weatherData,setWeatherData]=useState(event.weather||null);
   const[weatherLoading,setWeatherLoading]=useState(false);
+  const[weatherError,setWeatherError]=useState(false);
 
   // Plan sections state
   const ps=event.planSections||{strategy:'',nutrition:{before:'',during:'',after:''},gear:'',travel:'',warmup:''};
@@ -2256,6 +2257,22 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
   const[planDirty,setPlanDirty]=useState(false);
   const notes=event.notes||[];
 
+  // Weather fetch
+  const fetchWeather=()=>{
+    if(!event.location||!event.date||!isRaceType) return;
+    setWeatherLoading(true);setWeatherError(false);
+    fetch(`/api/weather?location=${encodeURIComponent(event.location)}&date=${event.date}`)
+      .then(r=>{if(!r.ok)throw new Error('fetch failed');return r.json();})
+      .then(data=>{
+        if(data?.weather){
+          const w={...data.weather,location:data.location,updatedAt:data.updatedAt};
+          setWeatherData(w);
+          onUpdate({...event,weather:w});
+        }
+      })
+      .catch(()=>setWeatherError(true))
+      .finally(()=>setWeatherLoading(false));
+  };
   // Weather auto-fetch
   useEffect(()=>{
     if(!event.location||!event.date||!isRaceType) return;
@@ -2266,18 +2283,7 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
       const age=Date.now()-new Date(weatherData.updatedAt).getTime();
       if(age<6*60*60*1000) return;
     }
-    setWeatherLoading(true);
-    fetch(`/api/weather?location=${encodeURIComponent(event.location)}&date=${event.date}`)
-      .then(r=>r.ok?r.json():null)
-      .then(data=>{
-        if(data?.weather){
-          const w={...data.weather,location:data.location,updatedAt:data.updatedAt};
-          setWeatherData(w);
-          onUpdate({...event,weather:w});
-        }
-      })
-      .catch(()=>{})
-      .finally(()=>setWeatherLoading(false));
+    fetchWeather();
   },[event.location,event.date]);
 
   const addNote=()=>{if(!noteText.trim())return;const n={id:uid(),text:noteText.trim(),date:todayStr()};onUpdate({...event,notes:[n,...notes]});setNoteText('');toast.success('Note added');};
@@ -2448,6 +2454,7 @@ function GoalDetailView({event,onUpdate,onEdit,onDelete,onClose}){
               {wd.location&&<div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:10}}>{wd.location}{wd.type==='historical'?' · Historical data':' · Updated '+new Date(weatherData.updatedAt).toLocaleString()}</div>}
             </div>:weatherLoading?<div style={{textAlign:'center',padding:16}}><Spinner color={C.cyan} size={18}/><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:8}}>Loading weather…</div></div>
             :wdClimate?<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>{wdClimate.message}</div></div>
+            :weatherError?<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>Could not load weather data</div><Btn onClick={fetchWeather} color={C.cyan} style={{marginTop:10,padding:'6px 16px',fontSize:12}}>Retry</Btn></div>
             :<div style={{textAlign:'center',padding:'12px 0'}}><Icon name='cloud' size={28} color={C.muted}/><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:8}}>{event.location&&event.date?(days>16?`Forecast available in ~${days-16} days`:'Weather data unavailable'):'Add a location and date for weather'}</div></div>}
           </PlanSection>
 
