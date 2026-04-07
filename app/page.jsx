@@ -1362,6 +1362,10 @@ function StrengthTracker({workout,strengthHistory,prs,onSave,onDiscard}){
 }
 
 // ─── Plan Builder Sheet ───────────────────────────────────────────────────────
+// Tracks when a plan builder session started — prevents duplicate auto-starts
+// when the component remounts due to parent branch switching
+let _planBuilderStartedAt=0;
+
 function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onClose}){
   const[msgs,setMsgs]=useState([]);
   const[input,setInput]=useState('');
@@ -1434,8 +1438,15 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
     }
   },[goal,mode,appState,onPlanCreated,onWeekGenerated]);
 
-  // Auto-start on mount
+  // Auto-start on mount — but only once per plan builder session.
+  // When trainingPlan state changes mid-creation (e.g. save_training_plan fires),
+  // the parent switches render branches which unmounts this component from one
+  // branch and remounts it in another. The flag prevents the remounted instance
+  // from re-triggering the plan creation flow. It is only cleared on true
+  // unmount (when planBuilder is set to null via onClose).
   useEffect(()=>{
+    if(_planBuilderStartedAt) return; // already running, skip duplicate auto-start
+    _planBuilderStartedAt=Date.now();
     const initMsg={role:'user',content:mode==='week'?`Generate my training plan for week ${goal._weekNum||'current'} (Phase ${goal._phaseNum||'current'}).`:`Build me a training plan for ${goal.name}.`};
     setMsgs([initMsg]);
     runTurn([initMsg]);
@@ -1455,7 +1466,9 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
   const isDone=stage==='done';
   const isConversational=!loading&&!isStreaming&&msgs.length>1&&!isDone&&stage!=='error';
 
-  return(<Sheet onClose={onClose} title={mode==='week'?'Generating week':'Building your plan'}>
+  const handleClose=()=>{_planBuilderStartedAt=0;onClose();};
+
+  return(<Sheet onClose={handleClose} title={mode==='week'?'Generating week':'Building your plan'}>
     {/* Progress stepper */}
     <div style={{display:'flex',gap:4,marginBottom:16}}>
       {stageOrder.map((s,i)=><div key={s} style={{flex:1,height:4,borderRadius:2,background:i<=stageIdx?(i===stageIdx?C.accent:C.green):C.border,transition:'background .3s'}}/>)}
@@ -1480,7 +1493,7 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
     </div>}
 
     {stage==='error'&&<Btn onClick={retry} color={C.accent} style={{width:'100%',padding:13,fontSize:15,marginBottom:8}}>Try again</Btn>}
-    {isDone&&<Btn onClick={onClose} color={C.green} style={{width:'100%',padding:13,fontSize:15}}>View your plan</Btn>}
+    {isDone&&<Btn onClick={handleClose} color={C.green} style={{width:'100%',padding:13,fontSize:15}}>View your plan</Btn>}
   </Sheet>);
 }
 
