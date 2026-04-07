@@ -11,7 +11,7 @@ const STYLES = `
   @keyframes slideInRight{from{opacity:0;transform:translateX(100%)}to{opacity:1;transform:translateX(0)}}
   @keyframes blink{0%,80%,100%{opacity:.2;transform:scale(.7)}40%{opacity:1;transform:scale(1)}}
   @keyframes spin{to{transform:rotate(360deg)}}
-  @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-14px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+  @keyframes toastIn{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
   .fade-up{animation:fadeUp .22s ease both}
   .slide-in{animation:slideInRight .28s cubic-bezier(.22,1,.36,1) both}
   .streaming-cursor::after{content:'▋';animation:blink 1s ease infinite;color:#E8604C;font-size:.9em;margin-left:1px}
