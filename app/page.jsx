@@ -973,12 +973,12 @@ If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.cur
     </Card>
   );
 
-  const hasPermanent = mem.permanent?.equipment?.length||mem.permanent?.facilities?.length||mem.permanent?.schedule?.preferredTimes||mem.permanent?.communicationPrefs;
-  const hasBenchmarks = mem.benchmarks?.length;
-  const hasInjuries = mem.injuries?.length;
-  const hasObservations = mem.observations?.patterns?.length||mem.observations?.motivators?.length||mem.observations?.consistency||mem.observations?.currentFocus||mem.observations?.coachingNotes?.length;
-  const hasResponseProfile = mem.responseProfile?.volumeVsIntensity||mem.responseProfile?.recoveryRate||mem.responseProfile?.skipPatterns?.length||mem.responseProfile?.communicationNeeds;
-  const hasHistory = mem.conversationSummaries?.length||mem.periodSummaries?.length;
+  const hasPermanent = !!(mem.permanent?.equipment?.length||mem.permanent?.facilities?.length||mem.permanent?.schedule?.preferredTimes||mem.permanent?.communicationPrefs);
+  const hasBenchmarks = !!mem.benchmarks?.length;
+  const hasInjuries = !!mem.injuries?.length;
+  const hasObservations = !!(mem.observations?.patterns?.length||mem.observations?.motivators?.length||mem.observations?.consistency||mem.observations?.currentFocus||mem.observations?.coachingNotes?.length);
+  const hasResponseProfile = !!(mem.responseProfile?.volumeVsIntensity||mem.responseProfile?.recoveryRate||mem.responseProfile?.skipPatterns?.length||mem.responseProfile?.communicationNeeds);
+  const hasHistory = !!(mem.conversationSummaries?.length||mem.periodSummaries?.length);
 
   return(<div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto',maxWidth:500,margin:'0 auto'}}>
     <div style={{background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`,padding:'16px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10}}>
