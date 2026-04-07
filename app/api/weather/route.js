@@ -38,7 +38,7 @@ export async function GET(request) {
     if (daysOut !== null && daysOut >= 0 && daysOut <= 16) {
       // Forecast available — use Open-Meteo forecast API
       const forecastRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,windspeed_10m_max,weathercode&timezone=auto&start_date=${date}&end_date=${date}`
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max,weather_code&timezone=auto&start_date=${date}&end_date=${date}`
       );
       if (!forecastRes.ok) throw new Error('Forecast fetch failed');
       const forecastData = await forecastRes.json();
@@ -52,9 +52,9 @@ export async function GET(request) {
           feelsLikeHigh: d.apparent_temperature_max[0],
           feelsLikeLow: d.apparent_temperature_min[0],
           precipChance: d.precipitation_probability_max[0],
-          windMax: d.windspeed_10m_max[0],
-          weatherCode: d.weathercode[0],
-          condition: weatherCodeToText(d.weathercode[0]),
+          windMax: d.wind_speed_10m_max[0],
+          weatherCode: d.weather_code[0],
+          condition: weatherCodeToText(d.weather_code[0]),
           units: { temp: '°F', wind: 'mph' },
         };
 
@@ -69,7 +69,7 @@ export async function GET(request) {
     } else if (daysOut !== null && daysOut < 0) {
       // Past date — use Open-Meteo historical weather archive API
       const histRes = await fetch(
-        `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,windspeed_10m_max,weathercode&timezone=auto&start_date=${date}&end_date=${date}`
+        `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,wind_speed_10m_max,weather_code&timezone=auto&start_date=${date}&end_date=${date}`
       );
       if (!histRes.ok) throw new Error('Historical weather fetch failed');
       const histData = await histRes.json();
@@ -83,9 +83,9 @@ export async function GET(request) {
           feelsLikeHigh: cToF(d.apparent_temperature_max[0]),
           feelsLikeLow: cToF(d.apparent_temperature_min[0]),
           precipTotal: d.precipitation_sum[0] != null ? Math.round(d.precipitation_sum[0] * 100) / 100 : null,
-          windMax: Math.round(d.windspeed_10m_max[0] * 0.621371),
-          weatherCode: d.weathercode[0],
-          condition: weatherCodeToText(d.weathercode[0]),
+          windMax: Math.round(d.wind_speed_10m_max[0] * 0.621371),
+          weatherCode: d.weather_code[0],
+          condition: weatherCodeToText(d.weather_code[0]),
           units: { temp: '°F', wind: 'mph', precip: 'mm' },
         };
       }
@@ -129,6 +129,8 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
     const center = new Date(targetYear, month, centerDay);
     const start = new Date(center.getTime() - WINDOW_DAYS * 86400000);
     const end = new Date(center.getTime() + WINDOW_DAYS * 86400000);
+    // Skip ranges that are in the future (archive data won't exist)
+    if (end > new Date()) continue;
     ranges.push({
       start: start.toISOString().slice(0, 10),
       end: end.toISOString().slice(0, 10),
@@ -139,7 +141,7 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
   const results = await Promise.allSettled(
     ranges.map(({ start, end }) =>
       fetch(
-        `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,windspeed_10m_max,weathercode&timezone=auto&start_date=${start}&end_date=${end}`
+        `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,wind_speed_10m_max,weather_code&timezone=auto&start_date=${start}&end_date=${end}`
       ).then(r => {
         if (!r.ok) throw new Error('Archive fetch failed');
         return r.json();
@@ -162,9 +164,9 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
       if (d.temperature_2m_min[i] != null) allTempMin.push(d.temperature_2m_min[i]);
       if (d.apparent_temperature_max[i] != null) allFeelsHigh.push(d.apparent_temperature_max[i]);
       if (d.apparent_temperature_min[i] != null) allFeelsLow.push(d.apparent_temperature_min[i]);
-      if (d.precipitation_sum[i] != null) allPrecip.push(d.precipitation_sum[i]);
-      if (d.windspeed_10m_max[i] != null) allWind.push(d.windspeed_10m_max[i]);
-      if (d.weathercode[i] != null) allCodes.push(d.weathercode[i]);
+      if (d.precipitation_sum?.[i] != null) allPrecip.push(d.precipitation_sum[i]);
+      if (d.wind_speed_10m_max?.[i] != null) allWind.push(d.wind_speed_10m_max[i]);
+      if (d.weather_code?.[i] != null) allCodes.push(d.weather_code[i]);
     }
   }
 
@@ -184,7 +186,9 @@ async function fetchClimateEstimate(latitude, longitude, raceDate, daysOut) {
   // Most common weather code
   const codeCounts = {};
   for (const c of allCodes) codeCounts[c] = (codeCounts[c] || 0) + 1;
-  const mostCommonCode = Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0]);
+  const mostCommonCode = Object.keys(codeCounts).length > 0
+    ? Number(Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0])
+    : 0;
 
   return {
     type: 'climate',
