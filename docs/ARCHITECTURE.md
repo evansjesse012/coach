@@ -10,7 +10,7 @@ How the AI coaching system works.
 
 **The plan is a hypothesis.** Training plans are created through a conversational plan builder, stored as structured data, and continuously compared against actual logged workouts. The AI adapts based on what the athlete actually did, not what was prescribed.
 
-## Tools (14)
+## Tools (15)
 
 | Tool | What it does |
 |------|-------------|
@@ -28,6 +28,7 @@ How the AI coaching system works.
 | `update_plan_progress` | Advance current week/phase |
 | `get_week_review` | Prescribed vs actual adherence comparison with multi-week pattern detection |
 | `get_plan_history` | Archived past training plans with adherence summaries and end reasons |
+| `get_health_metrics` | Daily health data from Apple Health: RHR, HRV, sleep (duration/quality/stages), respiratory rate, SpO2 |
 
 ## Agent Loop
 
@@ -129,7 +130,7 @@ Creation (tool result or UI action)
   → Loaded on app start via db.get('coach_key', fallback)
 ```
 
-localStorage keys: `coach_events`, `coach_cardio`, `coach_strength_history`, `coach_prs`, `coach_nutrition`, `coach_bricks`, `coach_training_plan`, `coach_plan_history`, `coach_messages`, `coach_memory_v2`, `coach_push_message`, `coach_personality`, `coach_custom_prompt`, `coach_dark_mode`, `coach_active_workout`.
+localStorage keys: `coach_events`, `coach_cardio`, `coach_strength_history`, `coach_prs`, `coach_nutrition`, `coach_bricks`, `coach_training_plan`, `coach_plan_history`, `coach_health_metrics`, `coach_messages`, `coach_memory_v2`, `coach_push_message`, `coach_personality`, `coach_custom_prompt`, `coach_dark_mode`, `coach_active_workout`.
 
 ## Brick Workouts
 

@@ -374,6 +374,7 @@ const TOOLS = [
   { name:'update_plan_progress', description:'Advance the current week number or phase in the training plan. Use at the start of a new week or when transitioning between phases.', input_schema:{type:'object',properties:{currentWeek:{type:'number'},currentPhase:{type:'number'},notes:{type:'string'}},required:['currentWeek','currentPhase']} },
   { name:'get_week_review', description:'Compare prescribed training plan vs actual logged workouts for a specific week. Returns what was completed, missed, shortened, substituted, and multi-week patterns. ALWAYS call this before generating next week\'s plan.', input_schema:{type:'object',properties:{weekNumber:{type:'number',description:'Week to review. Default: previous week.'},includeMultiWeek:{type:'boolean',description:'Include 4-week rolling pattern analysis. Default false.'}}} },
   { name:'get_plan_history', description:'Get archived past training plans with adherence data. Use when creating a new plan to understand what the athlete has done before — volume handled, adherence patterns, why plans ended, what worked.', input_schema:{type:'object',properties:{}} },
+  { name:'get_health_metrics', description:'Get daily health metrics from Apple Health: resting heart rate (RHR), heart rate variability (HRV), sleep duration/quality/stages, respiratory rate, SpO2. Use to assess recovery, readiness, and trends. Call when discussing recovery, sleep, readiness, fatigue, or adapting training intensity.', input_schema:{type:'object',properties:{days:{type:'number',description:'Look back this many days. Default 7.'},metric:{type:'string',enum:['all','rhr','hrv','sleep','respiratory','spo2'],description:'Filter to a specific metric. Default all.'}}} },
 ];
 
 // ─── Adherence Computation ────────────────────────────────────────────────────
@@ -601,6 +602,47 @@ function executeTool(name, input, appState) {
         adherence: h.adherence
       })));
     }
+    case 'get_health_metrics': {
+      const { days=7, metric='all' } = input;
+      const { healthMetrics: hm=[] } = appState;
+      if (!hm.length) return 'No health metrics available. The athlete hasn\'t imported daily health data from Apple Health yet.';
+      const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-days);
+      const filtered=hm.filter(m=>new Date(m.date+'T12:00:00')>=cutoff).sort((a,b)=>b.date.localeCompare(a.date));
+      if (!filtered.length) return `No health metrics in the last ${days} days.`;
+      const mapped=filtered.map(m=>{
+        const r={date:m.date};
+        if(metric==='all'||metric==='rhr') r.rhr=m.rhr;
+        if(metric==='all'||metric==='hrv') r.hrv=m.hrv;
+        if(metric==='all'||metric==='sleep') r.sleep=m.sleep;
+        if(metric==='all'||metric==='respiratory') r.respiratoryRate=m.respiratoryRate;
+        if(metric==='all'||metric==='spo2') r.spo2=m.spo2;
+        return r;
+      });
+      // Compute summary stats
+      const rhrVals=filtered.map(m=>m.rhr).filter(Boolean);
+      const hrvVals=filtered.map(m=>m.hrv).filter(Boolean);
+      const sleepVals=filtered.map(m=>m.sleep?.duration).filter(Boolean);
+      const avg=arr=>arr.length?Math.round(arr.reduce((s,v)=>s+v,0)/arr.length*10)/10:null;
+      const summary={
+        period:`Last ${days} days`,
+        daysWithData:filtered.length,
+        avgRHR:avg(rhrVals),
+        avgHRV:avg(hrvVals),
+        avgSleep:avg(sleepVals),
+        poorSleepDays:filtered.filter(m=>m.sleep?.quality==='poor').length,
+      };
+      // Trend: compare first half vs second half
+      if(filtered.length>=4){
+        const mid=Math.floor(filtered.length/2);
+        const recentRHR=avg(filtered.slice(0,mid).map(m=>m.rhr).filter(Boolean));
+        const earlierRHR=avg(filtered.slice(mid).map(m=>m.rhr).filter(Boolean));
+        const recentHRV=avg(filtered.slice(0,mid).map(m=>m.hrv).filter(Boolean));
+        const earlierHRV=avg(filtered.slice(mid).map(m=>m.hrv).filter(Boolean));
+        if(recentRHR&&earlierRHR) summary.rhrTrend=recentRHR<earlierRHR?'improving (lower)':recentRHR>earlierRHR+2?'elevated (higher)':'stable';
+        if(recentHRV&&earlierHRV) summary.hrvTrend=recentHRV>earlierHRV?'improving (higher)':recentHRV<earlierHRV-3?'declining (lower)':'stable';
+      }
+      return JSON.stringify({summary,metrics:mapped});
+    }
     default: return JSON.stringify({error:`Unknown tool: ${name}`});
   }
 }
@@ -615,9 +657,9 @@ CONTEXT-CALIBRATED RESPONSE:
 Match your context-gathering to what the athlete needs:
 
 QUICK (no tools): Greetings, motivation, general knowledge questions, simple follow-ups to previous messages. Answer directly.
-LIGHT (1-2 tools): Logging a workout (log_workout), logging nutrition (log_nutrition), checking today's plan (get_training_plan), quick stat check (get_training_stats).
-MODERATE (2-3 tools): "How am I doing?" (get_training_stats + get_goals), injury discussion (get_athlete_profile), coaching advice (get_athlete_profile + relevant data).
-FULL (4+ tools): Weekly plan generation (get_week_review + get_training_plan + get_workouts + get_athlete_profile), plan creation, major adjustments.
+LIGHT (1-2 tools): Logging a workout (log_workout), logging nutrition (log_nutrition), checking today's plan (get_training_plan), quick stat check (get_training_stats), checking health metrics (get_health_metrics).
+MODERATE (2-3 tools): "How am I doing?" (get_training_stats + get_goals), injury discussion (get_athlete_profile), coaching advice (get_athlete_profile + relevant data), recovery check (get_health_metrics + get_workouts).
+FULL (4+ tools): Weekly plan generation (get_week_review + get_training_plan + get_workouts + get_athlete_profile + get_health_metrics), plan creation, major adjustments.
 Do NOT call tools unnecessarily. If the answer is in the current conversation context, respond directly.
 
 APP SCHEMA (how to structure data for this app):
@@ -657,6 +699,14 @@ Universal rules (always active):
 - Sharp joint pain → stop, modify plan, suggest medical review
 - Chest pain or dizziness → stop immediately
 - Sleep < 5 hours → easy day only, no intensity work
+
+DAILY HEALTH METRICS (Apple Health):
+Use get_health_metrics to check recovery and readiness. Available metrics: resting heart rate (RHR), heart rate variability (HRV), sleep (duration, quality, stages: deep/REM/light), respiratory rate, SpO2.
+- Elevated RHR (+5 above baseline) or declining HRV → signs of accumulated fatigue or illness. Suggest easier session or rest.
+- Poor sleep quality or <6h duration → reduce intensity, favor easy aerobic work.
+- Use trends (7-14 day) over single-day readings. One bad night isn't cause for alarm; a declining pattern is.
+- When generating weekly plans, check recent health metrics to calibrate intensity and volume.
+- Reference specific numbers when discussing readiness: "Your HRV has dropped from 48 to 35 over the past 4 days — let's keep today easy."
 
 Athlete-specific rules:
 - Read permanent.safetyRules from get_athlete_profile before prescribing
@@ -1186,6 +1236,8 @@ function generateWeeklyPlan(events) {
 }
 
 function getMockHealthWorkouts(){const types=['run','bike','swim','strength','hike'];const notes={run:['Morning run','Tempo intervals','Long run','Easy jog'],bike:['Z2 ride','Interval session','Long ride'],swim:['Pool session','Technique drills'],strength:['Gym session','Home workout'],hike:['Trail hike']};const durs={run:[25,35,45,55,70,90],bike:[45,60,75,90,120],swim:[30,40,50],strength:[45,55,65],hike:[60,90,120]};const w=[];for(let d=1;d<=14;d++){if(Math.random()>0.45){const date=new Date();date.setDate(date.getDate()-d);const sport=types[Math.floor(Math.random()*types.length)];w.push({id:`hk-${d}-${uid()}`,sport,duration:durs[sport][Math.floor(Math.random()*durs[sport].length)],notes:notes[sport][Math.floor(Math.random()*notes[sport].length)],date:date.toISOString().split('T')[0],source:'healthkit'});}}return w.sort((a,b)=>b.date.localeCompare(a.date));}
+
+function getMockHealthMetrics(){const m=[];const quals=['good','good','good','fair','fair','poor'];const beds=['9:45 PM','10:00 PM','10:15 PM','10:30 PM','10:45 PM','11:00 PM','11:15 PM','11:30 PM','12:00 AM'];for(let d=0;d<14;d++){const date=new Date();date.setDate(date.getDate()-d);const q=quals[Math.floor(Math.random()*quals.length)];const baseRHR=q==='poor'?56:q==='fair'?54:51;const baseHRV=q==='poor'?34:q==='fair'?39:45;const dur=q==='poor'?5.3+Math.random()*0.8:q==='fair'?6.2+Math.random()*0.6:7.0+Math.random()*1.2;const deep=q==='poor'?0.8+Math.random()*0.3:q==='fair'?1.0+Math.random()*0.3:1.3+Math.random()*0.5;const rem=q==='poor'?1.2+Math.random()*0.2:q==='fair'?1.4+Math.random()*0.3:1.7+Math.random()*0.4;m.push({date:date.toISOString().split('T')[0],rhr:baseRHR+Math.floor(Math.random()*4),hrv:baseHRV+Math.floor(Math.random()*8),sleep:{duration:Math.round(dur*10)/10,quality:q,bedtime:beds[Math.floor(Math.random()*beds.length)],wakeTime:'5:50 AM',deep:Math.round(deep*10)/10,rem:Math.round(rem*10)/10,light:Math.round((dur-deep-rem)*10)/10},respiratoryRate:Math.round((13.8+Math.random()*1.5)*10)/10,spo2:q==='poor'?96:97+Math.floor(Math.random()*2),source:'healthkit'});}return m;}
 
 // ─── Settings Page ─────────────────────────────────────────────────────────────
 function AthleteProfilePage({onClose}){
@@ -2441,14 +2493,113 @@ function BrickDetailSheet({brick,cardio,onDelete,onClose}){
 }
 
 // ─── Log Tab ───────────────────────────────────────────────────────────────────
-function HealthImportSheet({onImport,onClose,existingIds}){const[workouts]=useState(getMockHealthWorkouts);const[selected,setSelected]=useState(new Set());const toggle=id=>{if(existingIds.has(id))return;setSelected(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};return(<Sheet onClose={onClose} title="Import from Health"><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.65}}>Recent workouts from Apple Health. On the native app this reads real data — showing sample data for now.</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted,marginBottom:12}}>{selected.size} selected</div><div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{workouts.map(w=>{const s=SPORT_META[w.sport]||SPORT_META.other;const sel=selected.has(w.id);const done=existingIds.has(w.id);return(<div key={w.id} onClick={()=>toggle(w.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?s.color+'10':C.elevated,border:`1.5px solid ${sel?s.color:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}><Icon name={s.icon} size={22} color={s.color}/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:sel?s.color:C.text}}>{w.notes}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{fmtDateSh(w.date)} · {fmtDur(w.duration)}</div></div><div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?s.color:C.surface),border:`1.5px solid ${done?C.green:(sel?s.color:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div></div>);})}</div><Btn onClick={()=>selected.size>0&&onImport(workouts.filter(w=>selected.has(w.id)))} color={C.cyan} disabled={selected.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selected.size>0?`${selected.size} workout${selected.size>1?'s':''}`:'workouts'}</Btn></Sheet>);}
+function HealthImportSheet({onImport,onImportMetrics,onClose,existingIds,existingMetricDates}){
+  const[workouts]=useState(getMockHealthWorkouts);const[metrics]=useState(getMockHealthMetrics);
+  const[selected,setSelected]=useState(new Set());const[selectedMetrics,setSelectedMetrics]=useState(new Set());
+  const[importTab,setImportTab]=useState('workouts');
+  const toggle=id=>{if(existingIds.has(id))return;setSelected(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};
+  const toggleMetric=date=>{if(existingMetricDates?.has(date))return;setSelectedMetrics(prev=>{const n=new Set(prev);n.has(date)?n.delete(date):n.add(date);return n;});};
+  const selectAllMetrics=()=>{const avail=metrics.filter(m=>!existingMetricDates?.has(m.date)).map(m=>m.date);setSelectedMetrics(prev=>prev.size===avail.length?new Set():new Set(avail));};
+  const qualColor=q=>q==='good'?C.green:q==='fair'?C.yellow:C.red;
+  return(<Sheet onClose={onClose} title="Import from Health">
+    <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:14,lineHeight:1.65}}>On the native app this reads real Apple Health data — showing sample data for now.</div>
+    <div style={{display:'flex',gap:6,marginBottom:16,background:C.elevated,borderRadius:12,padding:4}}>
+      {[{id:'workouts',label:'Workouts'},{id:'metrics',label:'Daily Metrics'}].map(t=><button key={t.id} onClick={()=>setImportTab(t.id)} style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:importTab===t.id?C.surface:'transparent',boxShadow:importTab===t.id?S.card:'none',fontFamily:F.ui,fontSize:13,fontWeight:importTab===t.id?700:500,color:importTab===t.id?C.text:C.muted,cursor:'pointer',transition:'all .15s'}}>{t.label}</button>)}
+    </div>
+    {importTab==='workouts'?<>
+      <div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted,marginBottom:12}}>{selected.size} selected</div>
+      <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{workouts.map(w=>{const s=SPORT_META[w.sport]||SPORT_META.other;const sel=selected.has(w.id);const done=existingIds.has(w.id);return(<div key={w.id} onClick={()=>toggle(w.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?s.color+'10':C.elevated,border:`1.5px solid ${sel?s.color:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}><Icon name={s.icon} size={22} color={s.color}/><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:sel?s.color:C.text}}>{w.notes}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:2}}>{fmtDateSh(w.date)} · {fmtDur(w.duration)}</div></div><div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?s.color:C.surface),border:`1.5px solid ${done?C.green:(sel?s.color:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div></div>);})}</div>
+      <Btn onClick={()=>selected.size>0&&onImport(workouts.filter(w=>selected.has(w.id)))} color={C.cyan} disabled={selected.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selected.size>0?`${selected.size} workout${selected.size>1?'s':''}`:'workouts'}</Btn>
+    </>:<>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted}}>{selectedMetrics.size} selected</div>
+        <button onClick={selectAllMetrics} style={{background:'none',border:'none',fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.cyan,cursor:'pointer'}}>
+          {selectedMetrics.size===metrics.filter(m=>!existingMetricDates?.has(m.date)).length?'Deselect all':'Select all'}
+        </button>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>{metrics.map(m=>{const sel=selectedMetrics.has(m.date);const done=existingMetricDates?.has(m.date);const qc=qualColor(m.sleep?.quality);return(<div key={m.date} onClick={()=>toggleMetric(m.date)} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',background:sel?C.cyan+'10':C.elevated,border:`1.5px solid ${sel?C.cyan:C.border}`,borderRadius:14,cursor:done?'default':'pointer',opacity:done?.6:1,transition:'all .15s'}}>
+        <div style={{width:36,height:36,borderRadius:10,background:C.red+'14',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon name='activity' size={18} color={C.red}/></div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:F.ui,fontWeight:600,fontSize:14,color:sel?C.cyan:C.text}}>{fmtDateSh(m.date)}</div>
+          <div style={{display:'flex',gap:10,marginTop:3,flexWrap:'wrap'}}>
+            <span style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>RHR {m.rhr}</span>
+            <span style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>HRV {m.hrv}</span>
+            <span style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>Sleep {m.sleep?.duration}h</span>
+            <span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:qc}}>{m.sleep?.quality}</span>
+          </div>
+        </div>
+        <div style={{width:24,height:24,borderRadius:8,background:done?C.green+'20':(sel?C.cyan:C.surface),border:`1.5px solid ${done?C.green:(sel?C.cyan:C.border)}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{(sel||done)&&<span style={{fontSize:12,color:done?C.green:'#fff',fontWeight:700}}>✓</span>}</div>
+      </div>);})}</div>
+      <Btn onClick={()=>selectedMetrics.size>0&&onImportMetrics(metrics.filter(m=>selectedMetrics.has(m.date)))} color={C.cyan} disabled={selectedMetrics.size===0} style={{width:'100%',padding:15,fontSize:16}}>Import {selectedMetrics.size>0?`${selectedMetrics.size} day${selectedMetrics.size>1?'s':''}`:'health data'}</Btn>
+    </>}
+  </Sheet>);
+}
+
+function HealthMetricsView({metrics,onImport}){
+  if(!metrics?.length) return(<Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='activity' size={36} color={C.red}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>No health data yet</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16}}>Import daily metrics from Apple Health — RHR, HRV, sleep, and more.</div><Btn onClick={onImport} color={C.cyan} style={{padding:'12px 24px'}}>Import from Health</Btn></Card>);
+  const sorted=[...metrics].sort((a,b)=>b.date.localeCompare(a.date));
+  const recent=sorted.slice(0,7);
+  const avg=arr=>arr.length?Math.round(arr.reduce((s,v)=>s+v,0)/arr.length*10)/10:null;
+  const avgRHR=avg(recent.map(m=>m.rhr).filter(Boolean));
+  const avgHRV=avg(recent.map(m=>m.hrv).filter(Boolean));
+  const avgSleep=avg(recent.map(m=>m.sleep?.duration).filter(Boolean));
+  const qualColor=q=>q==='good'?C.green:q==='fair'?C.yellow:C.red;
+  // Mini sparkline as inline bars
+  const Spark=({values,color,max:mx})=>{const maxV=mx||Math.max(...values);return(<div style={{display:'flex',gap:2,alignItems:'flex-end',height:28}}>{values.map((v,i)=><div key={i} style={{flex:1,background:color+'40',borderRadius:2,height:`${Math.max(10,v/maxV*100)}%`,minWidth:3,maxWidth:8}}/>)}</div>);};
+  return(<div>
+    {/* Summary cards */}
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:16}}>
+      <Card style={{textAlign:'center',padding:'14px 8px'}}>
+        <div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:C.red,lineHeight:1}}>{avgRHR||'—'}</div>
+        <div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Avg RHR</div>
+        {recent.length>=3&&<Spark values={[...recent].reverse().map(m=>m.rhr||0)} color={C.red} max={70}/>}
+      </Card>
+      <Card style={{textAlign:'center',padding:'14px 8px'}}>
+        <div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:C.purple,lineHeight:1}}>{avgHRV||'—'}</div>
+        <div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Avg HRV</div>
+        {recent.length>=3&&<Spark values={[...recent].reverse().map(m=>m.hrv||0)} color={C.purple} max={70}/>}
+      </Card>
+      <Card style={{textAlign:'center',padding:'14px 8px'}}>
+        <div style={{fontFamily:F.display,fontSize:24,fontWeight:700,color:C.cyan,lineHeight:1}}>{avgSleep?avgSleep+'h':'—'}</div>
+        <div style={{fontFamily:F.ui,fontSize:11,color:C.muted,marginTop:5}}>Avg Sleep</div>
+        {recent.length>=3&&<Spark values={[...recent].reverse().map(m=>m.sleep?.duration||0)} color={C.cyan} max={10}/>}
+      </Card>
+    </div>
+    {/* Daily list */}
+    <Label>{sorted.length} day{sorted.length!==1?'s':''} of data</Label>
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      {sorted.map(m=>{const qc=qualColor(m.sleep?.quality);return(<Card key={m.date} style={{padding:'14px 16px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.text}}>{m.date===todayStr()?'Today':fmtDateSh(m.date)}</div>
+          {m.sleep?.quality&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:700,color:qc,background:qc+'14',padding:'3px 8px',borderRadius:6}}>Sleep: {m.sleep.quality}</span>}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8}}>
+          <div><div style={{fontFamily:F.mono,fontSize:16,fontWeight:700,color:C.red}}>{m.rhr||'—'}</div><div style={{fontFamily:F.ui,fontSize:10,color:C.muted,marginTop:2}}>RHR</div></div>
+          <div><div style={{fontFamily:F.mono,fontSize:16,fontWeight:700,color:C.purple}}>{m.hrv||'—'}</div><div style={{fontFamily:F.ui,fontSize:10,color:C.muted,marginTop:2}}>HRV</div></div>
+          <div><div style={{fontFamily:F.mono,fontSize:16,fontWeight:700,color:C.cyan}}>{m.sleep?.duration?m.sleep.duration+'h':'—'}</div><div style={{fontFamily:F.ui,fontSize:10,color:C.muted,marginTop:2}}>Sleep</div></div>
+          <div><div style={{fontFamily:F.mono,fontSize:16,fontWeight:700,color:C.text}}>{m.spo2||'—'}%</div><div style={{fontFamily:F.ui,fontSize:10,color:C.muted,marginTop:2}}>SpO2</div></div>
+        </div>
+        {m.sleep&&<div style={{display:'flex',gap:6,marginTop:10}}>
+          <div style={{flex:m.sleep.deep||0,height:6,borderRadius:3,background:'#4A5EC7'}} title={`Deep ${m.sleep.deep}h`}/>
+          <div style={{flex:m.sleep.rem||0,height:6,borderRadius:3,background:C.purple}} title={`REM ${m.sleep.rem}h`}/>
+          <div style={{flex:m.sleep.light||0,height:6,borderRadius:3,background:C.cyan+'60'}} title={`Light ${m.sleep.light}h`}/>
+        </div>}
+        {m.sleep&&<div style={{display:'flex',gap:12,marginTop:6}}>
+          <span style={{fontFamily:F.ui,fontSize:10,color:'#4A5EC7'}}>Deep {m.sleep.deep}h</span>
+          <span style={{fontFamily:F.ui,fontSize:10,color:C.purple}}>REM {m.sleep.rem}h</span>
+          <span style={{fontFamily:F.ui,fontSize:10,color:C.cyan}}>Light {m.sleep.light}h</span>
+        </div>}
+      </Card>);})}
+    </div>
+  </div>);
+}
 
 function LogWorkoutSheet({onSave,onClose}){const[sport,setSport]=useState('run');const[dur,setDur]=useState('');const[notes,setNotes]=useState('');const[date,setDate]=useState(todayStr());return(<Sheet onClose={onClose} title="Log workout"><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,marginBottom:16,scrollbarWidth:'none'}}>{Object.entries(SPORT_META).map(([k,s])=><button key={k} onClick={()=>setSport(k)} style={{flexShrink:0,background:sport===k?s.color+'18':C.elevated,border:`1.5px solid ${sport===k?s.color:C.border}`,borderRadius:12,padding:'10px 14px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,transition:'all .15s',minWidth:66}}><Icon name={s.icon} size={20} color={sport===k?s.color:C.muted}/><span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:sport===k?s.color:C.muted}}>{s.label}</span></button>)}</div><div style={{display:'flex',gap:10,marginBottom:12}}><div style={{flex:1}}><Label>Duration (min)</Label><Inp type="number" placeholder="45" value={dur} onChange={e=>setDur(e.target.value)}/></div><div style={{flex:1}}><Label>Date</Label><Inp type="date" value={date} onChange={e=>setDate(e.target.value)}/></div></div><Label>Notes</Label><Textarea placeholder="How did it go?" value={notes} onChange={e=>setNotes(e.target.value)} rows={3} style={{marginBottom:16}}/><Btn onClick={()=>dur&&onSave({sport,duration:parseInt(dur),notes,date})} color={C.accent} disabled={!dur} style={{width:'100%',padding:14,fontSize:16}}>Save workout</Btn></Sheet>);}
 
-function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSaveBrick,onDeleteBrick,prs,templates,customExercises,onStartTemplate,onSaveTemplate,onDeleteTemplate,onAddCustomExercise}){
+function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,onImportHealthMetrics,healthMetrics,bricks,onSaveBrick,onDeleteBrick,prs,templates,customExercises,onStartTemplate,onSaveTemplate,onDeleteTemplate,onAddCustomExercise}){
   const[showLog,setShowLog]=useState(false);const[showImport,setShowImport]=useState(false);const[showBrickLink,setShowBrickLink]=useState(false);const[filter,setFilter]=useState('all');
   const[selectedWorkout,setSelectedWorkout]=useState(null);const[selectedBrick,setSelectedBrick]=useState(null);
-  const[viewMode,setViewMode]=useState('workouts'); // 'workouts' | 'templates' | 'exercises'
+  const[viewMode,setViewMode]=useState('workouts'); // 'workouts' | 'templates' | 'exercises' | 'health'
   const[selectedExercise,setSelectedExercise]=useState(null);
   const[selectedStrength,setSelectedStrength]=useState(null);
   const[editingTemplate,setEditingTemplate]=useState(null); // null | 'new' | template object
@@ -2460,9 +2611,9 @@ function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSave
   const brickForWorkout=wId=>(bricks||[]).find(b=>b.legs.some(l=>l.workoutId===wId));
   return(<div style={{paddingBottom:80}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:18}}><Card onClick={()=>setShowLog(true)} accent={C.accent}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='pencil' size={16} color={C.accent}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.accent,textAlign:'center'}}>Log</div></div></Card><Card onClick={()=>setShowImport(true)} accent={C.cyan}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='watch' size={16} color={C.cyan}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.cyan,textAlign:'center'}}>Import</div></div></Card><Card onClick={()=>setShowBrickLink(true)} accent={C.yellow}><div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,padding:'4px 0'}}><div style={{width:34,height:34,borderRadius:10,background:C.yellow+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='layers' size={16} color={C.yellow}/></div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow,textAlign:'center'}}>Brick</div></div></Card></div>
   <div style={{display:'flex',gap:6,marginBottom:16,background:C.elevated,borderRadius:12,padding:4}}>
-    {[{id:'workouts',label:'Workouts'},{id:'templates',label:'Templates'},{id:'exercises',label:'Exercises'}].map(m=><button key={m.id} onClick={()=>setViewMode(m.id)} style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:viewMode===m.id?C.surface:'transparent',boxShadow:viewMode===m.id?S.card:'none',fontFamily:F.ui,fontSize:13,fontWeight:viewMode===m.id?700:500,color:viewMode===m.id?C.text:C.muted,cursor:'pointer',transition:'all .15s'}}>{m.label}</button>)}
+    {[{id:'workouts',label:'Workouts'},{id:'health',label:'Health'},{id:'templates',label:'Templates'},{id:'exercises',label:'Exercises'}].map(m=><button key={m.id} onClick={()=>setViewMode(m.id)} style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:viewMode===m.id?C.surface:'transparent',boxShadow:viewMode===m.id?S.card:'none',fontFamily:F.ui,fontSize:13,fontWeight:viewMode===m.id?700:500,color:viewMode===m.id?C.text:C.muted,cursor:'pointer',transition:'all .15s'}}>{m.label}</button>)}
   </div>
-  {viewMode==='exercises'?<ExerciseLibrary strengthHistory={strength} prs={prs||{}} customExercises={customExercises} onSelectExercise={name=>setSelectedExercise(name)} onAddCustom={onAddCustomExercise}/>:viewMode==='templates'?<TemplateListView templates={templates||[]} onStartTemplate={onStartTemplate} onEditTemplate={t=>setEditingTemplate(t)} onDeleteTemplate={onDeleteTemplate} onCreate={()=>setEditingTemplate('new')}/>:<><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:16,scrollbarWidth:'none'}}>{['all','run','bike','swim','strength','hike','other'].map(s=>{const meta=SPORT_META[s]||{color:C.muted,label:'All'};const sel=filter===s;const count=s==='all'?allWorkouts.length:allWorkouts.filter(w=>w.sport===s).length;return(<button key={s} onClick={()=>setFilter(s)} style={{flexShrink:0,padding:'7px 14px',borderRadius:20,background:sel?(s==='all'?C.text:meta.color+'18'):C.surface,border:`1.5px solid ${sel?(s==='all'?C.text:meta.color):C.border}`,color:sel?(s==='all'?C.bg:meta.color):C.muted,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',boxShadow:sel?S.sm:'none'}}>{s==='all'?`All (${count})`:`${meta.label}`}</button>);})}</div>{Object.keys(groups).length===0?<Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='chart' size={36} color={C.muted}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>No workouts yet</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>Log manually or import from Apple Health</div></Card>:Object.entries(groups).map(([dateLabel,wos])=>(<div key={dateLabel}><div style={{fontFamily:F.ui,fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,marginTop:6,textTransform:'uppercase',letterSpacing:'.06em'}}>{dateLabel}</div>{(()=>{const rendered=new Set();return wos.map((w,i)=>{
+  {viewMode==='exercises'?<ExerciseLibrary strengthHistory={strength} prs={prs||{}} customExercises={customExercises} onSelectExercise={name=>setSelectedExercise(name)} onAddCustom={onAddCustomExercise}/>:viewMode==='templates'?<TemplateListView templates={templates||[]} onStartTemplate={onStartTemplate} onEditTemplate={t=>setEditingTemplate(t)} onDeleteTemplate={onDeleteTemplate} onCreate={()=>setEditingTemplate('new')}/>:viewMode==='health'?<HealthMetricsView metrics={healthMetrics} onImport={()=>setShowImport(true)}/>:<><div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:16,scrollbarWidth:'none'}}>{['all','run','bike','swim','strength','hike','other'].map(s=>{const meta=SPORT_META[s]||{color:C.muted,label:'All'};const sel=filter===s;const count=s==='all'?allWorkouts.length:allWorkouts.filter(w=>w.sport===s).length;return(<button key={s} onClick={()=>setFilter(s)} style={{flexShrink:0,padding:'7px 14px',borderRadius:20,background:sel?(s==='all'?C.text:meta.color+'18'):C.surface,border:`1.5px solid ${sel?(s==='all'?C.text:meta.color):C.border}`,color:sel?(s==='all'?C.bg:meta.color):C.muted,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',boxShadow:sel?S.sm:'none'}}>{s==='all'?`All (${count})`:`${meta.label}`}</button>);})}</div>{Object.keys(groups).length===0?<Card style={{textAlign:'center',padding:36}}><div style={{marginBottom:12}}><Icon name='chart' size={36} color={C.muted}/></div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>No workouts yet</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle}}>Log manually or import from Apple Health</div></Card>:Object.entries(groups).map(([dateLabel,wos])=>(<div key={dateLabel}><div style={{fontFamily:F.ui,fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,marginTop:6,textTransform:'uppercase',letterSpacing:'.06em'}}>{dateLabel}</div>{(()=>{const rendered=new Set();return wos.map((w,i)=>{
   if(rendered.has(w.id))return null;
   const brick=brickForWorkout(w.id);
   if(brick){
@@ -2490,7 +2641,7 @@ function WorkoutLogTab({cardio,strength,onAddCardio,onImportHealth,bricks,onSave
     return(<Card key={i} onClick={()=>setSelectedStrength(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport='strength' small/><div style={{flex:1,minWidth:0}}><div style={{fontFamily:F.ui,fontSize:15,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.name||'Strength'}</div><div style={{display:'flex',gap:6,marginTop:2}}><span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>{(w.exercises||[]).length} exercises · {setCount} sets</span></div></div><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text,flexShrink:0}}>{fmtDur(w.duration)}</div></div></Card>);
   }
   return(<Card key={i} onClick={()=>setSelectedWorkout(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'other'} small/><div style={{flex:1,minWidth:0}}><div style={{fontFamily:F.ui,fontSize:15,color:C.text,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||'—'}</div><div style={{display:'flex',gap:6,marginTop:2}}>{w.source==='healthkit'&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.cyan}}>Apple Health</span>}</div></div><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text,flexShrink:0}}>{fmtDur(w.duration)}</div></div></Card>);
-});})()}</div>))}{showLog&&<LogWorkoutSheet onSave={w=>{onAddCardio(w);setShowLog(false);}} onClose={()=>setShowLog(false)}/>}{showImport&&<HealthImportSheet onImport={ws=>{onImportHealth(ws);setShowImport(false);}} onClose={()=>setShowImport(false)} existingIds={existingIds}/>}{showBrickLink&&<LinkBrickSheet cardio={cardio} bricks={bricks||[]} onSave={b=>{onSaveBrick(b);setShowBrickLink(false);}} onClose={()=>setShowBrickLink(false)}/>}{selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)}/>}{selectedBrick&&<BrickDetailSheet brick={selectedBrick} cardio={cardio} onDelete={onDeleteBrick} onClose={()=>setSelectedBrick(null)}/>}</>}{selectedExercise&&<ExerciseDetailSheet exerciseName={selectedExercise} strengthHistory={strength} prs={prs||{}} onClose={()=>setSelectedExercise(null)}/>}{selectedStrength&&<StrengthDetailSheet workout={selectedStrength} prs={prs||{}} onClose={()=>setSelectedStrength(null)}/>}{editingTemplate&&<TemplateEditorSheet template={editingTemplate==='new'?null:editingTemplate} customExercises={customExercises} onSave={t=>{onSaveTemplate(t);setEditingTemplate(null);}} onClose={()=>setEditingTemplate(null)}/>}</div>);
+});})()}</div>))}{showLog&&<LogWorkoutSheet onSave={w=>{onAddCardio(w);setShowLog(false);}} onClose={()=>setShowLog(false)}/>}{showImport&&<HealthImportSheet onImport={ws=>{onImportHealth(ws);setShowImport(false);}} onImportMetrics={ms=>{onImportHealthMetrics(ms);setShowImport(false);}} onClose={()=>setShowImport(false)} existingIds={existingIds} existingMetricDates={new Set(healthMetrics.map(m=>m.date))}/>}{showBrickLink&&<LinkBrickSheet cardio={cardio} bricks={bricks||[]} onSave={b=>{onSaveBrick(b);setShowBrickLink(false);}} onClose={()=>setShowBrickLink(false)}/>}{selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)}/>}{selectedBrick&&<BrickDetailSheet brick={selectedBrick} cardio={cardio} onDelete={onDeleteBrick} onClose={()=>setSelectedBrick(null)}/>}</>}{selectedExercise&&<ExerciseDetailSheet exerciseName={selectedExercise} strengthHistory={strength} prs={prs||{}} onClose={()=>setSelectedExercise(null)}/>}{selectedStrength&&<StrengthDetailSheet workout={selectedStrength} prs={prs||{}} onClose={()=>setSelectedStrength(null)}/>}{editingTemplate&&<TemplateEditorSheet template={editingTemplate==='new'?null:editingTemplate} customExercises={customExercises} onSave={t=>{onSaveTemplate(t);setEditingTemplate(null);}} onClose={()=>setEditingTemplate(null)}/>}</div>);
 }
 
 // ─── Knowledge Tab ─────────────────────────────────────────────────────────────
@@ -4197,6 +4348,7 @@ export default function CoachApp() {
   const [strengthH,    setSH]          = useState([]);
   const [prs,          setPRs]         = useState({});
   const [trainingPlan, setTrainingPlan]= useState(null);
+  const [healthMetrics,setHealthMetrics]=useState([]);
   const [activeWO,     setActiveWO]    = useState(null);
   const [messages,     setMessages]    = useState([]);
   const [loading,      setLoading]     = useState(false);
@@ -4250,6 +4402,7 @@ export default function CoachApp() {
     if(migrated)db.set('coach_prs',migratedPRs);
     setPRs(migratedPRs);
     setTrainingPlan(db.get('coach_training_plan',null));
+    setHealthMetrics(db.get('coach_health_metrics',[]));
     setBricks(db.get('coach_bricks',[]));
     setTemplates(db.get('coach_templates',[]));
     setCustomExercises(db.get('coach_custom_exercises',[]));
@@ -4265,7 +4418,7 @@ export default function CoachApp() {
   },[]);
 
   const plan = useMemo(() => [], []);
-  const getAppState = useCallback(()=>({cardio,strength:strengthH,prs,events,memory:loadMemory(),plan,nutrition,trainingPlan,bricks}),[cardio,strengthH,prs,events,plan,nutrition,trainingPlan,bricks]);
+  const getAppState = useCallback(()=>({cardio,strength:strengthH,prs,events,memory:loadMemory(),plan,nutrition,trainingPlan,bricks,healthMetrics}),[cardio,strengthH,prs,events,plan,nutrition,trainingPlan,bricks,healthMetrics]);
 
   // Template helpers
   const saveTemplate=useCallback((tpl)=>{
@@ -4431,6 +4584,7 @@ export default function CoachApp() {
   const addCardio=useCallback(w=>{const nw={...w,id:w.id||uid()};setCardio(prev=>{const u=[nw,...prev];db.set('coach_cardio',u);return u;});return nw;},[]);
   const addCardioWithToast=useCallback(w=>{const nw=addCardio(w);const s=SPORT_META[w.sport]||SPORT_META.other;toast.success(`${s.label} logged — ${fmtDur(w.duration)}`);setTimeout(()=>detectBrickCandidate(nw),300);},[addCardio,detectBrickCandidate]);
   const importHealth=useCallback(workouts=>{let added=0;setCardio(prev=>{const ids=new Set(prev.map(w=>w.id));const newOnes=workouts.filter(w=>!ids.has(w.id));added=newOnes.length;const u=[...newOnes,...prev];db.set('coach_cardio',u);return u;});setTimeout(()=>toast.success(`${added} workout${added!==1?'s':''} imported`),100);},[]);
+  const importHealthMetrics=useCallback(metrics=>{let added=0;setHealthMetrics(prev=>{const dates=new Set(prev.map(m=>m.date));const newOnes=metrics.filter(m=>!dates.has(m.date));added=newOnes.length;const u=[...newOnes,...prev].sort((a,b)=>b.date.localeCompare(a.date));db.set('coach_health_metrics',u);return u;});setTimeout(()=>toast.success(`${added} day${added!==1?'s':''} of health data imported`),100);},[]);
 
   const saveStrength=useCallback((completedEx,dur,newPRs,workout)=>{
     const saved={id:uid(),name:workout?.label||workout?.name||'Strength',date:todayStr(),duration:dur,exercises:completedEx};
@@ -4549,7 +4703,7 @@ export default function CoachApp() {
               setTrainingPlan(null);db.set('coach_training_plan',null);
               toast.info(reason==='completed'?'Plan completed — nice work!':'Training plan archived');
             }} onDisruption={msg=>{setTab('chat');setTimeout(()=>handleSend(msg),100);}} onSaveTemplate={saveTemplate} customExercises={customExercises}/>}
-        {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth} bricks={bricks} onSaveBrick={saveBrick} onDeleteBrick={deleteBrick} prs={prs} templates={templates} customExercises={customExercises} onStartTemplate={startTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onAddCustomExercise={addCustomExercise}/>}
+        {tab==='log'&&<WorkoutLogTab cardio={cardio} strength={strengthH} onAddCardio={addCardioWithToast} onImportHealth={importHealth} onImportHealthMetrics={importHealthMetrics} healthMetrics={healthMetrics} bricks={bricks} onSaveBrick={saveBrick} onDeleteBrick={deleteBrick} prs={prs} templates={templates} customExercises={customExercises} onStartTemplate={startTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onAddCustomExercise={addCustomExercise}/>}
         {tab==='chat'&&<ChatTab messages={messages} onSend={handleSend} loading={loading} isStreaming={isStreaming} streamText={streamText} personality={personality}/>}
       </div>
 
