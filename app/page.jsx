@@ -2110,6 +2110,104 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
 
     {activeWO&&activeWO.exercises&&<Card accent={C.yellow} onClick={()=>setTracker(activeWO)} style={{marginBottom:16}}><div style={{display:'flex',alignItems:'center',gap:10}}><Icon name='timer' size={20} color={C.yellow}/><div><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:C.yellow}}>Workout in progress</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{activeWO.label||activeWO.name||'Strength'} · tap to continue</div></div><span style={{marginLeft:'auto',color:C.yellow}}>→</span></div></Card>}
 
+    {/* ─── Weekly Overview Grid ─── */}
+    {weekPlan&&weekPlan.sessions&&(()=>{
+      const dayAbbr=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+      const weekStart=new Date();weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));weekStart.setHours(0,0,0,0);
+      const totalDur=weekPlan.sessions.reduce((sum,d)=>(d.sessions||[]).reduce((s2,sess)=>s2+(sess.duration||0),sum),0);
+      const sportCounts={};
+      weekPlan.sessions.forEach(d=>(d.sessions||[]).forEach(sess=>{
+        const t=sess.type==='brick'?'brick':(sess.type||'other');
+        sportCounts[t]=(sportCounts[t]||0)+1;
+      }));
+      return <Card style={{padding:'14px 12px',marginBottom:16}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+          <div style={{fontFamily:F.display,fontSize:15,fontWeight:700,color:C.text}}>Week at a glance</div>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:C.subtle}}>{fmtDur(totalDur)}</span>
+            <span style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>total</span>
+          </div>
+        </div>
+        {/* 7-day grid */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+          {weekPlan.sessions.map((dayObj,di)=>{
+            const isToday_=dayObj.day===today;
+            const daySessions_=dayObj.sessions||[];
+            const dayIdx=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].indexOf(dayObj.day);
+            const dayDate_=new Date(weekStart);dayDate_.setDate(dayDate_.getDate()+dayIdx);
+            const dayDateStr_=dayDate_.toISOString().split('T')[0];
+            const isPast_=dayDateStr_<todayStr();
+            const dayCardio_=cardio.filter(w=>w.date===dayDateStr_);
+            const dayStr_=strengthHistory.filter(s=>s.date===dayDateStr_);
+            const dayDur=daySessions_.reduce((s,sess)=>s+(sess.duration||0),0);
+            // Compute per-session completion
+            const sessStatuses=daySessions_.map(sess=>{
+              if(sess.type==='brick'){return (sess.legs||[]).every(l=>dayCardio_.some(w=>w.sport===l.sport))?'done':'pending';}
+              if(sess.type==='strength'){return dayStr_.some(sh=>sh.name===sess.label||sh.templateId===sess.templateId)?'done':'pending';}
+              return dayCardio_.some(w=>w.sport===sess.type)?'done':'pending';
+            });
+            const doneCount=sessStatuses.filter(s=>s==='done').length;
+            const allDone=daySessions_.length>0&&doneCount===daySessions_.length;
+            const someDone=doneCount>0&&!allDone;
+            const allMissed=isPast_&&daySessions_.length>0&&doneCount===0;
+            return <div key={di} style={{
+              display:'flex',flexDirection:'column',alignItems:'center',gap:4,
+              padding:'8px 2px',borderRadius:12,position:'relative',
+              background:isToday_?C.accent+'10':(allDone?C.green+'06':'transparent'),
+              border:`1.5px solid ${isToday_?C.accent+'40':(allDone?C.green+'25':'transparent')}`,
+            }}>
+              {/* Day label */}
+              <span style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:isToday_?C.accent:(isPast_?C.muted:C.subtle),textTransform:'uppercase',letterSpacing:'.04em'}}>{dayAbbr[di]}</span>
+              {/* Session icons */}
+              {dayObj.isRest?
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',width:28,height:28,borderRadius:8,background:C.elevated}}>
+                  <Icon name='rest' size={14} color={C.muted}/>
+                </div>
+              :daySessions_.length===0?
+                <div style={{width:28,height:28,borderRadius:8,background:C.elevated,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  <span style={{fontFamily:F.ui,fontSize:10,color:C.muted}}>—</span>
+                </div>
+              :<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                {daySessions_.map((sess,si)=>{
+                  const sport=SPORT_META[sess.type]||SPORT_META.other;
+                  const isDone=sessStatuses[si]==='done';
+                  const wasMissed=isPast_&&!isDone;
+                  return <div key={si} style={{
+                    width:28,height:28,borderRadius:8,
+                    background:isDone?C.green+'20':(wasMissed?C.red+'10':sport.color+'15'),
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    position:'relative',
+                  }}>
+                    {isDone?<Icon name='check' size={13} color={C.green}/>
+                    :wasMissed?<span style={{fontSize:10,color:C.red}}>✕</span>
+                    :<Icon name={sess.type==='strength'?'dumbbell':sport.icon} size={13} color={sport.color}/>}
+                    {sess.priority==='red'&&!isDone&&<div style={{position:'absolute',top:-2,right:-2,width:6,height:6,borderRadius:'50%',background:C.accent,border:`1.5px solid ${C.card}`}}/>}
+                  </div>;
+                })}
+              </div>}
+              {/* Duration */}
+              {!dayObj.isRest&&dayDur>0&&<span style={{fontFamily:F.mono,fontSize:9,fontWeight:500,color:allDone?C.green:(allMissed?C.muted:C.subtle)}}>{fmtDur(dayDur)}</span>}
+              {/* Status indicator */}
+              {allDone&&<div style={{width:5,height:5,borderRadius:'50%',background:C.green}}/>}
+              {someDone&&<div style={{width:5,height:5,borderRadius:'50%',background:C.yellow}}/>}
+              {allMissed&&<div style={{width:5,height:5,borderRadius:'50%',background:C.red+'60'}}/>}
+            </div>;
+          })}
+        </div>
+        {/* Sport breakdown bar */}
+        {Object.keys(sportCounts).length>0&&<div style={{display:'flex',alignItems:'center',gap:8,marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`,flexWrap:'wrap'}}>
+          {Object.entries(sportCounts).map(([sport,count])=>{
+            const s=SPORT_META[sport]||SPORT_META.other;
+            return <div key={sport} style={{display:'flex',alignItems:'center',gap:4}}>
+              <Icon name={sport==='strength'?'dumbbell':s.icon} size={12} color={s.color}/>
+              <span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:s.color}}>{count}</span>
+              <span style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{s.label}</span>
+            </div>;
+          })}
+        </div>}
+      </Card>;
+    })()}
+
     {/* Current week sessions */}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:weekAdherence?6:10}}>
       <Label style={{marginBottom:0}}>Week {tp.currentWeek}{weekPlan?` · ${weekPlan.focusOfWeek}`:''}</Label>
