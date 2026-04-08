@@ -649,6 +649,13 @@ Strength sessions: MUST include an exercises array with the actual exercises to 
 - notes: form cues or execution notes
 You can prescribe ANY exercise — you are not limited to a fixed library. Base weight guidance on the athlete's PRs.
 
+Other session types (run, bike, swim, hike, etc.) SHOULD include an exercises array when warmup drills, activation work, mobility, or sport-specific drills are appropriate:
+- Pre-run: hip activation (banded walks, clamshells), dynamic stretches (leg swings), running drills (A-skips, high knees)
+- Pre-swim: shoulder activation (band pull-aparts, arm circles), thoracic mobility
+- Pre-bike: hip flexor activation, glute bridges, ankle mobility
+- Cooldown: static stretches, foam rolling cues, mobility holds
+Use exerciseType 'bodyweight' or 'cardio-drill' for drills, 'banded' for resistance band activation, 'timed' for holds/stretches.
+
 SAFETY PROTOCOL:
 Before prescribing any session, check the athlete's coaching record for safety rules and injury state.
 
@@ -694,7 +701,28 @@ function buildPlanBuilderPrompt(goal, mode='create') {
   if(mode==='week') return `You are building a weekly training plan. ${goalCtx}
 
 Review last week's adherence and recent training load before generating. Adapt based on what actually happened — don't just repeat the template. Summarize what changed and why.
-Be concise. Generate and save the plan.
+
+EXERCISE PRESCRIPTIONS — CRITICAL:
+Every session you prescribe MUST include specific exercises. You are an expert coach — prescribe like one.
+
+Strength sessions: MUST include a full exercises array. Each exercise needs:
+- name: specific exercise name (e.g. "Romanian Deadlift", "Bulgarian Split Squat", "Pallof Press")
+- exerciseType: 'weighted', 'bodyweight', 'banded', 'timed', or 'cardio-drill'
+- sets: number of sets
+- reps: reps per set (or duration in seconds for timed exercises)
+- weight: target weight in lbs for weighted exercises — base on the athlete's PRs from get_personal_records. If no PR data, prescribe RPE-based guidance in notes.
+- rest: seconds between sets
+- notes: form cues, tempo, or execution notes
+
+Other sessions (run, bike, swim, hike) SHOULD include exercises when appropriate:
+- Pre-session activation/warmup drills (e.g. hip circles, banded walks, leg swings before a run)
+- Sport-specific drills (e.g. single-leg hops, A-skips for running; catch-up drill for swimming)
+- Cooldown/mobility work (e.g. pigeon stretch, hip flexor stretch after a long ride)
+Use exerciseType 'bodyweight' for activation/drills, 'banded' for resistance band work, 'timed' for holds/stretches.
+
+Call get_personal_records before generating to set appropriate weight targets. Prescribe 4-8 exercises per strength session. Be specific — not "leg exercise" but "Barbell Back Squat".
+
+Be concise in your summary message. Generate and save the plan.
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
 
   return `You are an expert athletic coach building a training plan. Think like a coach — consider the athlete's timeline, current fitness, history, and what they actually need right now. ${goalCtx}
@@ -710,6 +738,9 @@ Each phase must include these fields:
 - successCriteria: array of 3-5 measurable criteria for when this phase is complete (e.g. "Complete 3 consecutive weeks at target volume", "Long ride reaches 2.5 hours at Z2")
 - rules: array of hard constraints for this phase (intensity ceiling enforcement, volume caps, what is NOT allowed yet)
 - strengthProtocol: {focus:'hypertrophy'|'strength'|'maintenance', repRange, keyExercises[], notes}
+- activationProtocol: optional — warmup/activation exercises for cardio sessions (e.g. hip activation before running, shoulder mobility before swimming). Include when relevant to the athlete's needs, injury history, or phase focus.
+
+When generating weekly plans from this phase design, EVERY strength session must include a full exercises array with specific exercises, sets, reps, weight targets (based on PRs), and rest periods. Other session types should include activation/warmup/cooldown exercises when appropriate.
 
 Phase advancement should be based on readiness (success criteria met), not just calendar. If the athlete isn't ready, extend the phase.
 
@@ -1475,15 +1506,16 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
         const isStr=sess.type==='strength';
         const done=isSessDone(sess);
         const accent=done?C.green:sport.color;
-        return (<div key={i} onClick={isStr&&!done&&sess.exercises?()=>{onStartStrength(sess);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}>
+        const hasExercises=sess.exercises?.length>0;
+        return (<div key={i} onClick={hasExercises&&!done?()=>{onStartStrength(sess);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}>
           <div style={{width:36,height:36,borderRadius:12,background:accent+'20',display:'flex',alignItems:'center',justifyContent:'center'}}>{done?<Icon name='check' size={17} color={C.green}/>:<Icon name={isStr?'dumbbell':sport.icon} size={17} color={accent}/>}</div>
           <div style={{flex:1}}>
             <div style={{display:'flex',alignItems:'center',gap:6}}>{sess.priority&&<div style={{width:6,height:6,borderRadius:'50%',background:sess.priority==='red'?C.accent:C.yellow}}/>}<div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div></div>
             {sess.purpose&&!done&&<div style={{fontFamily:F.ui,fontSize:12,color:C.muted,fontStyle:'italic',marginTop:2}}>{sess.purpose}</div>}
           </div>
           {sess.duration&&<div style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>{fmtDur(sess.duration)}</div>}
-          {isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Start →</div>}
-          {!isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:sport.color}}>Log →</div>}
+          {hasExercises&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Start →</div>}
+          {!hasExercises&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:sport.color}}>Log →</div>}
         </div>);
       })}</div>
     </Card>);
@@ -1494,7 +1526,7 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
   if (!todayPlan) return null;
   if (!todayPlan.sessions.length) return (<Card style={{marginBottom:16,background:`linear-gradient(135deg,${C.elevated},${C.card})`,borderColor:C.border}}><div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:44,height:44,borderRadius:14,background:C.elevated,display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='rest' size={22} color={C.muted}/></div><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>Rest Day</div><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginTop:2}}>Recovery is training. Let the body adapt.</div></div></div></Card>);
   const allDone=todayPlan.sessions.every(s=>s.type==='strength'?todayS.some(sh=>sh.name===s.label||sh.templateId===s.templateId):todayC.some(w=>w.sport===s.sport));
-  return (<Card accent={allDone?C.green:C.accent} style={{marginBottom:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:allDone?C.green:C.accent}}>{allDone?'✓ Today complete':"Today's sessions"}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{getDayName()}</div></div>{allDone&&<Pill color={C.green}>Done</Pill>}</div><div style={{display:'flex',flexDirection:'column',gap:8}}>{todayPlan.sessions.map((sess,i)=>{const isStr=sess.type==='strength';const sport=SPORT_META[sess.sport||'other'];const done=isStr?todayS.some(s=>s.name===sess.label||s.templateId===sess.templateId):todayC.some(w=>w.sport===sess.sport);const accent=done?C.green:(isStr?C.green:sport.color);return (<div key={i} onClick={isStr&&!done&&sess.exercises?()=>{onStartStrength(sess);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}><div style={{width:36,height:36,borderRadius:12,background:accent+'20',display:'flex',alignItems:'center',justifyContent:'center',}}>{done?<Icon name='check' size={17} color={C.green}/>:(isStr?<Icon name='dumbbell' size={17} color={accent}/>:<Icon name={sport.icon} size={17} color={accent}/>)}</div><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1,lineHeight:1.4}}>{sess.notes}</div></div>{!isStr&&sess.duration&&<div style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>{fmtDur(sess.duration)}</div>}{isStr&&!done&&sess.exercises&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Start →</div>}{!isStr&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:sport.color}}>Log →</div>}</div>);})}</div></Card>);
+  return (<Card accent={allDone?C.green:C.accent} style={{marginBottom:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}><div><div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:allDone?C.green:C.accent}}>{allDone?'✓ Today complete':"Today's sessions"}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{getDayName()}</div></div>{allDone&&<Pill color={C.green}>Done</Pill>}</div><div style={{display:'flex',flexDirection:'column',gap:8}}>{todayPlan.sessions.map((sess,i)=>{const isStr=sess.type==='strength';const sport=SPORT_META[sess.sport||'other'];const done=isStr?todayS.some(s=>s.name===sess.label||s.templateId===sess.templateId):todayC.some(w=>w.sport===sess.sport);const accent=done?C.green:(isStr?C.green:sport.color);const hasEx=sess.exercises?.length>0;return (<div key={i} onClick={hasEx&&!done?()=>{onStartStrength(sess);setTab('plan');}:(!done?()=>setTab('log'):undefined)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:done?C.green+'0A':C.elevated,borderRadius:12,border:`1.5px solid ${done?C.green+'44':accent+'30'}`,cursor:!done?'pointer':'default',transition:'all .15s'}}><div style={{width:36,height:36,borderRadius:12,background:accent+'20',display:'flex',alignItems:'center',justifyContent:'center',}}>{done?<Icon name='check' size={17} color={C.green}/>:(isStr?<Icon name='dumbbell' size={17} color={accent}/>:<Icon name={sport.icon} size={17} color={accent}/>)}</div><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:C.text}}>{sess.label}</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1,lineHeight:1.4}}>{sess.notes}</div></div>{!isStr&&sess.duration&&<div style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>{fmtDur(sess.duration)}</div>}{hasEx&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Start →</div>}{!hasEx&&!done&&<div style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:sport.color}}>Log →</div>}</div>);})}</div></Card>);
 }
 
 // ─── Push Message Card ─────────────────────────────────────────────────────────
@@ -1684,7 +1716,7 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
     let chain=[...clean];
     try{
       for(let round=0;round<10;round++){
-        const resp=await callAI({system:systemPrompt,messages:chain,tools:TOOLS,tool_choice:{type:'auto'},max_tokens:2048});
+        const resp=await callAI({system:systemPrompt,messages:chain,tools:TOOLS,tool_choice:{type:'auto'},max_tokens:8192});
         const textContent=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'';
         if(resp.stop_reason==='end_turn'){
           chainRef.current=chain;
@@ -1804,6 +1836,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
   const[expandedPhase,setExpandedPhase]=useState(null);
   const[showFuel,setShowFuel]=useState(null);
+  const[showExercises,setShowExercises]=useState(null);
   const[showEndPlan,setShowEndPlan]=useState(false);
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
   const startStrength=sess=>{if(sess?.exercises)setTracker(sess);};
@@ -2033,7 +2066,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
             const priorityColor=sess.priority==='red'?C.accent:C.yellow;
             const fuelKey=`${di}-${si}`;
             return (<div key={si}>
-              <div onClick={isStr&&sess.exercises&&!done?()=>startStrength(sess):undefined} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 10px',borderRadius:12,cursor:isStr&&sess.exercises&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'08':(isMissed?C.red+'06':'transparent')}}>
+              <div onClick={sess.exercises?.length&&!done?()=>startStrength(sess):undefined} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 10px',borderRadius:12,cursor:sess.exercises?.length&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'08':(isMissed?C.red+'06':'transparent')}}>
                 <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2}}>
                   {done?<Icon name='check' size={18} color={C.green}/>:isMissed?<span style={{fontFamily:F.ui,fontSize:14,color:C.red}}>✕</span>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
                 </div>
@@ -2049,6 +2082,29 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                   {sess.purpose&&!done&&<div style={{fontFamily:F.ui,fontSize:12,color:C.muted,fontStyle:'italic',marginTop:3,lineHeight:1.4}}>{sess.purpose}</div>}
                   {sess.zone&&!done&&<div style={{fontFamily:F.mono,fontSize:12,color:sport.color,marginTop:3}}>{sess.zone}{sess.targetIntensity?' · '+sess.targetIntensity:''}</div>}
                   {sess.workout&&!done&&<div style={{fontFamily:F.mono,fontSize:12,color:C.text,marginTop:4,padding:'8px 10px',background:C.elevated,borderRadius:8,border:`1px solid ${C.border}`,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{sess.workout}</div>}
+                  {sess.exercises?.length>0&&!done&&(()=>{const exKey=`ex-${di}-${si}`;return(<>
+                    <button onClick={(e)=>{e.stopPropagation();setShowExercises(showExercises===exKey?null:exKey);}} style={{background:C.elevated,border:`1px solid ${C.border}`,borderRadius:8,padding:'4px 10px',marginTop:6,cursor:'pointer',fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.accent,display:'flex',alignItems:'center',gap:4}}>
+                      <Icon name='dumbbell' size={10} color={C.accent}/> {sess.exercises.length} exercise{sess.exercises.length>1?'s':''} {showExercises===exKey?'▲':'▼'}
+                    </button>
+                    {showExercises===exKey&&<div className="fade-up" style={{marginTop:6,padding:'6px 0'}}>
+                      {sess.exercises.map((ex,ei)=>{
+                        const detail=ex.exerciseType==='weighted'?(ex.weight?`${ex.sets}×${ex.reps} @ ${ex.weight} lbs`:`${ex.sets}×${ex.reps}`)
+                          :ex.exerciseType==='timed'?`${ex.sets}×${ex.duration||ex.reps}s`
+                          :ex.exerciseType==='banded'?`${ex.sets}×${ex.reps} (${ex.band||'medium'})`
+                          :`${ex.sets}×${ex.reps}`;
+                        return(<div key={ei} style={{padding:'5px 10px',background:ei%2===0?C.elevated:'transparent',borderRadius:6,marginBottom:1}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                            <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.text}}>{ex.name}</span>
+                            <span style={{fontFamily:F.mono,fontSize:12,color:C.accent,fontWeight:500}}>{detail}</span>
+                          </div>
+                          {(ex.rest||ex.notes)&&<div style={{display:'flex',gap:8,marginTop:2}}>
+                            {ex.rest&&<span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{ex.rest}s rest</span>}
+                            {ex.notes&&<span style={{fontFamily:F.ui,fontSize:11,color:C.subtle,fontStyle:'italic'}}>{ex.notes}</span>}
+                          </div>}
+                        </div>);
+                      })}
+                    </div>}
+                  </>);})()}
                   {sess.notes&&!done&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,marginTop:4,lineHeight:1.5}}>{sess.notes}</div>}
                   {sess.fuel&&!done&&<button onClick={(e)=>{e.stopPropagation();setShowFuel(showFuel===fuelKey?null:fuelKey);}} style={{background:C.elevated,border:`1px solid ${C.border}`,borderRadius:8,padding:'4px 10px',marginTop:6,cursor:'pointer',fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.muted,display:'flex',alignItems:'center',gap:4}}>
                     <Icon name='zap' size={10} color={C.muted}/> Fuel {showFuel===fuelKey?'▲':'▼'}
@@ -2061,7 +2117,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                 </div>
                 <div style={{textAlign:'right',flexShrink:0}}>
                   {sess.duration&&<div style={{fontFamily:F.mono,fontSize:13,color:done?C.green:C.muted}}>{fmtDur(sess.duration)}</div>}
-                  {isStr&&sess.exercises&&!done&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,marginTop:4}}>Start →</div>}
+                  {sess.exercises?.length>0&&!done&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,marginTop:4}}>Start →</div>}
                 </div>
               </div>
             </div>);
