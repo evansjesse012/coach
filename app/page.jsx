@@ -975,11 +975,6 @@ function parsePushActions(raw) {
   return { text, actions };
 }
 
-async function parseQuickCapture(text, callAI) {
-  const today=new Date().toISOString().split('T')[0];
-  const resp=await callAI({system:`Extract a workout from this message. Return ONLY JSON: {"sport":"run|bike|swim|strength|brick|hike|other","duration":MINUTES,"notes":"brief","date":"${today}"}. Infer duration from distance+pace if given. Default 45 if unclear.`,messages:[{role:'user',content:text}],max_tokens:100});
-  return JSON.parse((resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'').replace(/```json\n?|\n?```/g,'').trim());
-}
 
 function typewriter(text, onUpdate) {
   return new Promise(resolve=>{
@@ -1686,17 +1681,6 @@ function PushMessageCard({ message, actions, personality, loading, onRefresh, on
   </Card>);
 }
 
-// ─── Quick Capture ─────────────────────────────────────────────────────────────
-function QuickCaptureSheet({ onClose, onLog, plan }) {
-  const[input,setInput]=useState('');const[loading,setLoading]=useState(false);const[parsed,setParsed]=useState(null);const inputRef=useRef(null);
-  useEffect(()=>setTimeout(()=>inputRef.current?.focus(),100),[]);
-  const today=getDayName();const todayPlan=plan?.find(d=>d.day===today);
-  const suggestions=todayPlan?.sessions?.filter(s=>s.type!=='strength')?.map(s=>`${fmtDur(s.duration)} ${s.label.toLowerCase()}`)||[];
-  const handleSubmit=async()=>{if(!input.trim()||loading)return;setLoading(true);try{const r=await parseQuickCapture(input,callAI);setParsed(r);}catch{toast.error('Could not parse — try "45 min easy run"');}setLoading(false);};
-  const handleConfirm=()=>{if(!parsed)return;onLog(parsed);toast.success(`${SPORT_META[parsed.sport]?.label||parsed.sport} logged — ${fmtDur(parsed.duration)}`);onClose();};
-  const handleSuggestion=async text=>{setInput(text);setLoading(true);try{const r=await parseQuickCapture(text,callAI);setParsed(r);}catch{}setLoading(false);};
-  return(<Sheet onClose={onClose} title="Quick log"><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,marginBottom:16,lineHeight:1.6}}>Tell me what you did in plain English.</div>{suggestions.length>0&&!parsed&&<div style={{marginBottom:14}}><Label>Today's plan</Label><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{suggestions.map((s,i)=><button key={i} onClick={()=>handleSuggestion(s)} style={{background:C.elevated,border:`1.5px solid ${C.border}`,borderRadius:10,padding:'7px 14px',fontFamily:F.ui,fontSize:13,fontWeight:500,color:C.subtle,cursor:'pointer',transition:'all .15s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.subtle;}}>{s}</button>)}</div></div>}{parsed&&<div className="fade-up" style={{marginBottom:16,padding:'14px 16px',background:C.green+'0A',borderRadius:14,border:`1.5px solid ${C.green}44`}}><div style={{fontFamily:F.ui,fontWeight:600,fontSize:14,color:C.green,marginBottom:8}}>✓ Ready to log</div><div style={{display:'flex',gap:10,flexWrap:'wrap'}}><Pill color={SPORT_META[parsed.sport]?.color||C.accent}>{SPORT_META[parsed.sport]?.label||parsed.sport}</Pill><Pill color={C.cyan}>{fmtDur(parsed.duration)}</Pill>{parsed.notes&&<Pill color={C.subtle}>{parsed.notes}</Pill>}</div></div>}{!parsed&&<div style={{display:'flex',gap:8,marginBottom:16}}><Inp ref={inputRef} placeholder='e.g. Just ran 5 miles easy, 50 minutes' value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSubmit()} style={{flex:1}}/><button onClick={handleSubmit} disabled={loading||!input.trim()} style={{width:50,height:50,background:loading||!input.trim()?C.elevated:C.accent,border:'none',borderRadius:12,cursor:loading||!input.trim()?'not-allowed':'pointer',color:loading||!input.trim()?C.muted:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{loading?<Spinner color="#fff" size={14}/>:'→'}</button></div>}{parsed?<div style={{display:'flex',gap:10}}><Btn onClick={()=>{setParsed(null);setInput('');}} outline style={{flex:1}}>Edit</Btn><Btn onClick={handleConfirm} color={C.green} style={{flex:2}}>Log it ✓</Btn></div>:<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,textAlign:'center'}}>Or use the full <button onClick={onClose} style={{background:'none',border:'none',color:C.accent,fontFamily:F.ui,fontSize:13,cursor:'pointer',textDecoration:'underline',padding:0}}>Log tab</button></div>}</Sheet>);
-}
 
 // ─── Strength Tracker ──────────────────────────────────────────────────────────
 function RestTimer({seconds,onDone}){const[rem,setRem]=useState(seconds);useEffect(()=>{if(rem<=0){onDone();return;}const t=setTimeout(()=>setRem(r=>r-1),1000);return()=>clearTimeout(t);},[rem]);const pct=(rem/seconds)*100;return(<div style={{background:C.elevated,borderRadius:12,padding:'10px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:14,boxShadow:S.sm}}><div style={{flex:1}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted}}>Rest</span><span style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:pct>33?C.cyan:C.yellow}}>{rem}s</span></div><div style={{height:4,background:C.border,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${pct}%`,background:`linear-gradient(90deg,${C.yellow},${C.cyan})`,borderRadius:4,transition:'width 1s linear'}}/></div></div><button onClick={onDone} style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,padding:'6px 13px',color:C.subtle,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',flexShrink:0}}>Skip</button></div>);}
@@ -4312,6 +4296,30 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
     {selectedWorkout&&<WorkoutDetailSheet workout={selectedWorkout} onClose={()=>setSelectedWorkout(null)} onViewLog={()=>{setSelectedWorkout(null);setTab('log');}}/>}
   </div>);}
 
+// ─── Coach Chat Sheet ─────────────────────────────────────────────────────────
+function CoachChatSheet({messages,onSend,loading,isStreaming,streamText,personality,onClose}){
+  const[input,setInput]=useState('');const bottomRef=useRef(null);const inputRef=useRef(null);
+  const p=PERSONALITIES[personality]||PERSONALITIES.normal;
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[messages,loading,streamText]);
+  useEffect(()=>setTimeout(()=>inputRef.current?.focus(),100),[]);
+  const send=()=>{const t=input.trim();if(!t||loading||isStreaming)return;onSend(t);setInput('');inputRef.current?.focus();};
+  const suggestions=["I just ran 45 min easy at 10:30/mi","How am I doing this week?","What should I focus on?","Finished a 90 min Zone 2 ride"];
+  const isDisabled=loading||isStreaming||!input.trim();
+  return(<Sheet onClose={onClose} title="Coach">
+    <div style={{maxHeight:'60vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:10,marginBottom:12,paddingRight:2}}>
+      {messages.length===0&&!isStreaming&&<div style={{marginBottom:8}}><Card style={{marginBottom:12,borderColor:p.color+'30',background:p.color+'07'}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}><div style={{width:32,height:32,borderRadius:10,background:p.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={p.icon} size={18} color={p.color}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:p.color}}>{p.name}</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>Online · ready to coach</div></div></div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,lineHeight:1.7}}>Ask me anything about your training, log a workout, or let's plan your next move.</div></Card>{suggestions.map((s,i)=><button key={i} onClick={()=>onSend(s)} style={{width:'100%',background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:'12px 16px',color:C.subtle,fontFamily:F.ui,fontSize:14,fontWeight:500,textAlign:'left',cursor:'pointer',marginBottom:8,transition:'all .15s',boxShadow:S.sm,lineHeight:1.5}} onMouseEnter={e=>{e.currentTarget.style.color=C.text;e.currentTarget.style.borderColor=C.borderBright;e.currentTarget.style.boxShadow=S.md;}} onMouseLeave={e=>{e.currentTarget.style.color=C.subtle;e.currentTarget.style.borderColor=C.border;e.currentTarget.style.boxShadow=S.sm;}}>{s}</button>)}</div>}
+      {messages.map((m,i)=>(<div key={i} className="fade-up" style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:m.role==='user'?'20px 20px 6px 20px':'6px 20px 20px 20px',background:m.role==='user'?C.accent:C.surface,boxShadow:m.role==='assistant'?S.card:'none',fontFamily:F.ui,fontSize:15,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal',border:m.role==='assistant'?`1.5px solid ${C.border}`:'none'}}>{m.role==='assistant'?renderMd(m.content):m.content}{m.logged&&<div style={{marginTop:10,padding:'8px 12px',background:C.green+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><span style={{color:C.green,fontSize:14,fontWeight:700}}>✓</span><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Workout logged</span></div>}{m.nutritionLogged&&<div style={{marginTop:10,padding:'8px 12px',background:C.cyan+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='zap' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.cyan}}>Nutrition logged</span></div>}{m.planChanged&&<div style={{marginTop:10,padding:'8px 12px',background:C.accent+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='calendar' size={14} color={C.accent}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent}}>Training plan updated</span></div>}{m.appActionTaken&&<div style={{marginTop:10,padding:'8px 12px',background:C.purple+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='settings' size={14} color={C.purple}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.purple}}>App updated</span></div>}</div></div>))}
+      {isStreaming&&<div className="fade-up" style={{display:'flex',justifyContent:'flex-start'}}><div className={streamText?'fade-up':'streaming-cursor'} style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,fontFamily:F.ui,fontSize:15,color:C.text,border:`1.5px solid ${C.border}`}}>{streamText?renderMd(streamText):<DotsLoader color={p.color}/>}</div></div>}
+      {loading&&!isStreaming&&<div className="fade-up" style={{display:'flex'}}><div style={{padding:'14px 18px',borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,border:`1.5px solid ${C.border}`}}><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:6}}>Reviewing your training…</div></div></div>}
+      <div ref={bottomRef}/>
+    </div>
+    <div style={{display:'flex',gap:8}}>
+      <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(),send())} placeholder="Talk to your coach…" style={{flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:'14px 18px',color:C.text,fontFamily:F.ui,fontSize:15,outline:'none',transition:'all .15s',boxShadow:S.sm}} onFocus={e=>{e.target.style.borderColor=C.accent;e.target.style.boxShadow=S.md;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow=S.sm;}}/>
+      <button onClick={send} disabled={isDisabled} style={{width:52,background:isDisabled?C.elevated:C.accent,border:'none',borderRadius:16,cursor:isDisabled?'not-allowed':'pointer',fontSize:20,color:isDisabled?C.muted:'#fff',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s',boxShadow:!isDisabled?S.sm:'none'}}>↑</button>
+    </div>
+  </Sheet>);
+}
+
 // ─── Chat Tab ──────────────────────────────────────────────────────────────────
 function ChatTab({messages,onSend,loading,isStreaming,streamText,personality}){
   const[input,setInput]=useState('');const bottomRef=useRef(null);const inputRef=useRef(null);
@@ -4358,7 +4366,7 @@ export default function CoachApp() {
   const [eventModal,   setEventModal]  = useState(null);
   const [goalDetail,   setGoalDetail]  = useState(null);
   const [goalChat,     setGoalChat]    = useState(false);
-  const [showQuick,    setShowQuick]   = useState(false);
+  const [showCoachChat, setShowCoachChat] = useState(false);
   const [bricks,       setBricks]     = useState([]);
   const [brickPrompt,  setBrickPrompt]= useState(null); // {workout, candidates} for auto-suggest
   const [templates,    setTemplates]  = useState([]);
@@ -4667,7 +4675,7 @@ export default function CoachApp() {
         if(action==='navigate'){
           if(data?.tab)setTab(data.tab);
           if(data?.sheet==='settings')setShowSettings(true);
-          if(data?.sheet==='quick-capture')setShowQuick(true);
+          if(data?.sheet==='coach-chat')setShowCoachChat(true);
           if(data?.sheet==='goal-detail'&&data?.goalId){const ev=events.find(e=>e.id===data.goalId);if(ev)setGoalDetail(ev);}
         }
       }
@@ -4701,7 +4709,7 @@ export default function CoachApp() {
             <div style={{fontFamily:F.ui,fontSize:11,fontWeight:500,color:C.muted,marginTop:1}}>Your personal trainer</div>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <button onClick={()=>setShowQuick(true)} style={{width:36,height:36,borderRadius:11,background:C.accent+'15',border:`1.5px solid ${C.accent}30`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.accent,transition:'all .15s'}} onMouseEnter={e=>e.currentTarget.style.background=C.accent+'25'} onMouseLeave={e=>e.currentTarget.style.background=C.accent+'15'}><Icon name='zap' size={18}/></button>
+            <button onClick={()=>setShowCoachChat(true)} style={{width:36,height:36,borderRadius:11,background:C.accent+'15',border:`1.5px solid ${C.accent}30`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.accent,transition:'all .15s'}} onMouseEnter={e=>e.currentTarget.style.background=C.accent+'25'} onMouseLeave={e=>e.currentTarget.style.background=C.accent+'15'}><Icon name='zap' size={18}/></button>
             <button onClick={()=>setShowSettings(true)} style={{width:36,height:36,borderRadius:11,background:C.elevated,border:`1.5px solid ${C.border}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.subtle,transition:'all .15s'}} onMouseEnter={e=>e.currentTarget.style.color=C.text} onMouseLeave={e=>e.currentTarget.style.color=C.subtle}><Icon name='settings' size={18}/></button>
           </div>
         </div>
@@ -4773,7 +4781,7 @@ export default function CoachApp() {
       {brickPrompt&&<div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:468,zIndex:60}}><BrickPromptBanner workout={brickPrompt.workout} candidates={brickPrompt.candidates} onLink={(w1,w2)=>{saveBrick({date:w1.date,legs:[{workoutId:w2.id,sport:w2.sport},{workoutId:w1.id,sport:w1.sport}],transitionTime:null,transitionNotes:'',notes:''});setBrickPrompt(null);}} onDismiss={()=>setBrickPrompt(null)}/></div>}
       {(eventModal==='add'||(eventModal&&typeof eventModal==='object'))&&<EventModal event={eventModal==='add'?null:eventModal} onSave={saveEvent} onClose={()=>setEventModal(null)} onDelete={deleteEvent}/>}
       {goalChat&&<GoalChatSheet appState={getAppState()} onSave={ev=>{saveEvent(ev);setGoalChat(false);}} onClose={()=>setGoalChat(false)}/>}
-      {showQuick&&<QuickCaptureSheet onClose={()=>setShowQuick(false)} onLog={w=>{addCardio(w);}} plan={plan}/>}
+      {showCoachChat&&<CoachChatSheet messages={messages} onSend={handleSend} loading={loading} isStreaming={isStreaming} streamText={streamText} personality={personality} onClose={()=>setShowCoachChat(false)}/>}
 
       {showSettings&&<SettingsPage personality={personality} customPrompt={customPrompt} onPersonalityChange={handlePersonalityChange} onCustomPromptChange={handleCustomPromptChange} isDark={isDark} onToggleDark={()=>setIsDark(d=>{const next=!d;db.set('coach_dark_mode',next);return next;})} onClose={()=>setShowSettings(false)} onViewProfile={()=>{setShowSettings(false);setShowProfile(true);}}/>}
 
