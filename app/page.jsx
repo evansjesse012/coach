@@ -1350,10 +1350,9 @@ If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.cur
   </div>);
 }
 
-function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustomPromptChange, isDark, onToggleDark, onClose }) {
+function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustomPromptChange, isDark, onToggleDark, onClose, onViewProfile }) {
   const [localCustom, setLocalCustom] = useState(customPrompt||'');
   const [saved, setSaved] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
   const mem = loadMemory();
   const hasMemory = !!(mem.observations?.patterns?.length||mem.injuries?.length||mem.observations?.openItems?.length);
 
@@ -1417,7 +1416,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
         {/* Profile & Memory */}
         <div style={{marginBottom:32}}>
           <Label>Athlete profile</Label>
-          <Card onClick={()=>setShowProfile(true)} accent={C.accent} style={{marginBottom:10}}>
+          <Card onClick={onViewProfile} accent={C.accent} style={{marginBottom:10}}>
             <div style={{display:'flex',alignItems:'center',gap:12}}><div style={{width:36,height:36,borderRadius:12,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='run' size={18} color={C.accent}/></div><div style={{flex:1}}><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.accent}}>View athlete profile</div><div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginTop:1}}>See what your coach knows about you</div></div><span style={{color:C.accent}}>→</span></div>
           </Card>
           {hasMemory&&<button onClick={resetMemory} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:12,padding:'11px 16px',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',width:'100%',transition:'all .15s',marginTop:4}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>Reset coaching memory</button>}
@@ -1440,7 +1439,6 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
           <Card><div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.8}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}><span style={{fontWeight:600}}>Coach App</span><span style={{color:C.muted}}>v1.0</span></div><div style={{color:C.muted,fontSize:13}}>AI-powered personal training. Your data stays on your device.</div></div></Card>
         </div>
       </div>
-      {showProfile&&<AthleteProfilePage onClose={()=>setShowProfile(false)}/>}
     </div>
   );
 }
@@ -3983,6 +3981,7 @@ function ChatTab({messages,onSend,loading,isStreaming,streamText,personality}){
 export default function CoachApp() {
   const [tab,          setTab]         = useState('home');
   const [showSettings, setShowSettings]= useState(false);
+  const [showProfile, setShowProfile]= useState(false);
   const [isDark,       setIsDark]      = useState(() => db.get('coach_dark_mode', false));
   const [events,       setEvents]      = useState([]);
   const [cardio,       setCardio]      = useState([]);
@@ -4323,7 +4322,9 @@ export default function CoachApp() {
       {goalChat&&<GoalChatSheet appState={getAppState()} onSave={ev=>{saveEvent(ev);setGoalChat(false);}} onClose={()=>setGoalChat(false)}/>}
       {showQuick&&<QuickCaptureSheet onClose={()=>setShowQuick(false)} onLog={w=>{addCardio(w);}} plan={plan}/>}
 
-      {showSettings&&<SettingsPage personality={personality} customPrompt={customPrompt} onPersonalityChange={handlePersonalityChange} onCustomPromptChange={handleCustomPromptChange} isDark={isDark} onToggleDark={()=>setIsDark(d=>{const next=!d;db.set('coach_dark_mode',next);return next;})} onClose={()=>setShowSettings(false)}/>}
+      {showSettings&&<SettingsPage personality={personality} customPrompt={customPrompt} onPersonalityChange={handlePersonalityChange} onCustomPromptChange={handleCustomPromptChange} isDark={isDark} onToggleDark={()=>setIsDark(d=>{const next=!d;db.set('coach_dark_mode',next);return next;})} onClose={()=>setShowSettings(false)} onViewProfile={()=>{setShowSettings(false);setShowProfile(true);}}/>}
+
+      {showProfile&&<AthleteProfilePage onClose={()=>setShowProfile(false)}/>}
 
       {goalDetail&&<GoalDetailView event={goalDetail} onUpdate={updateEvent} onEdit={e=>{setEventModal(e);}} onDelete={deleteEvent} onClose={()=>setGoalDetail(null)}/>}
 
