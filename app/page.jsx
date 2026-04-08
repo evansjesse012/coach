@@ -692,18 +692,15 @@ Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('e
 function buildPlanBuilderPrompt(goal, mode='create') {
   const goalCtx = goal ? `The athlete wants a plan for: ${goal.name}${goal.date?' (race date: '+goal.date+')':''}${goal.goal?' with goal time '+goal.goal:''}${goal.baseline?' and current PR/baseline '+goal.baseline:''}${goal.location?' in '+goal.location:''}.` : '';
 
-  // Look up event-specific training guidance
+  // Pass event details so the coach can analyze demands
   const preset = goal?.presetId ? presetById(goal.presetId) : null;
-  const trainingMeta = preset?.training;
-  const eventCtx = trainingMeta ? `
-EVENT-SPECIFIC COACHING (CRITICAL — read before designing the plan):
-This is a ${preset.label} goal. Analyze the event demands FIRST, then design training accordingly.
-- Energy system: ${trainingMeta.energySystem}
-- Appropriate peak weekly volume: ${trainingMeta.peakVolume}
-- Training focus: ${trainingMeta.focus}
-- Recommended periodization: ${trainingMeta.periodization}
-- Key sessions: ${trainingMeta.keySessions}
-Do NOT default to generic high-volume base building for every running goal. A mile and a marathon have completely different training demands. Match volume and intensity to the event.` : '';
+  const eventDetails = preset ? [
+    `Event type: ${preset.label}`,
+    preset.distance ? `Distance: ${preset.distance}` : null,
+    preset.typicalDuration ? `Typical race duration: ${preset.typicalDuration}` : null,
+    `Sport: ${preset.planType}`,
+  ].filter(Boolean).join('. ') : '';
+  const eventCtx = eventDetails ? `\nEvent details — ${eventDetails}` : '';
 
   if(mode==='week') return `You are building a weekly training plan. ${goalCtx}${eventCtx}
 
@@ -711,8 +708,9 @@ Review last week's adherence and recent training load before generating. Adapt b
 Be concise. Generate and save the plan.
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
 
-  return `You are an expert athletic coach building a training plan. Think like a coach — consider the athlete's timeline, current fitness, history, and what they actually need right now. ${goalCtx}
-${eventCtx}
+  return `You are an expert athletic coach building a training plan. Think like a coach — consider the athlete's timeline, current fitness, history, and what they actually need right now. ${goalCtx}${eventCtx}
+
+CRITICAL: Analyze the event demands FIRST — distance, duration, energy systems required — then design the plan to match. Different events require fundamentally different training. Do not apply a one-size-fits-all approach to volume or periodization.
 
 Gather the athlete's data before your first message — don't ask what you can look up. Call get_plan_history to check for past plans — their adherence data, what phases they completed, and why plans ended are critical context for building a better plan this time. Lead with your assessment, propose your plan, and only ask questions the data can't answer (max 5). On confirmation, save the plan and generate week 1.
 
@@ -729,15 +727,12 @@ Each phase must include these fields:
 Phase advancement should be based on readiness (success criteria met), not just calendar. If the athlete isn't ready, extend the phase.
 
 PERIODIZATION:
-Choose the approach based on athlete, sport, and timeline:
+Choose the approach based on athlete, sport, event demands, and timeline:
 - Linear blocks (20+ weeks, single peak): distinct phases with clear transitions
 - Undulating (shorter timelines, multiple events): varies intensity within each week
 - Block (experienced athletes, limited time): concentrated blocks of single quality
-For endurance events (marathon, ultra, half): base → threshold → race-specific → taper. Earn intensity.
-For speed/power events (mile, 5K): general fitness → VO2max/speed development → race-specific sharpening → taper. Volume stays moderate; intensity is the primary driver.
+For endurance: base → threshold → race-specific → taper. Earn intensity.
 For strength: hypertrophy → max strength → peaking → deload/test.
-
-IMPORTANT: Match training volume to the event. A mile race peaks at 15-30 mi/wk. A marathon peaks at 40-60 mi/wk. Do not prescribe marathon-level volume for a mile goal.
 
 Have a clear recommendation. You're the coach — lead with your best option, but offer alternatives where reasonable.
 Keep messages under 200 words — this is mobile.
@@ -850,26 +845,16 @@ function typewriter(text, onUpdate) {
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
 const EVENT_PRESETS = [
-  {id:'marathon',   label:'Marathon',        icon:'run',color:'#E8604C',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (99%)',peakVolume:'40-60 mi/wk',focus:'aerobic base + marathon-pace work + long runs',periodization:'base → threshold → marathon-specific → taper',keySessions:'long run, tempo, marathon-pace intervals'}},
-  {id:'ultra',      label:'Ultramarathon',   icon:'mountain',color:'#D45A3A',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (99%)',peakVolume:'50-80 mi/wk',focus:'time on feet, fueling practice, back-to-back long efforts',periodization:'base → volume accumulation → race-specific → taper',keySessions:'long run, back-to-back long days, hiking with load'}},
-  {id:'half',       label:'Half Marathon',   icon:'run',color:'#E87840',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (95%)',peakVolume:'30-50 mi/wk',focus:'aerobic base + threshold/tempo work',periodization:'base → threshold → race-specific → taper',keySessions:'tempo run, threshold intervals, long run'}},
-  {id:'10k',        label:'10K Race',        icon:'run',color:'#F0A830',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (90%) + VO2max (10%)',peakVolume:'25-45 mi/wk',focus:'threshold + VO2max development',periodization:'base → threshold/VO2max → race-specific → taper',keySessions:'tempo, VO2max intervals (1000-1600m), threshold cruise intervals'}},
-  {id:'5k',         label:'5K Race',         icon:'run',color:'#F5C030',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (80%) + VO2max (15%) + anaerobic (5%)',peakVolume:'20-40 mi/wk',focus:'VO2max + speed endurance, moderate base',periodization:'base → VO2max development → race-specific sharpening → taper',keySessions:'VO2max intervals (800-1200m), tempo, race-pace reps'}},
-  {id:'mile',       label:'Mile',            icon:'zap',color:'#E8C040',planType:'run',goalLabel:'Goal time',resultLabel:'Time',
-    training:{energySystem:'anaerobic (25%) + VO2max (50%) + aerobic (25%)',peakVolume:'15-30 mi/wk',focus:'VO2max + speed/power, NOT high-volume base building. The mile is a speed/power event.',periodization:'general fitness → VO2max/speed development → race-specific sharpening → taper. Do NOT default to marathon-style base building.',keySessions:'VO2max intervals (400-800m), speed reps (200-400m), race-pace work, short tempos'}},
-  {id:'tri_703',    label:'70.3 Triathlon',  icon:'swim',color:'#2BAFC4',planType:'tri',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (95%)',peakVolume:'8-12 hrs/wk across 3 sports',focus:'aerobic base in all 3 sports + race-pace brick work',periodization:'base → build → race-specific → taper',keySessions:'long ride, brick (bike-to-run), open water swim, tempo run'}},
-  {id:'tri_full',   label:'Full Ironman',    icon:'swim',color:'#2090A8',planType:'tri',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (99%)',peakVolume:'12-20 hrs/wk across 3 sports',focus:'volume accumulation, fueling strategy, race-day pacing',periodization:'base → volume build → race-specific → taper',keySessions:'long ride (4-6hr), long run, brick, open water swim, fueling rehearsals'}},
-  {id:'tri_sprint', label:'Sprint Tri',      icon:'swim',color:'#40C0D0',planType:'tri',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'aerobic (70%) + VO2max (20%) + anaerobic (10%)',peakVolume:'5-8 hrs/wk across 3 sports',focus:'speed in all 3 sports, fast transitions',periodization:'base → speed/threshold → race-specific → taper',keySessions:'speed swim intervals, bike intervals, tempo run, brick'}},
-  {id:'cycling',    label:'Cycling Race',    icon:'bike',color:'#4890D8',planType:'bike',goalLabel:'Goal time',resultLabel:'Finish time',
-    training:{energySystem:'varies by event type',peakVolume:'varies by event',focus:'match event demands — crit vs road vs TT have very different profiles',periodization:'base → build → specialty → taper',keySessions:'depends on event type — intervals, tempo, endurance rides'}},
+  {id:'marathon',   label:'Marathon',        icon:'run',color:'#E8604C',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',distance:'26.2 miles',typicalDuration:'2:30-5:00+'},
+  {id:'ultra',      label:'Ultramarathon',   icon:'mountain',color:'#D45A3A',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',distance:'50K-100mi+',typicalDuration:'4:00-30:00+'},
+  {id:'half',       label:'Half Marathon',   icon:'run',color:'#E87840',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',distance:'13.1 miles',typicalDuration:'1:15-2:30+'},
+  {id:'10k',        label:'10K Race',        icon:'run',color:'#F0A830',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',distance:'6.2 miles',typicalDuration:'30:00-60:00+'},
+  {id:'5k',         label:'5K Race',         icon:'run',color:'#F5C030',planType:'run',goalLabel:'Goal time',resultLabel:'Finish time',distance:'3.1 miles',typicalDuration:'15:00-30:00+'},
+  {id:'mile',       label:'Mile',            icon:'zap',color:'#E8C040',planType:'run',goalLabel:'Goal time',resultLabel:'Time',distance:'1 mile',typicalDuration:'4:00-8:00'},
+  {id:'tri_703',    label:'70.3 Triathlon',  icon:'swim',color:'#2BAFC4',planType:'tri',goalLabel:'Goal time',resultLabel:'Finish time',distance:'1.2mi swim / 56mi bike / 13.1mi run',typicalDuration:'4:00-7:00+'},
+  {id:'tri_full',   label:'Full Ironman',    icon:'swim',color:'#2090A8',planType:'tri',goalLabel:'Goal time',resultLabel:'Finish time',distance:'2.4mi swim / 112mi bike / 26.2mi run',typicalDuration:'8:00-17:00'},
+  {id:'tri_sprint', label:'Sprint Tri',      icon:'swim',color:'#40C0D0',planType:'tri',goalLabel:'Goal time',resultLabel:'Finish time',distance:'750m swim / 12.4mi bike / 3.1mi run',typicalDuration:'1:00-1:45'},
+  {id:'cycling',    label:'Cycling Race',    icon:'bike',color:'#4890D8',planType:'bike',goalLabel:'Goal time',resultLabel:'Finish time'},
   {id:'lift_1rm',   label:'Lifting 1RM',     icon:'dumbbell',color:'#2ABF84',planType:'strength',goalLabel:'Target (lbs)',resultLabel:'Weight'},
   {id:'lift_bw',    label:'Bodyweight Goal', icon:'dumbbell',color:'#30B070',planType:'strength',goalLabel:'Target reps',resultLabel:'Reps'},
   {id:'body',       label:'Body Comp',       icon:'scale',color:'#8B6FE8',planType:'general',goalLabel:'Target',resultLabel:'Result'},
