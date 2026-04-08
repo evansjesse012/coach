@@ -374,6 +374,7 @@ const TOOLS = [
   { name:'update_plan_progress', description:'Advance the current week number or phase in the training plan. Use at the start of a new week or when transitioning between phases.', input_schema:{type:'object',properties:{currentWeek:{type:'number'},currentPhase:{type:'number'},notes:{type:'string'}},required:['currentWeek','currentPhase']} },
   { name:'get_week_review', description:'Compare prescribed training plan vs actual logged workouts for a specific week. Returns what was completed, missed, shortened, substituted, and multi-week patterns. ALWAYS call this before generating next week\'s plan.', input_schema:{type:'object',properties:{weekNumber:{type:'number',description:'Week to review. Default: previous week.'},includeMultiWeek:{type:'boolean',description:'Include 4-week rolling pattern analysis. Default false.'}}} },
   { name:'get_plan_history', description:'Get archived past training plans with adherence data. Use when creating a new plan to understand what the athlete has done before — volume handled, adherence patterns, why plans ended, what worked.', input_schema:{type:'object',properties:{}} },
+  { name:'app_action', description:'Perform any action in the app: create, update, delete data, change settings, or navigate. Use this to modify workouts, goals, nutrition, training plans, coaching memory, settings, or navigate the app.', input_schema:{type:'object',properties:{action:{type:'string',enum:['create','update','delete','navigate','settings'],description:'The action type'},target:{type:'string',enum:['workout','strength_workout','goal','nutrition','plan','plan_session','coaching_memory','brick','app'],description:'What to act on'},id:{type:'string',description:'ID of the item to update/delete (required for update/delete)'},data:{type:'object',description:'Payload — fields depend on target. For workouts: {sport,duration,notes,date}. For goals: {name,presetId,date,location,goal,stretchGoal,baseline,result,completed,notes}. For settings: {darkMode,personality,customPrompt}. For navigation: {tab,sheet,goalId}. For plan_session: {weekNumber,dayIndex,sessionIndex,updates}. For coaching_memory: {category,operation,value}. For plan delete: {reason,notes}.'}},required:['action','target']} },
 ];
 
 // ─── Adherence Computation ────────────────────────────────────────────────────
@@ -523,7 +524,7 @@ function executeTool(name, input, appState) {
     case 'get_goals': {
       const { include_completed=false } = input;
       const filtered=include_completed?events:events.filter(e=>!e.completed);
-      return filtered.length ? JSON.stringify({goals:filtered.map(e=>({name:e.name,type:e.presetId,location:e.location,date:e.date,daysAway:e.date?Math.ceil((new Date(e.date+'T12:00:00')-new Date())/86400000):null,goal:e.goal,stretchGoal:e.stretchGoal,baseline:e.baseline,completed:e.completed}))}) : 'No active goals.';
+      return filtered.length ? JSON.stringify({goals:filtered.map(e=>({id:e.id,name:e.name,type:e.presetId,location:e.location,date:e.date,daysAway:e.date?Math.ceil((new Date(e.date+'T12:00:00')-new Date())/86400000):null,goal:e.goal,stretchGoal:e.stretchGoal,baseline:e.baseline,completed:e.completed,result:e.result,notes:e.notes}))}) : 'No active goals.';
     }
     case 'get_athlete_profile': return (!memory||!Object.keys(memory).length) ? 'No coaching memory yet.' : JSON.stringify(memory);
     case 'log_workout': {
@@ -600,6 +601,134 @@ function executeTool(name, input, appState) {
         phases: h.phases,
         adherence: h.adherence
       })));
+    }
+    case 'app_action': {
+      const { action, target, id, data={} } = input;
+      const requireId = () => { if (!id) return 'Missing required "id" field'; return null; };
+      const requireFields = (fields) => { const missing = fields.filter(f => data[f] === undefined || data[f] === null); if (missing.length) return `Missing required fields: ${missing.join(', ')}`; return null; };
+      const requireUpdateData = () => { if (!Object.keys(data).length) return 'No update fields provided'; return null; };
+
+      // --- WORKOUT (cardio) ---
+      if (target === 'workout') {
+        if (action === 'update') {
+          let err = requireId() || requireUpdateData(); if (err) return JSON.stringify({error: err});
+          const w = cardio.find(c => c.id === id);
+          if (!w) return JSON.stringify({error: `Workout ${id} not found`});
+          return JSON.stringify({success:true, action:'update', target:'workout', id, updates:data});
+        }
+        if (action === 'delete') {
+          let err = requireId(); if (err) return JSON.stringify({error: err});
+          const w = cardio.find(c => c.id === id);
+          if (!w) return JSON.stringify({error: `Workout ${id} not found`});
+          return JSON.stringify({success:true, action:'delete', target:'workout', id, deleted:{sport:w.sport, duration:w.duration, date:w.date}});
+        }
+      }
+
+      // --- STRENGTH WORKOUT ---
+      if (target === 'strength_workout') {
+        if (action === 'update') {
+          let err = requireId() || requireUpdateData(); if (err) return JSON.stringify({error: err});
+          const s = strength.find(x => x.id === id);
+          if (!s) return JSON.stringify({error: `Strength session ${id} not found`});
+          return JSON.stringify({success:true, action:'update', target:'strength_workout', id, updates:data});
+        }
+        if (action === 'delete') {
+          let err = requireId(); if (err) return JSON.stringify({error: err});
+          const s = strength.find(x => x.id === id);
+          if (!s) return JSON.stringify({error: `Strength session ${id} not found`});
+          return JSON.stringify({success:true, action:'delete', target:'strength_workout', id});
+        }
+      }
+
+      // --- GOAL ---
+      if (target === 'goal') {
+        if (action === 'create') {
+          let err = requireFields(['name']); if (err) return JSON.stringify({error: err});
+          const newId = 'evt_' + uid();
+          return JSON.stringify({success:true, action:'create', target:'goal', id:newId, data:{...data, id:newId}});
+        }
+        if (action === 'update') {
+          let err = requireId() || requireUpdateData(); if (err) return JSON.stringify({error: err});
+          const ev = events.find(e => e.id === id);
+          if (!ev) return JSON.stringify({error: `Goal ${id} not found`});
+          return JSON.stringify({success:true, action:'update', target:'goal', id, updates:data});
+        }
+        if (action === 'delete') {
+          let err = requireId(); if (err) return JSON.stringify({error: err});
+          const ev = events.find(e => e.id === id);
+          if (!ev) return JSON.stringify({error: `Goal ${id} not found`});
+          return JSON.stringify({success:true, action:'delete', target:'goal', id, deleted:{name:ev.name}});
+        }
+      }
+
+      // --- NUTRITION ---
+      if (target === 'nutrition') {
+        if (action === 'update') {
+          let err = requireId() || requireUpdateData(); if (err) return JSON.stringify({error: err});
+          const n = nutrition.find(x => x.id === id);
+          if (!n) return JSON.stringify({error: `Nutrition entry ${id} not found`});
+          return JSON.stringify({success:true, action:'update', target:'nutrition', id, updates:data});
+        }
+        if (action === 'delete') {
+          let err = requireId(); if (err) return JSON.stringify({error: err});
+          const n = nutrition.find(x => x.id === id);
+          if (!n) return JSON.stringify({error: `Nutrition entry ${id} not found`});
+          return JSON.stringify({success:true, action:'delete', target:'nutrition', id});
+        }
+      }
+
+      // --- PLAN ---
+      if (target === 'plan') {
+        if (action === 'delete') {
+          if (!trainingPlan) return JSON.stringify({error:'No training plan exists'});
+          return JSON.stringify({success:true, action:'delete', target:'plan', data:{reason:data.reason||'abandoned', notes:data.notes||''}});
+        }
+      }
+
+      // --- PLAN SESSION ---
+      if (target === 'plan_session') {
+        if (action === 'update') {
+          let err = requireFields(['weekNumber','dayIndex','sessionIndex','updates']); if (err) return JSON.stringify({error: err});
+          const {weekNumber, dayIndex, sessionIndex, updates} = data;
+          if (!trainingPlan?.weeklyPlans?.[String(weekNumber)]) return JSON.stringify({error:`Week ${weekNumber} not generated yet`});
+          return JSON.stringify({success:true, action:'update', target:'plan_session', data:{weekNumber, dayIndex, sessionIndex, updates}});
+        }
+      }
+
+      // --- COACHING MEMORY ---
+      if (target === 'coaching_memory') {
+        if (action === 'update') {
+          let err = requireFields(['category','operation','value']); if (err) return JSON.stringify({error: err});
+          if (!['add','remove','set'].includes(data.operation)) return JSON.stringify({error: `Invalid operation: ${data.operation}. Use add, remove, or set.`});
+          return JSON.stringify({success:true, action:'update', target:'coaching_memory', data});
+        }
+      }
+
+      // --- BRICK ---
+      if (target === 'brick') {
+        if (action === 'create') {
+          let err = requireFields(['leg1Id','leg2Id']); if (err) return JSON.stringify({error: err});
+          return JSON.stringify({success:true, action:'create', target:'brick', data});
+        }
+        if (action === 'delete') {
+          let err = requireId(); if (err) return JSON.stringify({error: err});
+          const b = bricks.find(x => x.id === id);
+          if (!b) return JSON.stringify({error: `Brick ${id} not found`});
+          return JSON.stringify({success:true, action:'delete', target:'brick', id});
+        }
+      }
+
+      // --- SETTINGS ---
+      if (action === 'settings' && target === 'app') {
+        return JSON.stringify({success:true, action:'settings', target:'app', data});
+      }
+
+      // --- NAVIGATION ---
+      if (action === 'navigate' && target === 'app') {
+        return JSON.stringify({success:true, action:'navigate', target:'app', data});
+      }
+
+      return JSON.stringify({error: `Unknown action: ${action} on ${target}`});
     }
     default: return JSON.stringify({error:`Unknown tool: ${name}`});
   }
@@ -684,6 +813,26 @@ GUARDRAILS:
 - If adherence is low, ask why before re-prescribing. Restructure rather than repeat.
 - Do NOT estimate macros or calories. Coach on fueling timing and composition relative to training demands.
 
+APP ACTIONS — use app_action tool to modify data:
+- Edit workout: {action:'update', target:'workout', id:'<id>', data:{duration:60, notes:'felt great'}}
+- Delete workout: {action:'delete', target:'workout', id:'<id>'}
+- Create goal: {action:'create', target:'goal', data:{name:'Boston Marathon', presetId:'marathon', date:'2027-04-19', location:'Boston, MA', goal:'3:15:00'}}
+- Update goal: {action:'update', target:'goal', id:'<id>', data:{goal:'3:10:00'}}
+- Complete goal: {action:'update', target:'goal', id:'<id>', data:{completed:true, result:'3:12:00'}}
+- Delete goal: {action:'delete', target:'goal', id:'<id>'}
+- Edit nutrition: {action:'update', target:'nutrition', id:'<id>', data:{meal:'Updated meal', timing:'post'}}
+- Delete nutrition: {action:'delete', target:'nutrition', id:'<id>'}
+- Edit plan session: {action:'update', target:'plan_session', data:{weekNumber:3, dayIndex:1, sessionIndex:0, updates:{duration:45}}}
+- Delete training plan: {action:'delete', target:'plan', data:{reason:'completed', notes:'Great cycle'}}
+- Change settings: {action:'settings', target:'app', data:{darkMode:true}}
+- Change personality: {action:'settings', target:'app', data:{personality:'goggins'}}
+- Navigate to tab: {action:'navigate', target:'app', data:{tab:'plan'}}
+- Open goal detail: {action:'navigate', target:'app', data:{sheet:'goal-detail', goalId:'<id>'}}
+- Update coaching memory: {action:'update', target:'coaching_memory', data:{category:'equipment', operation:'add', value:'Garmin Forerunner 265'}}
+- Remove from memory: {action:'update', target:'coaching_memory', data:{category:'equipment', operation:'remove', value:'Old watch'}}
+- Create brick: {action:'create', target:'brick', data:{leg1Id:'<id>', leg2Id:'<id>', transitionTime:5}}
+RULES: Always call get_workouts/get_goals first to find IDs before editing/deleting. Confirm before deleting. After modifying, briefly confirm what changed.
+
 Be concise — this is a mobile app. 2-4 sentences for most responses.
 
 Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('en-US',{weekday:'long'})})`;
@@ -741,20 +890,20 @@ Today: ${new Date().toISOString().split('T')[0]} (${new Date().toLocaleString('e
 
 async function runAgentLoop({ personality, customText, messages, appState, callAI, maxRounds=5 }) {
   const clean=messages.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n')||'(continued)':String(m.content||'')}));
-  let chain=[...clean]; let toolCallCount=0; const workoutsLogged=[]; const nutritionLogged=[]; const planChanges=[];
+  let chain=[...clean]; let toolCallCount=0; const workoutsLogged=[]; const nutritionLogged=[]; const planChanges=[]; const appActions=[];
   for (let round=0; round<maxRounds; round++) {
     const resp=await callAI({system:buildSystemPrompt(personality,customText),messages:chain,tools:TOOLS,tool_choice:{type:'auto'},max_tokens:2048});
-    if (resp.stop_reason==='end_turn') return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
+    if (resp.stop_reason==='end_turn') return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'',workoutsLogged,nutritionLogged,planChanges,appActions,toolCallCount};
     if (resp.stop_reason==='tool_use') {
       const toolUses=resp.content?.filter(b=>b.type==='tool_use')||[];
-      if (!toolUses.length) return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
-      const toolResults=toolUses.map(tu=>{toolCallCount++;let input;try{input=typeof tu.input==='string'?JSON.parse(tu.input):tu.input;}catch{input={};}const result=executeTool(tu.name,input,appState);if(tu.name==='log_workout'){try{const p=JSON.parse(result);if(p.logged&&p.workout)workoutsLogged.push(p.workout);}catch{}}if(tu.name==='log_nutrition'){try{const p=JSON.parse(result);if(p.logged&&p.nutrition)nutritionLogged.push(p.nutrition);}catch{}}if(tu.name==='save_training_plan'){try{const p=JSON.parse(result);if(p.saved&&p.plan)planChanges.push({type:'plan',data:p.plan});}catch{}}if(tu.name==='save_weekly_plan'){try{const p=JSON.parse(result);if(p.saved&&p.weekPlan)planChanges.push({type:'week',data:p.weekPlan});}catch{}}if(tu.name==='update_plan_progress'){try{const p=JSON.parse(result);if(p.updated)planChanges.push({type:'progress',data:{currentWeek:p.currentWeek,currentPhase:p.currentPhase}});}catch{}}return{type:'tool_result',tool_use_id:tu.id,content:result};});
+      if (!toolUses.length) return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'',workoutsLogged,nutritionLogged,planChanges,appActions,toolCallCount};
+      const toolResults=toolUses.map(tu=>{toolCallCount++;let input;try{input=typeof tu.input==='string'?JSON.parse(tu.input):tu.input;}catch{input={};}const result=executeTool(tu.name,input,appState);if(tu.name==='log_workout'){try{const p=JSON.parse(result);if(p.logged&&p.workout)workoutsLogged.push(p.workout);}catch{}}if(tu.name==='log_nutrition'){try{const p=JSON.parse(result);if(p.logged&&p.nutrition)nutritionLogged.push(p.nutrition);}catch{}}if(tu.name==='save_training_plan'){try{const p=JSON.parse(result);if(p.saved&&p.plan)planChanges.push({type:'plan',data:p.plan});}catch{}}if(tu.name==='save_weekly_plan'){try{const p=JSON.parse(result);if(p.saved&&p.weekPlan)planChanges.push({type:'week',data:p.weekPlan});}catch{}}if(tu.name==='update_plan_progress'){try{const p=JSON.parse(result);if(p.updated)planChanges.push({type:'progress',data:{currentWeek:p.currentWeek,currentPhase:p.currentPhase}});}catch{}}if(tu.name==='app_action'){try{const p=JSON.parse(result);if(p.success)appActions.push(p);}catch{}}return{type:'tool_result',tool_use_id:tu.id,content:result};});
       chain=[...chain,{role:'assistant',content:resp.content},{role:'user',content:toolResults}];
       continue;
     }
-    return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'Done.',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
+    return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'Done.',workoutsLogged,nutritionLogged,planChanges,appActions,toolCallCount};
   }
-  return {response:'I needed more context. Try asking again.',workoutsLogged,nutritionLogged,planChanges,toolCallCount};
+  return {response:'I needed more context. Try asking again.',workoutsLogged,nutritionLogged,planChanges,appActions,toolCallCount};
 }
 
 async function compressSummaries(memory, callAI) {
@@ -4174,7 +4323,7 @@ function ChatTab({messages,onSend,loading,isStreaming,streamText,personality}){
   return(<div style={{display:'flex',flexDirection:'column',height:'calc(100svh - 180px)',minHeight:400}}>
     {messages.length===0&&!isStreaming&&<div style={{marginBottom:16}}><Card style={{marginBottom:12,borderColor:p.color+'30',background:p.color+'07'}}><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}><div style={{width:32,height:32,borderRadius:10,background:p.color+'20',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name={p.icon} size={18} color={p.color}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:p.color}}>{p.name}</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>Online · ready to coach</div></div></div><div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,lineHeight:1.7}}>Tell me about a workout and I'll log it. Ask anything about your training.</div></Card>{suggestions.map((s,i)=><button key={i} onClick={()=>onSend(s)} style={{width:'100%',background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:'12px 16px',color:C.subtle,fontFamily:F.ui,fontSize:14,fontWeight:500,textAlign:'left',cursor:'pointer',marginBottom:8,transition:'all .15s',boxShadow:S.sm,lineHeight:1.5}} onMouseEnter={e=>{e.currentTarget.style.color=C.text;e.currentTarget.style.borderColor=C.borderBright;e.currentTarget.style.boxShadow=S.md;}} onMouseLeave={e=>{e.currentTarget.style.color=C.subtle;e.currentTarget.style.borderColor=C.border;e.currentTarget.style.boxShadow=S.sm;}}>{s}</button>)}</div>}
     <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:10,paddingRight:2}}>
-      {messages.map((m,i)=>(<div key={i} className="fade-up" style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:m.role==='user'?'20px 20px 6px 20px':'6px 20px 20px 20px',background:m.role==='user'?C.accent:C.surface,boxShadow:m.role==='assistant'?S.card:'none',fontFamily:F.ui,fontSize:15,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal',border:m.role==='assistant'?`1.5px solid ${C.border}`:'none'}}>{m.role==='assistant'?renderMd(m.content):m.content}{m.logged&&<div style={{marginTop:10,padding:'8px 12px',background:C.green+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><span style={{color:C.green,fontSize:14,fontWeight:700}}>✓</span><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Workout logged</span></div>}{m.nutritionLogged&&<div style={{marginTop:10,padding:'8px 12px',background:C.cyan+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='zap' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.cyan}}>Nutrition logged</span></div>}{m.planChanged&&<div style={{marginTop:10,padding:'8px 12px',background:C.accent+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='calendar' size={14} color={C.accent}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent}}>Training plan updated</span></div>}</div></div>))}
+      {messages.map((m,i)=>(<div key={i} className="fade-up" style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:m.role==='user'?'20px 20px 6px 20px':'6px 20px 20px 20px',background:m.role==='user'?C.accent:C.surface,boxShadow:m.role==='assistant'?S.card:'none',fontFamily:F.ui,fontSize:15,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal',border:m.role==='assistant'?`1.5px solid ${C.border}`:'none'}}>{m.role==='assistant'?renderMd(m.content):m.content}{m.logged&&<div style={{marginTop:10,padding:'8px 12px',background:C.green+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><span style={{color:C.green,fontSize:14,fontWeight:700}}>✓</span><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.green}}>Workout logged</span></div>}{m.nutritionLogged&&<div style={{marginTop:10,padding:'8px 12px',background:C.cyan+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='zap' size={14} color={C.cyan}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.cyan}}>Nutrition logged</span></div>}{m.planChanged&&<div style={{marginTop:10,padding:'8px 12px',background:C.accent+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='calendar' size={14} color={C.accent}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent}}>Training plan updated</span></div>}{m.appActionTaken&&<div style={{marginTop:10,padding:'8px 12px',background:C.purple+'15',borderRadius:10,display:'flex',alignItems:'center',gap:7}}><Icon name='settings' size={14} color={C.purple}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.purple}}>App updated</span></div>}</div></div>))}
       {isStreaming&&<div className="fade-up" style={{display:'flex',justifyContent:'flex-start'}}><div className={streamText?'fade-up':'streaming-cursor'} style={{maxWidth:'85%',padding:'13px 16px',lineHeight:1.7,borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,fontFamily:F.ui,fontSize:15,color:C.text,border:`1.5px solid ${C.border}`}}>{streamText?renderMd(streamText):<DotsLoader color={p.color}/>}</div></div>}
       {loading&&!isStreaming&&<div className="fade-up" style={{display:'flex'}}><div style={{padding:'14px 18px',borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,border:`1.5px solid ${C.border}`}}><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:6}}>Reviewing your training…</div></div></div>}
       <div ref={bottomRef}/>
@@ -4446,7 +4595,7 @@ export default function CoachApp() {
     setMessages(withUser);setLoading(true);
     try{
       const appState=getAppState();
-      const{response,workoutsLogged,nutritionLogged,planChanges}=await runAgentLoop({personality,customText:customPrompt,messages:withUser,appState,callAI,maxRounds:7});
+      const{response,workoutsLogged,nutritionLogged,planChanges,appActions}=await runAgentLoop({personality,customText:customPrompt,messages:withUser,appState,callAI,maxRounds:7});
       for(const w of workoutsLogged)addCardio(w);
       for(const m of nutritionLogged){setNutrition(prev=>{const u=[{...m,id:uid()},...prev].slice(0,200);db.set('coach_nutrition',u);return u;});}
       // Process plan changes
@@ -4455,9 +4604,76 @@ export default function CoachApp() {
         if(pc.type==='week'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(pc.data.weekNumber)]:pc.data}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${pc.data.weekNumber} plan generated`);}
         if(pc.type==='progress'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,currentWeek:pc.data.currentWeek,currentPhase:pc.data.currentPhase};db.set('coach_training_plan',u);return u;});}
       }
+      // Process app actions
+      for(const act of appActions){
+        const {action,target,id,data,updates,deleted}=act;
+        // Workout edits
+        if(target==='workout'&&action==='update'){setCardio(prev=>{const u=prev.map(c=>c.id===id?{...c,...updates}:c);db.set('coach_cardio',u);return u;});toast.success('Workout updated');}
+        if(target==='workout'&&action==='delete'){setCardio(prev=>{const u=prev.filter(c=>c.id!==id);db.set('coach_cardio',u);return u;});toast.info(`${deleted?.sport||'Workout'} deleted`);}
+        // Strength edits
+        if(target==='strength_workout'&&action==='update'){setSH(prev=>{const u=prev.map(s=>s.id===id?{...s,...updates}:s);db.set('coach_strength_history',u);return u;});toast.success('Strength session updated');}
+        if(target==='strength_workout'&&action==='delete'){setSH(prev=>{const u=prev.filter(s=>s.id!==id);db.set('coach_strength_history',u);return u;});toast.info('Strength session deleted');}
+        // Goal mutations
+        if(target==='goal'&&action==='create'){const newEvent={...data,planSections:{strategy:'',nutrition:'',pacing:'',gear:'',mentalPlan:''}};setEvents(prev=>{const u=[...prev,newEvent];db.set('coach_events',u);return u;});toast.success(`Goal "${data.name}" created`);}
+        if(target==='goal'&&action==='update'){setEvents(prev=>{const u=prev.map(e=>e.id===id?{...e,...updates}:e);db.set('coach_events',u);return u;});toast.success('Goal updated');}
+        if(target==='goal'&&action==='delete'){setEvents(prev=>{const u=prev.filter(e=>e.id!==id);db.set('coach_events',u);return u;});if(goalDetail?.id===id)setGoalDetail(null);toast.info(`"${deleted?.name||'Goal'}" deleted`);}
+        // Nutrition edits
+        if(target==='nutrition'&&action==='update'){setNutrition(prev=>{const u=prev.map(n=>n.id===id?{...n,...updates}:n);db.set('coach_nutrition',u);return u;});toast.success('Nutrition entry updated');}
+        if(target==='nutrition'&&action==='delete'){setNutrition(prev=>{const u=prev.filter(n=>n.id!==id);db.set('coach_nutrition',u);return u;});toast.info('Nutrition entry deleted');}
+        // Plan delete (archive first)
+        if(target==='plan'&&action==='delete'){
+          const tp=trainingPlan;
+          if(tp){
+            const weekNums=Object.keys(tp.weeklyPlans||{}).map(Number).sort((a,b)=>a-b);
+            const weekReviews=weekNums.map(w=>computeWeekAdherence(tp,w,cardio,strengthH)).filter(Boolean);
+            const totalPrescribed=weekReviews.reduce((t,r)=>t+r.prescribed,0);
+            const totalCompleted=weekReviews.reduce((t,r)=>t+r.completed,0);
+            const overallAdherence=totalPrescribed>0?Math.round((totalCompleted+weekReviews.reduce((t,r)=>t+r.shortened*0.5,0))/totalPrescribed*100):0;
+            const archive={id:tp.id||uid(),raceName:tp.raceName,goalId:tp.goalId,raceDate:tp.raceDate,startDate:tp.startDate,endedDate:todayStr(),totalWeeks:tp.totalWeeks,completedWeeks:tp.currentWeek,totalPhases:tp.phases?.length,phasesCompleted:tp.currentPhase,phases:tp.phases,endReason:data?.reason||'abandoned',endNotes:data?.notes||'',adherence:overallAdherence+'%'};
+            const history=db.get('coach_plan_history',[]);history.unshift(archive);db.set('coach_plan_history',history);
+            const mem=loadMemory();const coachNote=`Plan ended: ${tp.raceName} (${tp.completedWeeks||tp.currentWeek}/${tp.totalWeeks} weeks, ${overallAdherence}% adherence). Reason: ${data?.reason||'abandoned'}.${data?.notes?' Notes: '+data.notes:''}`;
+            saveMemory(mergeMemory(mem,{observations:{coachingNotes:[coachNote]}}));
+          }
+          setTrainingPlan(null);db.set('coach_training_plan',null);toast.info('Training plan archived');
+        }
+        // Plan session edit
+        if(target==='plan_session'&&action==='update'){
+          const{weekNumber,dayIndex,sessionIndex,updates:sessionUpdates}=data;
+          setTrainingPlan(prev=>{if(!prev)return prev;const wp={...prev.weeklyPlans[String(weekNumber)]};const sessions=[...wp.sessions];const day={...sessions[dayIndex]};const daySessions=[...day.sessions];daySessions[sessionIndex]={...daySessions[sessionIndex],...sessionUpdates};day.sessions=daySessions;sessions[dayIndex]=day;wp.sessions=sessions;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});
+          toast.success('Session updated');
+        }
+        // Coaching memory
+        if(target==='coaching_memory'&&action==='update'){
+          const mem=loadMemory();const{category,operation,value}=data;
+          if(mem.permanent?.[category]!==undefined){
+            if(Array.isArray(mem.permanent[category])){if(operation==='add')mem.permanent[category].push(value);if(operation==='remove')mem.permanent[category]=mem.permanent[category].filter(x=>x!==value);}
+            else if(typeof mem.permanent[category]==='string'||operation==='set'){mem.permanent[category]=value;}
+          }else if(mem.observations?.[category]!==undefined){
+            if(Array.isArray(mem.observations[category])){if(operation==='add')mem.observations[category].push(value);if(operation==='remove')mem.observations[category]=mem.observations[category].filter(x=>x!==value);}
+          }
+          saveMemory(mem);toast.success('Coaching memory updated');
+        }
+        // Brick
+        if(target==='brick'&&action==='create'){const brick={id:'brick_'+uid(),date:todayStr(),legs:[{workoutId:data.leg1Id},{workoutId:data.leg2Id}],transitionTime:data.transitionTime||0,transitionNotes:data.transitionNotes||''};setBricks(prev=>{const u=[brick,...prev];db.set('coach_bricks',u);return u;});toast.success('Brick linked');}
+        if(target==='brick'&&action==='delete'){setBricks(prev=>{const u=prev.filter(b=>b.id!==id);db.set('coach_bricks',u);return u;});toast.info('Brick unlinked');}
+        // Settings
+        if(action==='settings'){
+          if(data?.darkMode!==undefined){setIsDark(data.darkMode);db.set('coach_dark_mode',data.darkMode);}
+          if(data?.personality){setPersonality(data.personality);db.set('coach_personality',data.personality);}
+          if(data?.customPrompt!==undefined){setCustomPrompt(data.customPrompt);db.set('coach_custom_prompt',data.customPrompt);}
+          toast.success('Settings updated');
+        }
+        // Navigation
+        if(action==='navigate'){
+          if(data?.tab)setTab(data.tab);
+          if(data?.sheet==='settings')setShowSettings(true);
+          if(data?.sheet==='quick-capture')setShowQuick(true);
+          if(data?.sheet==='goal-detail'&&data?.goalId){const ev=events.find(e=>e.id===data.goalId);if(ev)setGoalDetail(ev);}
+        }
+      }
       setLoading(false);setIsStreaming(true);setStreamText('');
       await typewriter(response,chunk=>setStreamText(chunk));
-      const aMsg={role:'assistant',content:response,logged:workoutsLogged.length>0,nutritionLogged:nutritionLogged.length>0,planChanged:planChanges.length>0};
+      const aMsg={role:'assistant',content:response,logged:workoutsLogged.length>0,nutritionLogged:nutritionLogged.length>0,planChanged:planChanges.length>0,appActionTaken:appActions.length>0};
       const final=[...withUser,aMsg];setMessages(final);db.set('coach_messages',final.slice(-60));
       setIsStreaming(false);setStreamText('');
       for(const w of workoutsLogged){const s=SPORT_META[w.sport]||SPORT_META.other;toast.success(`${s.label} logged — ${fmtDur(w.duration)}`);}
@@ -4469,7 +4685,7 @@ export default function CoachApp() {
       setMessages(prev=>[...prev,errMsg]);db.set('coach_messages',[...messages,userMsg].slice(-60));
       toast.error('Message failed — check connection');
     }
-  },[messages,personality,customPrompt,getAppState,addCardio]);
+  },[messages,personality,customPrompt,getAppState,addCardio,trainingPlan,cardio,strengthH,events,goalDetail]);
 
   const p=PERSONALITIES[personality]||PERSONALITIES.normal;
   const TABS=[{id:'home',label:'Home',icon:'home'},{id:'goals',label:'Goals',icon:'target'},{id:'plan',label:'Plan',icon:'calendar'},{id:'log',label:'Log',icon:'chart'},{id:'chat',label:'Coach',icon:'message'}];
