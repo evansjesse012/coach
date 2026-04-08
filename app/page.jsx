@@ -1222,6 +1222,24 @@ const lookupExercise = (name, customExercises) => {
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 const daysUntil = d => Math.ceil((new Date(d+'T12:00:00')-new Date())/86400000);
 const fmtDur    = m => { if(!m)return'—'; const h=Math.floor(m/60),mn=m%60; return h>0?(mn>0?`${h}h ${mn}m`:`${h}h`):`${mn}m`; };
+const fmtWorkout = (text) => {
+  if(!text)return text;
+  const parts=text.split(/((?:WU|Warm[- ]?up|Main|CD|Cool[- ]?down|Intervals?|Drills?)\s*:)/i);
+  if(parts.length<3)return text;
+  const elems=[];
+  for(let i=0;i<parts.length;i++){
+    const p=parts[i];
+    if(/^(?:WU|Warm[- ]?up|Main|CD|Cool[- ]?down|Intervals?|Drills?)\s*:$/i.test(p)){
+      if(elems.length>0)elems.push('\n');
+      elems.push(<strong key={i}>{p}</strong>);
+    } else {
+      const c=p.replace(/^\.\s+/,'').replace(/\.\s*$/,'').trim();
+      if(!c)continue;
+      elems.push(' '+c);
+    }
+  }
+  return elems;
+};
 const fmtDateSh = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
 const todayStr  = () => new Date().toISOString().split('T')[0];
 const uid       = () => Math.random().toString(36).slice(2,10);
@@ -1968,8 +1986,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[expandedPhase,setExpandedPhase]=useState(null);
   const[showFuel,setShowFuel]=useState(null);
   const[showNotes,setShowNotes]=useState(null);
-  const[showPurpose,setShowPurpose]=useState(null);
-  const[showEndPlan,setShowEndPlan]=useState(false);
+    const[showEndPlan,setShowEndPlan]=useState(false);
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
   const startStrength=sess=>{if(sess?.exercises)setTracker(sess);};
   const handleSave=(completedEx,dur,newPRs)=>{onSaveStrength(completedEx,dur,newPRs,tracker);setTracker(null);setActiveWO(null);};
@@ -2166,10 +2183,9 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                   {brickDone&&<Pill color={C.green} small>Done</Pill>}
                 </div>
                 {/* Purpose: collapsible */}
-                {sess.purpose&&!brickDone&&<div onClick={()=>setShowPurpose(showPurpose===fuelKey?null:fuelKey)} style={{padding:'4px 12px 6px',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
-                  <Icon name='target' size={10} color={C.muted}/>
-                  <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:showPurpose===fuelKey?'normal':'nowrap',flex:1}}>{sess.purpose}</span>
-                  <Icon name={showPurpose===fuelKey?'chevUp':'chevDown'} size={10} color={C.muted}/>
+                {sess.purpose&&!brickDone&&<div style={{padding:'4px 12px 6px',display:'flex',alignItems:'flex-start',gap:4}}>
+                  <span style={{marginTop:2,flexShrink:0,lineHeight:0}}><Icon name='target' size={10} color={C.muted}/></span>
+                  <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4}}>{sess.purpose}</span>
                 </div>}
                 {/* Per-leg prescription with hero treatment */}
                 {sess.legs.map((leg,li)=>{const lSport=SPORT_META[leg.sport]||SPORT_META.other;const lDone=dayCardio.some(w=>w.sport===leg.sport);const legNoteKey=`${di}-${si}-leg${li}`;return(
@@ -2182,7 +2198,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                       </div>
                       {leg.duration&&<span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:lDone?C.green:C.text}}>{fmtDur(leg.duration)}</span>}
                     </div>
-                    {leg.workout&&!lDone&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,marginTop:6,marginLeft:44,padding:'8px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${lSport.color+'25'}`,borderLeft:`3px solid ${lSport.color+'60'}`,lineHeight:1.7,whiteSpace:'pre-wrap'}}>{leg.workout}</div>}
+                    {leg.workout&&!lDone&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,marginTop:6,marginLeft:44,padding:'8px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${lSport.color+'25'}`,borderLeft:`3px solid ${lSport.color+'60'}`,lineHeight:1.7,whiteSpace:'pre-wrap'}}>{fmtWorkout(leg.workout)}</div>}
                     {leg.notes&&!lDone&&<div style={{marginTop:4,marginLeft:44}}>
                       <button onClick={()=>setShowNotes(showNotes===legNoteKey?null:legNoteKey)} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
                         <Icon name='sparkle' size={12} color={C.purple}/><span>Coach notes</span><Icon name={showNotes===legNoteKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
@@ -2224,11 +2240,11 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
             const fuelKey=`${di}-${si}`;
             return (<div key={si} onClick={isStr&&sess.exercises&&!done?()=>startStrength(sess):undefined} style={{cursor:isStr&&sess.exercises&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'06':(isMissed?C.red+'05':'transparent')}}>
               {/* ─── ZONE A: Header ─── */}
-              <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px 8px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px 8px 14px'}}>
                 <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                   {done?<Icon name='check' size={18} color={C.green}/>:isMissed?<span style={{fontFamily:F.ui,fontSize:14,color:C.red}}>✕</span>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
                 </div>
-                <div style={{flex:1}}>
+                <div style={{flex:1,minWidth:0}}>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
                     <div style={{width:6,height:6,borderRadius:'50%',background:done?C.green:(isMissed?C.red:priorityColor),flexShrink:0}}/>
                     <div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:(isMissed?C.muted:C.text),textDecoration:isMissed?'line-through':'none'}}>{sess.label}</div>
@@ -2237,10 +2253,9 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                     {isMissed&&<Pill color={C.red} small>Missed</Pill>}
                     {isSub&&<Pill color={C.yellow} small>Swapped → {SPORT_META[adhSess?.substitute]?.label||adhSess?.substitute}</Pill>}
                   </div>
-                  {sess.purpose&&!done&&<div onClick={(e)=>{e.stopPropagation();setShowPurpose(showPurpose===fuelKey?null:fuelKey);}} style={{cursor:'pointer',display:'flex',alignItems:'center',gap:4,marginTop:4}}>
-                    <Icon name='target' size={10} color={C.muted}/>
-                    <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:showPurpose===fuelKey?'normal':'nowrap',maxWidth:showPurpose===fuelKey?'none':220}}>{sess.purpose}</span>
-                    <Icon name={showPurpose===fuelKey?'chevUp':'chevDown'} size={10} color={C.muted}/>
+                  {sess.purpose&&!done&&<div style={{display:'flex',alignItems:'flex-start',gap:4,marginTop:4}}>
+                    <span style={{marginTop:2,flexShrink:0,lineHeight:0}}><Icon name='target' size={10} color={C.muted}/></span>
+                    <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4}}>{sess.purpose}</span>
                   </div>}
                 </div>
                 <div style={{textAlign:'right',flexShrink:0}}>
@@ -2257,7 +2272,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                   </div>
                   {sess.targetIntensity&&<span style={{fontFamily:F.mono,fontSize:12,color:sport.color+'BB'}}>{sess.targetIntensity}</span>}
                 </div>}
-                {sess.workout&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,padding:'10px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${sport.color+'25'}`,lineHeight:1.7,whiteSpace:'pre-wrap',borderLeft:`3px solid ${sport.color+'60'}`}}>{sess.workout}</div>}
+                {sess.workout&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,padding:'10px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${sport.color+'25'}`,lineHeight:1.7,whiteSpace:'pre-wrap',borderLeft:`3px solid ${sport.color+'60'}`}}>{fmtWorkout(sess.workout)}</div>}
               </div>}
               {/* ─── ZONE C: Coaching & Fuel ─── */}
               {!done&&(sess.notes||sess.fuel)&&<div style={{padding:'0 14px 12px',marginLeft:48}}>
