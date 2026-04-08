@@ -1733,7 +1733,7 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
   // from re-triggering the plan creation flow. It is only cleared on true
   // unmount (when planBuilder is set to null via onClose).
   useEffect(()=>{
-    if(_planBuilderStartedAt) return; // already running, skip duplicate auto-start
+    if(_planBuilderStartedAt){setStage('generating');return;} // remounted mid-creation — show progress
     _planBuilderStartedAt=Date.now();
     const initMsg={role:'user',content:mode==='week'?`Generate my training plan for week ${goal._weekNum||'current'} (Phase ${goal._phaseNum||'current'}).`:`Build me a training plan for ${goal.name}.`};
     setMsgs([initMsg]);
@@ -1750,6 +1750,7 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
   };
 
   const retry=()=>{setStage('starting');runTurn(chainRef.current.length?chainRef.current:[msgs[0]]);};
+  const approveAndGo=()=>{if(loading||isStreaming)return;const msg=mode==='week'?"Looks great — generate the week.":"Looks great — save the plan and generate week 1.";const userMsg={role:'user',content:msg};setMsgs(prev=>[...prev,userMsg]);const fullChain=[...chainRef.current,{role:'user',content:msg}];runTurn(fullChain);};
 
   const isDone=stage==='done';
   const isConversational=!loading&&!isStreaming&&msgs.length>1&&!isDone&&stage!=='error';
@@ -1782,10 +1783,13 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
     </div>
 
     {/* Input area — only show when AI is waiting for a response */}
-    {isConversational&&<div style={{display:'flex',gap:8,marginBottom:12}}>
-      <Inp ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendReply()} placeholder="Answer your coach..." style={{flex:1}}/>
-      <button onClick={sendReply} disabled={!input.trim()} style={{width:48,height:48,background:!input.trim()?C.elevated:C.accent,border:'none',borderRadius:12,cursor:!input.trim()?'not-allowed':'pointer',color:!input.trim()?C.muted:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>↑</button>
-    </div>}
+    {isConversational&&<>
+      <Btn onClick={approveAndGo} color={C.green} style={{width:'100%',padding:13,fontSize:15,marginBottom:8}}>Ready to train</Btn>
+      <div style={{display:'flex',gap:8,marginBottom:12}}>
+        <Inp ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendReply()} placeholder="Request changes..." style={{flex:1}}/>
+        <button onClick={sendReply} disabled={!input.trim()} style={{width:48,height:48,background:!input.trim()?C.elevated:C.accent,border:'none',borderRadius:12,cursor:!input.trim()?'not-allowed':'pointer',color:!input.trim()?C.muted:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>↑</button>
+      </div>
+    </>}
 
     {stage==='error'&&<Btn onClick={retry} color={C.accent} style={{width:'100%',padding:13,fontSize:15,marginBottom:8}}>Try again</Btn>}
     {isDone&&<Btn onClick={handleClose} color={C.green} style={{width:'100%',padding:13,fontSize:15}}>View your plan</Btn>}
@@ -1807,6 +1811,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const handleDiscard=()=>{setTracker(null);setActiveWO(null);};
 
   const handleSelectGoal=(e)=>{setSelectedGoal(e);setCreateStep('confirm');};
+  const handleWeekGenerated=(wp)=>{onWeekGenerated(wp);setTimeout(()=>{_planBuilderStartedAt=0;setPlanBuilder(null);},1500);};
 
   if(tracker)return (<div style={{paddingBottom:48}}><button onClick={()=>setTracker(null)} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',marginBottom:16,padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> Back to plan</button><StrengthTracker workout={tracker} strengthHistory={strengthHistory} prs={prs} onSave={handleSave} onDiscard={handleDiscard} onSaveTemplate={onSaveTemplate} customExercises={customExercises}/></div>);
 
@@ -1891,7 +1896,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
       <Btn onClick={()=>setCreateStep('select')} color={C.accent} style={{width:'100%',padding:15,fontSize:16}}>Build my plan</Btn>
     </Card>
     <CreatePlanSheet/>
-    {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={onWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
+    {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={handleWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
   </div>);
 
   // Has periodized plan — full plan UI
@@ -2176,7 +2181,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
       <button onClick={()=>setShowEndPlan(true)} style={{background:'none',border:`1.5px solid ${C.border}`,borderRadius:12,padding:'11px 16px',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',width:'100%',transition:'all .15s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>End training plan</button>
     </div>
     {showEndPlan&&<EndPlanSheet trainingPlan={tp} cardio={cardio} strengthHistory={strengthHistory} onEnd={(reason,notes)=>{onDeletePlan(reason,notes);setShowEndPlan(false);}} onClose={()=>setShowEndPlan(false)}/>}
-    {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={onWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
+    {planBuilder&&<PlanBuilderSheet goal={planBuilder.goal} mode={planBuilder.mode} appState={appState} onPlanCreated={onPlanCreated} onWeekGenerated={handleWeekGenerated} onClose={()=>setPlanBuilder(null)}/>}
   </div>);
 }
 
