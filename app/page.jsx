@@ -1200,6 +1200,7 @@ function AthleteProfilePage({onClose}){
   const chainRef=useRef([]);
 
   const refreshMem=()=>setMem(loadMemory());
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[msgs,streamText]);
 
   const profilePrompt=`You are updating an athlete's coaching profile. The athlete is sharing information about themselves. Your job:
 1. Acknowledge what they shared (1-2 sentences)
@@ -1236,8 +1237,9 @@ Today: ${new Date().toISOString().split('T')[0]}`;
 If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.current.map(m=>`${m.role==='user'?'Athlete':'Coach'}: ${m.content}`).join('\n')}],max_tokens:600});
         const raw=extract.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';
         const parsed=JSON.parse(raw.replace(/```json\n?|\n?```/g,'').trim());
-        if(Object.keys(parsed).length>0){saveMemory(mergeMemory(loadMemory(),parsed));refreshMem();}
-      }catch{}
+        if(Object.keys(parsed).length>0){saveMemory(mergeMemory(loadMemory(),parsed));refreshMem();toast.success('Profile updated with new info');}
+        else{toast.info('No new info to save — try sharing something specific');}
+      }catch{toast.info('Got it — your coach will remember this context');}
     }catch(err){setLoading(false);setIsStreaming(false);setMsgs(prev=>[...prev,{role:'assistant',content:`Something went wrong: ${err.message}`}]);}
   };
 
@@ -1337,13 +1339,16 @@ If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.cur
     {showChat&&<Sheet onClose={()=>{setShowChat(false);refreshMem();}} title="Update your profile">
       <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.6}}>Share anything that would help your coach — schedule, equipment, injuries, preferences, goals.</div>
       <div style={{maxHeight:'45vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
-        {msgs.filter(m=>m.role==='assistant').map((m,i)=><div key={i} className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(m.content)}</div>)}
+        {msgs.map((m,i)=>m.role==='user'
+          ?<div key={i} className="fade-up" style={{alignSelf:'flex-end',background:C.accent,color:'#fff',borderRadius:'16px 16px 4px 16px',padding:'10px 14px',maxWidth:'85%',fontFamily:F.ui,fontSize:14,lineHeight:1.6}}>{m.content}</div>
+          :<div key={i} className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(m.content)}</div>
+        )}
         {isStreaming&&streamText&&<div className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(streamText)}</div>}
         {loading&&!isStreaming&&<DotsLoader color={C.accent}/>}
         <div ref={bottomRef}/>
       </div>
-      <div style={{display:'flex',gap:8}}>
-        <Inp value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!loading&&input.trim()&&sendMsg(input.trim())} placeholder="e.g. I train mornings, have a pool and Wahoo Kickr..." style={{flex:1}}/>
+      <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+        <Textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!loading&&input.trim()){e.preventDefault();sendMsg(input.trim());}}} placeholder="e.g. I train mornings, have a pool and Wahoo Kickr, recovering from a knee injury..." rows={2} style={{flex:1,minHeight:48,maxHeight:120}}/>
         <button onClick={()=>input.trim()&&!loading&&sendMsg(input.trim())} disabled={!input.trim()||loading} style={{width:48,height:48,background:!input.trim()||loading?C.elevated:C.accent,border:'none',borderRadius:12,cursor:!input.trim()||loading?'not-allowed':'pointer',color:!input.trim()||loading?C.muted:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>↑</button>
       </div>
     </Sheet>}
