@@ -1967,6 +1967,8 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
   const[expandedPhase,setExpandedPhase]=useState(null);
   const[showFuel,setShowFuel]=useState(null);
+  const[showNotes,setShowNotes]=useState(null);
+  const[showPurpose,setShowPurpose]=useState(null);
   const[showEndPlan,setShowEndPlan]=useState(false);
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
   const startStrength=sess=>{if(sess?.exercises)setTracker(sess);};
@@ -2142,45 +2144,70 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
       const dayCompleted=adhDay?.sessions?.filter(s=>s.status==='completed'||s.status==='shortened').length||0;
       const dayMissed=adhDay?.sessions?.filter(s=>s.status==='missed').length||0;
       const dayTotal=adhDay?.sessions?.length||daySessions.length;
-      return (<div key={di} style={{marginBottom:10,opacity:isPastDay&&dayTotal>0&&dayCompleted===0&&dayMissed===dayTotal?0.6:1}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-          <span style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:isToday?C.accent:C.subtle}}>{dayObj.day}</span>
+      return (<div key={di} style={{marginBottom:14,opacity:isPastDay&&dayTotal>0&&dayCompleted===0&&dayMissed===dayTotal?0.6:1}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,paddingLeft:10,borderLeft:`3px solid ${isToday?C.accent:(dayCompleted>=dayTotal&&dayTotal>0?C.green+'60':C.border)}`,marginLeft:2}}>
+          <span style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:isToday?C.accent:C.text}}>{dayObj.day}</span>
           {isToday&&<Pill color={C.accent} small>Today</Pill>}
-          {dayObj.isRest&&<span style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginLeft:'auto'}}>Rest</span>}
+          {dayObj.isRest&&<span style={{fontFamily:F.ui,fontSize:12,fontWeight:500,color:C.muted,marginLeft:'auto'}}>Rest day</span>}
           {!dayObj.isRest&&dayTotal>0&&dayCompleted>0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:dayCompleted>=dayTotal?C.green:C.muted,marginLeft:'auto'}}>{dayCompleted}/{dayTotal} done</span>}
           {!dayObj.isRest&&isPastDay&&dayMissed>0&&dayCompleted===0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.red,marginLeft:'auto'}}>Missed</span>}
         </div>
-        {daySessions.length>0&&<Card style={{padding:'4px 6px',borderColor:isToday?C.accent+'30':C.border}}>
+        {daySessions.length>0&&<Card style={{padding:0,borderColor:isToday?C.accent+'30':C.border,marginLeft:7,borderLeft:`3px solid ${isToday?C.accent+'50':C.border}`}}>
           {daySessions.map((sess,si)=>{
             if(sess.type==='brick'&&sess.legs){
               const brickDone=(sess.legs||[]).every(l=>dayCardio.some(w=>w.sport===l.sport));
               const fuelKey=`${di}-${si}`;
-              return (<div key={si} style={{borderRadius:12,border:`1.5px solid ${brickDone?C.green+'44':C.yellow+'40'}`,overflow:'hidden',background:brickDone?C.green+'08':'transparent',marginBottom:si<daySessions.length-1?4:0}}>
+              return (<div key={si} style={{borderRadius:12,border:`1.5px solid ${brickDone?C.green+'44':C.yellow+'40'}`,overflow:'hidden',background:brickDone?C.green+'08':'transparent',marginBottom:si<daySessions.length-1?4:0,borderLeft:`3px solid ${brickDone?C.green+'40':C.yellow+'40'}`}}>
+                {/* Brick header */}
                 <div style={{padding:'8px 12px',background:C.yellow+'10',display:'flex',alignItems:'center',gap:8}}>
                   <Icon name='layers' size={14} color={C.yellow}/><span style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow}}>Brick</span>
                   {sess.priority&&<div style={{width:6,height:6,borderRadius:'50%',background:sess.priority==='red'?C.accent:C.yellow}}/>}
                   <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:brickDone?C.green:C.text,flex:1}}>{sess.label}</span>
                   {brickDone&&<Pill color={C.green} small>Done</Pill>}
                 </div>
-                {sess.purpose&&!brickDone&&<div style={{padding:'4px 12px 6px',fontFamily:F.ui,fontSize:12,color:C.muted,fontStyle:'italic',lineHeight:1.4}}>{sess.purpose}</div>}
-                {sess.legs.map((leg,li)=>{const lSport=SPORT_META[leg.sport]||SPORT_META.other;const lDone=dayCardio.some(w=>w.sport===leg.sport);return(
+                {/* Purpose: collapsible */}
+                {sess.purpose&&!brickDone&&<div onClick={()=>setShowPurpose(showPurpose===fuelKey?null:fuelKey)} style={{padding:'4px 12px 6px',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+                  <Icon name='target' size={10} color={C.muted}/>
+                  <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:showPurpose===fuelKey?'normal':'nowrap',flex:1}}>{sess.purpose}</span>
+                  <Icon name={showPurpose===fuelKey?'chevUp':'chevDown'} size={10} color={C.muted}/>
+                </div>}
+                {/* Per-leg prescription with hero treatment */}
+                {sess.legs.map((leg,li)=>{const lSport=SPORT_META[leg.sport]||SPORT_META.other;const lDone=dayCardio.some(w=>w.sport===leg.sport);const legNoteKey=`${di}-${si}-leg${li}`;return(
                   <div key={li} style={{padding:'10px 12px',borderTop:`1px solid ${C.border}`}}>
                     <div style={{display:'flex',alignItems:'center',gap:12}}>
                       <div style={{width:32,height:32,borderRadius:10,background:lDone?C.green+'20':lSport.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}>{lDone?<Icon name='check' size={15} color={C.green}/>:<Icon name={lSport.icon} size={15} color={lSport.color}/>}</div>
-                      <div style={{flex:1}}><span style={{fontFamily:F.ui,fontWeight:500,fontSize:14,color:lDone?C.green:C.text}}>{lSport.label}</span>{leg.zone&&!lDone&&<span style={{fontFamily:F.mono,fontSize:11,color:lSport.color,marginLeft:6}}>{leg.zone}</span>}</div>
-                      {leg.duration&&<span style={{fontFamily:F.mono,fontSize:12,color:C.muted}}>{fmtDur(leg.duration)}</span>}
+                      <div style={{flex:1}}>
+                        <span style={{fontFamily:F.ui,fontWeight:500,fontSize:14,color:lDone?C.green:C.text}}>{lSport.label}</span>
+                        {leg.zone&&!lDone&&<div style={{display:'inline-flex',alignItems:'center',gap:4,marginLeft:8,padding:'2px 6px',borderRadius:5,background:lSport.color+'15'}}><Icon name='activity' size={10} color={lSport.color}/><span style={{fontFamily:F.mono,fontSize:11,fontWeight:500,color:lSport.color}}>{leg.zone}</span></div>}
+                      </div>
+                      {leg.duration&&<span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:lDone?C.green:C.text}}>{fmtDur(leg.duration)}</span>}
                     </div>
-                    {leg.workout&&!lDone&&<div style={{fontFamily:F.mono,fontSize:12,color:C.text,marginTop:4,marginLeft:44,padding:'6px 10px',background:C.elevated,borderRadius:8,border:`1px solid ${C.border}`,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{leg.workout}</div>}
-                    {leg.notes&&!lDone&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,marginTop:3,marginLeft:44}}>{leg.notes}</div>}
+                    {leg.workout&&!lDone&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,marginTop:6,marginLeft:44,padding:'8px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${lSport.color+'25'}`,borderLeft:`3px solid ${lSport.color+'60'}`,lineHeight:1.7,whiteSpace:'pre-wrap'}}>{leg.workout}</div>}
+                    {leg.notes&&!lDone&&<div style={{marginTop:4,marginLeft:44}}>
+                      <button onClick={()=>setShowNotes(showNotes===legNoteKey?null:legNoteKey)} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                        <Icon name='sparkle' size={12} color={C.purple}/><span>Coach notes</span><Icon name={showNotes===legNoteKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
+                      </button>
+                      {showNotes===legNoteKey&&<div className="fade-up" style={{marginTop:4,padding:'8px 12px',background:C.purple+'08',borderRadius:8,borderLeft:`3px solid ${C.purple+'40'}`,fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.6}}>{leg.notes}</div>}
+                    </div>}
                   </div>);})}
-                {sess.fuel&&!brickDone&&<div style={{padding:'6px 12px',borderTop:`1px solid ${C.border}`}}>
-                  <button onClick={()=>setShowFuel(showFuel===fuelKey?null:fuelKey)} style={{background:'none',border:'none',cursor:'pointer',fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.muted,display:'flex',alignItems:'center',gap:4,padding:0}}>
-                    <Icon name='zap' size={10} color={C.muted}/> Fuel {showFuel===fuelKey?'▲':'▼'}
+                {/* Fuel: grid layout */}
+                {sess.fuel&&!brickDone&&<div style={{padding:'8px 12px',borderTop:`1px solid ${C.border}`}}>
+                  <button onClick={()=>setShowFuel(showFuel===fuelKey?null:fuelKey)} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                    <Icon name='utensils' size={12} color={C.yellow}/><span>Nutrition</span><Icon name={showFuel===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
                   </button>
-                  {showFuel===fuelKey&&<div className="fade-up" style={{marginTop:4,padding:'6px 0'}}>
-                    {sess.fuel.pre&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,marginBottom:3}}><span style={{fontWeight:600,color:C.green}}>Pre:</span> {sess.fuel.pre}</div>}
-                    {sess.fuel.during&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,marginBottom:3}}><span style={{fontWeight:600,color:C.cyan}}>During:</span> {sess.fuel.during}</div>}
-                    {sess.fuel.post&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle}}><span style={{fontWeight:600,color:C.purple}}>Post:</span> {sess.fuel.post}</div>}
+                  {showFuel===fuelKey&&<div className="fade-up" style={{marginTop:6,display:'grid',gridTemplateColumns:sess.fuel.during?'1fr 1fr 1fr':(sess.fuel.pre&&sess.fuel.post?'1fr 1fr':'1fr'),gap:8}}>
+                    {sess.fuel.pre&&<div style={{padding:'8px 10px',background:C.green+'10',borderRadius:8,border:`1px solid ${C.green+'20'}`}}>
+                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Before</div>
+                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.pre}</div>
+                    </div>}
+                    {sess.fuel.during&&<div style={{padding:'8px 10px',background:C.cyan+'10',borderRadius:8,border:`1px solid ${C.cyan+'20'}`}}>
+                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.cyan,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>During</div>
+                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.during}</div>
+                    </div>}
+                    {sess.fuel.post&&<div style={{padding:'8px 10px',background:C.purple+'10',borderRadius:8,border:`1px solid ${C.purple+'20'}`}}>
+                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.purple,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>After</div>
+                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.post}</div>
+                    </div>}
                   </div>}
                 </div>}
               </div>);
@@ -2195,9 +2222,10 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
             const isSub=sessStatus==='substituted';
             const priorityColor=sess.priority==='red'?C.accent:C.yellow;
             const fuelKey=`${di}-${si}`;
-            return (<div key={si}>
-              <div onClick={isStr&&sess.exercises&&!done?()=>startStrength(sess):undefined} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 10px',borderRadius:12,cursor:isStr&&sess.exercises&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'08':(isMissed?C.red+'06':'transparent')}}>
-                <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2}}>
+            return (<div key={si} onClick={isStr&&sess.exercises&&!done?()=>startStrength(sess):undefined} style={{cursor:isStr&&sess.exercises&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'06':(isMissed?C.red+'05':'transparent')}}>
+              {/* ─── ZONE A: Header ─── */}
+              <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px 8px'}}>
+                <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                   {done?<Icon name='check' size={18} color={C.green}/>:isMissed?<span style={{fontFamily:F.ui,fontSize:14,color:C.red}}>✕</span>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
                 </div>
                 <div style={{flex:1}}>
@@ -2209,24 +2237,60 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
                     {isMissed&&<Pill color={C.red} small>Missed</Pill>}
                     {isSub&&<Pill color={C.yellow} small>Swapped → {SPORT_META[adhSess?.substitute]?.label||adhSess?.substitute}</Pill>}
                   </div>
-                  {sess.purpose&&!done&&<div style={{fontFamily:F.ui,fontSize:12,color:C.muted,fontStyle:'italic',marginTop:3,lineHeight:1.4}}>{sess.purpose}</div>}
-                  {sess.zone&&!done&&<div style={{fontFamily:F.mono,fontSize:12,color:sport.color,marginTop:3}}>{sess.zone}{sess.targetIntensity?' · '+sess.targetIntensity:''}</div>}
-                  {sess.workout&&!done&&<div style={{fontFamily:F.mono,fontSize:12,color:C.text,marginTop:4,padding:'8px 10px',background:C.elevated,borderRadius:8,border:`1px solid ${C.border}`,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{sess.workout}</div>}
-                  {sess.notes&&!done&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,marginTop:4,lineHeight:1.5}}>{sess.notes}</div>}
-                  {sess.fuel&&!done&&<button onClick={(e)=>{e.stopPropagation();setShowFuel(showFuel===fuelKey?null:fuelKey);}} style={{background:C.elevated,border:`1px solid ${C.border}`,borderRadius:8,padding:'4px 10px',marginTop:6,cursor:'pointer',fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.muted,display:'flex',alignItems:'center',gap:4}}>
-                    <Icon name='zap' size={10} color={C.muted}/> Fuel {showFuel===fuelKey?'▲':'▼'}
-                  </button>}
-                  {showFuel===fuelKey&&sess.fuel&&!done&&<div className="fade-up" style={{marginTop:6,padding:'8px 10px',background:C.elevated,borderRadius:8,border:`1px solid ${C.border}`}}>
-                    {sess.fuel.pre&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,marginBottom:4}}><span style={{fontWeight:600,color:C.green}}>Pre:</span> {sess.fuel.pre}</div>}
-                    {sess.fuel.during&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,marginBottom:4}}><span style={{fontWeight:600,color:C.cyan}}>During:</span> {sess.fuel.during}</div>}
-                    {sess.fuel.post&&<div style={{fontFamily:F.ui,fontSize:12,color:C.subtle}}><span style={{fontWeight:600,color:C.purple}}>Post:</span> {sess.fuel.post}</div>}
+                  {sess.purpose&&!done&&<div onClick={(e)=>{e.stopPropagation();setShowPurpose(showPurpose===fuelKey?null:fuelKey);}} style={{cursor:'pointer',display:'flex',alignItems:'center',gap:4,marginTop:4}}>
+                    <Icon name='target' size={10} color={C.muted}/>
+                    <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:showPurpose===fuelKey?'normal':'nowrap',maxWidth:showPurpose===fuelKey?'none':220}}>{sess.purpose}</span>
+                    <Icon name={showPurpose===fuelKey?'chevUp':'chevDown'} size={10} color={C.muted}/>
                   </div>}
                 </div>
                 <div style={{textAlign:'right',flexShrink:0}}>
-                  {sess.duration&&<div style={{fontFamily:F.mono,fontSize:13,color:done?C.green:C.muted}}>{fmtDur(sess.duration)}</div>}
+                  {sess.duration&&<div style={{fontFamily:F.mono,fontSize:13,fontWeight:500,color:done?C.green:C.text}}>{fmtDur(sess.duration)}</div>}
                   {isStr&&sess.exercises&&!done&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,marginTop:4}}>Start →</div>}
                 </div>
               </div>
+              {/* ─── ZONE B: Prescription Hero ─── */}
+              {!done&&(sess.workout||sess.zone)&&<div style={{padding:'0 14px 10px',marginLeft:48}}>
+                {sess.zone&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                  <div style={{padding:'3px 8px',borderRadius:6,background:sport.color+'15',display:'inline-flex',alignItems:'center',gap:4}}>
+                    <Icon name='activity' size={11} color={sport.color}/>
+                    <span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:sport.color}}>{sess.zone}</span>
+                  </div>
+                  {sess.targetIntensity&&<span style={{fontFamily:F.mono,fontSize:12,color:sport.color+'BB'}}>{sess.targetIntensity}</span>}
+                </div>}
+                {sess.workout&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,padding:'10px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${sport.color+'25'}`,lineHeight:1.7,whiteSpace:'pre-wrap',borderLeft:`3px solid ${sport.color+'60'}`}}>{sess.workout}</div>}
+              </div>}
+              {/* ─── ZONE C: Coaching & Fuel ─── */}
+              {!done&&(sess.notes||sess.fuel)&&<div style={{padding:'0 14px 12px',marginLeft:48}}>
+                {sess.notes&&<div style={{marginTop:2}}>
+                  <button onClick={(e)=>{e.stopPropagation();setShowNotes(showNotes===fuelKey?null:fuelKey);}} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                    <Icon name='sparkle' size={12} color={C.purple}/>
+                    <span>Coach notes</span>
+                    <Icon name={showNotes===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
+                  </button>
+                  {showNotes===fuelKey&&<div className="fade-up" style={{marginTop:6,padding:'8px 12px',background:C.purple+'08',borderRadius:8,borderLeft:`3px solid ${C.purple+'40'}`,fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.6}}>{sess.notes}</div>}
+                </div>}
+                {sess.fuel&&<div style={{marginTop:sess.notes?10:2}}>
+                  <button onClick={(e)=>{e.stopPropagation();setShowFuel(showFuel===fuelKey?null:fuelKey);}} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                    <Icon name='utensils' size={12} color={C.yellow}/>
+                    <span>Nutrition</span>
+                    <Icon name={showFuel===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
+                  </button>
+                  {showFuel===fuelKey&&<div className="fade-up" style={{marginTop:6,display:'grid',gridTemplateColumns:sess.fuel.during?'1fr 1fr 1fr':(sess.fuel.pre&&sess.fuel.post?'1fr 1fr':'1fr'),gap:8}}>
+                    {sess.fuel.pre&&<div style={{padding:'8px 10px',background:C.green+'10',borderRadius:8,border:`1px solid ${C.green+'20'}`}}>
+                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Before</div>
+                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.pre}</div>
+                    </div>}
+                    {sess.fuel.during&&<div style={{padding:'8px 10px',background:C.cyan+'10',borderRadius:8,border:`1px solid ${C.cyan+'20'}`}}>
+                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.cyan,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>During</div>
+                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.during}</div>
+                    </div>}
+                    {sess.fuel.post&&<div style={{padding:'8px 10px',background:C.purple+'10',borderRadius:8,border:`1px solid ${C.purple+'20'}`}}>
+                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.purple,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>After</div>
+                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.post}</div>
+                    </div>}
+                  </div>}
+                </div>}
+              </div>}
             </div>);
           })}
         </Card>}
