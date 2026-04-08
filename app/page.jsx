@@ -4321,7 +4321,7 @@ function CoachChatSheet({messages,onSend,loading,isStreaming,streamText,personal
   const[input,setInput]=useState('');const bottomRef=useRef(null);const inputRef=useRef(null);
   const p=PERSONALITIES[personality]||PERSONALITIES.normal;
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[messages,loading,streamText]);
-  useEffect(()=>setTimeout(()=>inputRef.current?.focus(),100),[]);
+  useEffect(()=>{const t=setTimeout(()=>inputRef.current?.focus(),100);return()=>clearTimeout(t);},[]);
   const send=()=>{const t=input.trim();if(!t||loading||isStreaming)return;onSend(t);setInput('');inputRef.current?.focus();};
   const suggestions=["I just ran 45 min easy at 10:30/mi","How am I doing this week?","What should I focus on?","Finished a 90 min Zone 2 ride"];
   const isDisabled=loading||isStreaming||!input.trim();
