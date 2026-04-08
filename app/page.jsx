@@ -1770,12 +1770,6 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
 
   const handleClose=()=>{_planBuilderStartedAt=0;onClose();};
 
-  useEffect(()=>{
-    if(stage==='done'){
-      const t=setTimeout(()=>handleClose(),1500);
-      return ()=>clearTimeout(t);
-    }
-  },[stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return(<Sheet onClose={handleClose} title={mode==='week'?'Generating week':'Building your plan'}>
     {/* Progress stepper */}
@@ -1824,7 +1818,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const handleDiscard=()=>{setTracker(null);setActiveWO(null);};
 
   const handleSelectGoal=(e)=>{setSelectedGoal(e);setCreateStep('confirm');};
-  const handleWeekGenerated=(wp)=>{onWeekGenerated(wp);setTimeout(()=>{_planBuilderStartedAt=0;setPlanBuilder(null);},1500);};
+  const handleWeekGenerated=(wp)=>{onWeekGenerated(wp);_planBuilderStartedAt=0;setPlanBuilder(null);};
 
   if(tracker)return (<div style={{paddingBottom:48}}><button onClick={()=>setTracker(null)} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',marginBottom:16,padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> Back to plan</button><StrengthTracker workout={tracker} strengthHistory={strengthHistory} prs={prs} onSave={handleSave} onDiscard={handleDiscard} onSaveTemplate={onSaveTemplate} customExercises={customExercises}/></div>);
 
