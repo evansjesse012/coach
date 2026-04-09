@@ -2262,7 +2262,7 @@ function computeWeekSummary(weekPlan) {
 
 // ─── Plan Tab ──────────────────────────────────────────────────────────────────
 function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activeWO,setActiveWO,trainingPlan,onPlanCreated,onWeekGenerated,onAddEvent,onDisruption,onDeletePlan,appState,onSaveTemplate,customExercises}){
-  const[tracker,setTracker]=useState(activeWO&&activeWO.exercises?activeWO:null);
+  const[tracker,setTracker]=useState(null);
   const[createStep,setCreateStep]=useState(null); // null | 'select' | 'confirm'
   const[selectedGoal,setSelectedGoal]=useState(null);
   const[planBuilder,setPlanBuilder]=useState(null); // {goal, mode:'create'|'week'}
