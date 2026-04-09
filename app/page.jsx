@@ -971,10 +971,24 @@ You're an expert athletic coach checking in. Look at the full picture — recent
 
 Lead with what's important. Be specific with real numbers and dates. If everything looks good, keep it short. This is a mobile card — stay concise. Use **bold** sparingly for emphasis.
 
-If — and only if — your note asks the athlete a genuine question or presents a decision, append tappable response buttons as the LAST line:
-[ACTIONS: "Button label" -> "response message", "Another label" -> "another response"]
-To open full chat instead: [ACTIONS: "Let's discuss" -> CHAT "pre-filled message"]
-Rules: 2-3 actions max. Each button must be a direct answer to YOUR question. Never suggest something the data shows already exists (e.g. don't suggest generating a plan when one is loaded). Most notes won't need actions — that's fine.
+ACTIONS RULES — read carefully:
+Only append action buttons if your note contains a specific question you need the athlete to answer OR a concrete action you want them to take. Buttons must be direct responses to something YOU are asking or requesting — never generic suggestions, navigation shortcuts, or things the athlete could figure out on their own.
+
+Format (LAST line only): [ACTIONS: "Button label" -> "response message", "Another label" -> "another response"]
+To open full chat: [ACTIONS: "Let's discuss" -> CHAT "pre-filled message"]
+
+Allowed button types:
+- Answering YOUR question (e.g. "How are your legs feeling?" → "Feeling fresh" / "Still sore")
+- Confirming an action YOU proposed (e.g. "Should I adjust tomorrow's session?" → "Yes, scale it back" / "No, keep it")
+- Reporting something YOU asked about (e.g. "Did you hit the pace target?" → "Yes, nailed it" / "Missed it")
+
+NOT allowed:
+- Generic suggestions like "Log a workout", "View my plan", "Generate a plan"
+- Navigation actions the UI already provides
+- Anything not directly responding to a question or request in YOUR note
+- Buttons that suggest features/data that already exist
+
+2-3 buttons max. Most notes should have NO actions — that's expected and fine.
 
 Style: ${getCommentaryStyle(personality,customText)}.`}],appState,callAI,maxRounds:6});
     return parsePushActions(result.response);
@@ -4351,8 +4365,16 @@ function GoalsTab({events,onViewGoal,onAddEvent,onAddEventChat}){
 }
 
 // ─── Home Tab ──────────────────────────────────────────────────────────────────
-function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onPushAction,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan}){
+function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onPushAction,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan,messages,onSend,chatLoading,isStreaming,streamText}){
   const[selectedWorkout,setSelectedWorkout]=useState(null);
+  const[chatInput,setChatInput]=useState('');
+  const chatBottomRef=useRef(null);
+  const chatInputRef=useRef(null);
+  const recentMessages=messages.slice(-6);
+  const p=PERSONALITIES[personality]||PERSONALITIES.normal;
+  const sendChat=()=>{const t=chatInput.trim();if(!t||chatLoading||isStreaming)return;onSend(t);setChatInput('');chatInputRef.current?.focus();};
+  const chatDisabled=chatLoading||isStreaming||!chatInput.trim();
+  useEffect(()=>{chatBottomRef.current?.scrollIntoView({behavior:'smooth'});},[messages,chatLoading,streamText]);
   const active=events.filter(e=>!e.completed);const completed=events.filter(e=>e.completed);const now=new Date();const ws=new Date(now);ws.setDate(now.getDate()-now.getDay());
   const thisWeekC=cardio.filter(w=>new Date(w.date+'T12:00:00')>=ws);const thisWeekS=strength.filter(s=>new Date(s.date+'T12:00:00')>=ws);
   const allRecent=[...cardio.map(w=>({...w,kind:'cardio'})),...strength.map(s=>({...s,sport:'strength',kind:'strength'}))].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
@@ -4382,13 +4404,32 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
     </Card>}
     {(plan.length>0||trainingPlan?.weeklyPlans?.[String(trainingPlan?.currentWeek)])&&<TodaySessionCard plan={plan} cardio={cardio} strength={strength} onStartStrength={onStartStrength} setTab={setTab} trainingPlan={trainingPlan}/>}
     <PushMessageCard message={pushMessage.text} actions={pushMessage.actions} personality={personality} loading={pushLoading} onRefresh={onRefreshPush} onAction={onPushAction} hasWorkouts={hasWorkouts}/>
+    {/* Inline Chat Box */}
+    <Card style={{marginBottom:16,padding:0,overflow:'hidden',borderColor:p.color+'25'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px 0'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <div style={{width:24,height:24,borderRadius:8,background:p.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name='message' size={13} color={p.color}/></div>
+          <span style={{fontFamily:F.display,fontWeight:700,fontSize:14,color:p.color}}>Chat with Coach</span>
+        </div>
+        {recentMessages.length>0&&<button onClick={onChat} style={{background:'none',border:'none',fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.accent,cursor:'pointer',padding:0}}>Full chat →</button>}
+      </div>
+      {recentMessages.length>0?<div style={{maxHeight:200,overflowY:'auto',display:'flex',flexDirection:'column',gap:6,padding:'10px 14px 4px'}}>
+        {recentMessages.map((m,i)=>(<div key={i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'82%',padding:'8px 12px',lineHeight:1.55,borderRadius:m.role==='user'?'14px 14px 4px 14px':'4px 14px 14px 14px',background:m.role==='user'?C.accent:C.elevated,fontFamily:F.ui,fontSize:13,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal'}}>{m.role==='assistant'?renderMd(m.content.length>120?m.content.slice(0,120)+'…':m.content):m.content}{m.logged&&<span style={{marginLeft:6,color:m.role==='user'?'#fff':C.green,fontSize:11,fontWeight:700}}>✓ Logged</span>}</div></div>))}
+        {isStreaming&&<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{maxWidth:'82%',padding:'8px 12px',lineHeight:1.55,borderRadius:'4px 14px 14px 14px',background:C.elevated,fontFamily:F.ui,fontSize:13,color:C.text}}>{streamText?renderMd(streamText.length>120?streamText.slice(0,120)+'…':streamText):<DotsLoader color={p.color}/>}</div></div>}
+        {chatLoading&&!isStreaming&&<div style={{display:'flex'}}><div style={{padding:'8px 12px',borderRadius:'4px 14px 14px 14px',background:C.elevated}}><DotsLoader color={p.color}/></div></div>}
+        <div ref={chatBottomRef}/>
+      </div>:<div style={{padding:'10px 18px 4px'}}><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,lineHeight:1.6}}>Reply to your coach's note or ask anything about your training.</div></div>}
+      <div style={{display:'flex',gap:8,padding:'8px 14px 14px'}}>
+        <input ref={chatInputRef} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(),sendChat())} placeholder="Message your coach…" style={{flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:14,padding:'11px 16px',color:C.text,fontFamily:F.ui,fontSize:14,outline:'none',transition:'all .15s',boxShadow:'none'}} onFocus={e=>{e.target.style.borderColor=p.color;}} onBlur={e=>{e.target.style.borderColor=C.border;}}/>
+        <button onClick={sendChat} disabled={chatDisabled} style={{width:44,height:44,background:chatDisabled?C.elevated:p.color,border:'none',borderRadius:14,cursor:chatDisabled?'not-allowed':'pointer',fontSize:18,color:chatDisabled?C.muted:'#fff',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}}>↑</button>
+      </div>
+    </Card>
+    <div style={{marginBottom:16}}>
+      <Card onClick={onLog} accent={C.accent}><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:36,height:36,borderRadius:12,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='zap' size={17} color={C.accent}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.accent}}>Log workout</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>Any activity</div></div></div></Card>
+    </div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
       <Card><Label>This week</Label><div style={{fontFamily:F.display,fontSize:44,fontWeight:800,lineHeight:1,color:C.text}}>{thisWeekC.length+thisWeekS.length}</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:500,color:C.muted,marginTop:3}}>sessions</div><div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap'}}>{thisWeekS.length>0&&<SportBadge sport="strength" small/>}{[...new Set(thisWeekC.map(w=>w.sport))].map(s=><SportBadge key={s} sport={s} small/>)}{thisWeekC.length+thisWeekS.length===0&&<span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>None yet</span>}</div></Card>
       <Card><Label>All time</Label><div style={{fontFamily:F.display,fontSize:44,fontWeight:800,lineHeight:1,color:C.text}}>{cardio.length+strength.length}</div><div style={{fontFamily:F.ui,fontSize:13,fontWeight:500,color:C.muted,marginTop:3}}>sessions</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:6}}>{strength.length} strength · {cardio.length} cardio</div></Card>
-    </div>
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
-      <Card onClick={onLog} accent={C.accent}><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:36,height:36,borderRadius:12,background:C.accent+'18',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='zap' size={17} color={C.accent}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.accent}}>Log workout</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>Any activity</div></div></div></Card>
-      <Card onClick={onChat} accent={C.cyan}><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:36,height:36,borderRadius:12,background:C.cyan+'18',display:'flex',alignItems:'center',justifyContent:'center',}}><Icon name='message' size={17} color={C.cyan}/></div><div><div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.cyan}}>Ask coach</div><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>AI logs it</div></div></div></Card>
     </div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><Label style={{marginBottom:0}}>Recent activity</Label>{allRecent.length>0&&<button onClick={()=>setTab('log')} style={{background:'none',border:'none',fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent,cursor:'pointer',padding:0}}>View all →</button>}</div>
     {allRecent.length===0?<Card style={{textAlign:'center',padding:28}}><div style={{fontFamily:F.ui,fontSize:15,color:C.muted}}>No sessions yet — add a goal and start training</div></Card>:allRecent.map((w,i)=>(<Card key={i} onClick={()=>setSelectedWorkout(w)} style={{marginBottom:8,padding:'13px 16px',cursor:'pointer'}}><div style={{display:'flex',alignItems:'center',gap:12}}><SportBadge sport={w.sport||'strength'} small/><div style={{flex:1,fontFamily:F.ui,fontSize:14,color:C.subtle,fontWeight:500,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{w.notes||(w.kind==='strength'?`${w.exercises?.reduce((t,e)=>t+(e.sets?.length||0),0)||0} sets`:'—')}</div><div style={{textAlign:'right',flexShrink:0}}><div style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:C.text}}>{fmtDur(w.duration)}</div><div style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontWeight:500}}>{fmtDateSh(w.date)}</div></div></div></Card>))}
@@ -4824,7 +4865,7 @@ export default function CoachApp() {
 
       {/* Content */}
       <div style={{padding:'20px 16px 0'}}>
-        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onPushAction={a=>{setTab('chat');setTimeout(()=>handleSend(a.message),100);}} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan}/>}
+        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onPushAction={a=>{setTab('chat');setTimeout(()=>handleSend(a.message),100);}} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan} messages={messages} onSend={handleSend} chatLoading={loading} isStreaming={isStreaming} streamText={streamText}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)}/>}
         {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
               // Archive plan before deleting
