@@ -95,6 +95,7 @@ function Icon({name, size=20, color='currentColor', sw=1.8}) {
     flag:     <><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></>,
     chevDown: <><path d="M6 9l6 6 6-6"/></>,
     chevUp:   <><path d="M18 15l-6-6-6 6"/></>,
+    chevRight:<><path d="M9 18l6-6-6-6"/></>,
     wind:     <><path d="M9.59 4.59A2 2 0 1111 8H2M12.59 19.41A2 2 0 1014 16H2M17.73 7.73A2.5 2.5 0 1119.5 12H2"/></>,
     activity: <><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></>,
   };
@@ -2222,6 +2223,39 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
   </Sheet>);
 }
 
+// ─── Plan Tab Helpers ─────────────────────────────────────────────────────────
+function getWeekDateRange(tp, weekNum) {
+  const planStart = new Date(tp.startDate + 'T00:00:00');
+  const weekMonday = new Date(planStart);
+  weekMonday.setDate(weekMonday.getDate() + (weekNum - 1) * 7);
+  const startDay = weekMonday.getDay();
+  if (startDay !== 1) weekMonday.setDate(weekMonday.getDate() - ((startDay + 6) % 7));
+  const weekSunday = new Date(weekMonday);
+  weekSunday.setDate(weekSunday.getDate() + 6);
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+  return { monday: weekMonday, sunday: weekSunday, label: `${fmt(weekMonday)} - ${fmt(weekSunday)}` };
+}
+
+function computeWeekSummary(weekPlan) {
+  if (!weekPlan?.sessions) return { totalWorkouts: 0, totalDuration: 0, sportBreakdown: {}, dayList: [] };
+  let totalWorkouts = 0, totalDuration = 0;
+  const sportBreakdown = {};
+  const dayList = [];
+  weekPlan.sessions.forEach(dayObj => {
+    const daySessions = (dayObj.sessions || []);
+    daySessions.forEach(sess => {
+      totalWorkouts++;
+      totalDuration += sess.duration || 0;
+      const sport = sess.type || 'other';
+      sportBreakdown[sport] = (sportBreakdown[sport] || 0) + 1;
+    });
+    if (daySessions.length > 0) {
+      dayList.push({ day: dayObj.day, sessions: daySessions.map(s => ({ type: s.type, label: s.label, duration: s.duration })) });
+    }
+  });
+  return { totalWorkouts, totalDuration, sportBreakdown, dayList };
+}
+
 // ─── Plan Tab ──────────────────────────────────────────────────────────────────
 function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activeWO,setActiveWO,trainingPlan,onPlanCreated,onWeekGenerated,onAddEvent,onDisruption,onDeletePlan,appState,onSaveTemplate,customExercises}){
   const[tracker,setTracker]=useState(activeWO&&activeWO.exercises?activeWO:null);
@@ -2231,6 +2265,8 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const[expandedPhase,setExpandedPhase]=useState(null);
   const[showFuel,setShowFuel]=useState(null);
   const[showNotes,setShowNotes]=useState(null);
+  const[selectedWeek,setSelectedWeek]=useState(null);
+  const[expandedSession,setExpandedSession]=useState(null);
     const[showEndPlan,setShowEndPlan]=useState(false);
   const _planMem=loadMemory();
   const activeInjuries=(_planMem.injuries||[]).filter(inj=>inj.status==='active'||inj.status==='monitoring');
@@ -2331,11 +2367,25 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   // Has periodized plan — full plan UI
   const tp=trainingPlan;
   const currentPhase=tp.phases?.find(p=>p.number===tp.currentPhase)||tp.phases?.[0];
-  const weekPlan=tp.weeklyPlans?.[String(tp.currentWeek)]||null;
-  const weekAdherence=weekPlan?computeWeekAdherence(tp,tp.currentWeek,cardio,strengthHistory):null;
-  const multiWeekPatterns=tp.currentWeek>1?computeMultiWeekPatterns(tp,tp.currentWeek,cardio,strengthHistory):[];
   const weeksToRace=tp.raceDate?Math.max(0,Math.ceil((new Date(tp.raceDate+'T12:00:00')-new Date())/604800000)):null;
   const phaseColors=['#E8604C','#2BAFC4','#F0A830','#8B6FE8','#2ABF84','#4890D8'];
+
+  // Multi-week overview data
+  const overviewWeeks=useMemo(()=>{
+    const startWk=tp.currentWeek;
+    const endWk=Math.min(tp.totalWeeks,tp.currentWeek+3);
+    const weeks=[];
+    for(let wk=startWk;wk<=endWk;wk++){
+      const dateRange=getWeekDateRange(tp,wk);
+      const weekPlanData=tp.weeklyPlans?.[String(wk)]||null;
+      const summary=weekPlanData?computeWeekSummary(weekPlanData):null;
+      const adherence=weekPlanData?computeWeekAdherence(tp,wk,cardio,strengthHistory):null;
+      let cumWeeks=0,phaseIdx=0;
+      for(let pi=0;pi<(tp.phases?.length||0);pi++){if(wk<=cumWeeks+tp.phases[pi].weeks){phaseIdx=pi;break;}cumWeeks+=tp.phases[pi].weeks;}
+      weeks.push({weekNum:wk,dateRange,weekPlan:weekPlanData,summary,adherence,phaseIdx,isCurrent:wk===tp.currentWeek,phase:tp.phases?.[phaseIdx]});
+    }
+    return weeks;
+  },[tp,cardio,strengthHistory]);
 
   return (<div style={{paddingBottom:48}}>
     {/* Season header */}
@@ -2374,210 +2424,295 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
 
     {activeWO&&activeWO.exercises&&<Card accent={C.yellow} onClick={()=>setTracker(activeWO)} style={{marginBottom:16}}><div style={{display:'flex',alignItems:'center',gap:10}}><Icon name='timer' size={20} color={C.yellow}/><div><div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:C.yellow}}>Workout in progress</div><div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,marginTop:1}}>{activeWO.label||activeWO.name||'Strength'} · tap to continue</div></div><span style={{marginLeft:'auto',color:C.yellow}}>→</span></div></Card>}
 
-    {/* Current week sessions */}
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:weekAdherence?6:10}}>
-      <Label style={{marginBottom:0}}>Week {tp.currentWeek}{weekPlan?` · ${weekPlan.focusOfWeek}`:''}</Label>
-    </div>
-    {weekAdherence&&weekAdherence.prescribed>0&&<div style={{marginBottom:12}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-        <span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red}}>{weekAdherence.completed+weekAdherence.shortened}/{weekAdherence.prescribed} sessions · {weekAdherence.adherence}%</span>
-        {weekAdherence.missed>0&&<span style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{weekAdherence.missed} missed</span>}
-      </div>
-      <div style={{height:6,background:C.border,borderRadius:3,overflow:'hidden'}}>
-        <div style={{height:'100%',width:`${weekAdherence.adherence}%`,background:weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red,borderRadius:3,transition:'width .3s'}}/>
-      </div>
-      {multiWeekPatterns.length>0&&<div style={{marginTop:6}}>{multiWeekPatterns.map((p,i)=><div key={i} style={{fontFamily:F.ui,fontSize:11,color:C.yellow,display:'flex',alignItems:'center',gap:4,marginTop:2}}><Icon name='alert' size={11} color={C.yellow}/>{p}</div>)}</div>}
-    </div>}
-
-    {!weekPlan?<Card accent={C.accent} onClick={()=>setPlanBuilder({goal:{...events.find(e=>e.id===tp.goalId)||{name:tp.raceName},_weekNum:tp.currentWeek,_phaseNum:tp.currentPhase},mode:'week'})} style={{textAlign:'center',padding:28,marginBottom:16}}>
-      <div style={{marginBottom:8}}><Icon name='calendar' size={28} color={C.accent}/></div>
-      <div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.accent,marginBottom:4}}>Generate this week</div>
-      <div style={{fontFamily:F.ui,fontSize:13,color:C.subtle}}>Your coach will create sessions based on your current phase and recent training.</div>
-    </Card>
-    :weekPlan.sessions?.map((dayObj,di)=>{
-      const isToday=dayObj.day===today;
-      const daySessions=dayObj.sessions||[];
-      const dayIndex=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].indexOf(dayObj.day);
-      const weekStart=new Date();weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));weekStart.setHours(0,0,0,0);
-      const dayDate=new Date(weekStart);dayDate.setDate(dayDate.getDate()+dayIndex);
-      const dayDateStr=dayDate.toISOString().split('T')[0];
-      const isPastDay=dayDateStr<todayStr();
-      const dayCardio=cardio.filter(w=>w.date===dayDateStr);
-      const dayStrength=strengthHistory.filter(s=>s.date===dayDateStr);
-      const adhDay=weekAdherence?.days?.find(d=>d.day===dayObj.day);
-      const dayCompleted=adhDay?.sessions?.filter(s=>s.status==='completed'||s.status==='shortened').length||0;
-      const dayMissed=adhDay?.sessions?.filter(s=>s.status==='missed').length||0;
-      const dayTotal=adhDay?.sessions?.length||daySessions.length;
-      return (<div key={di} style={{marginBottom:14,opacity:isPastDay&&dayTotal>0&&dayCompleted===0&&dayMissed===dayTotal?0.6:1}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,paddingLeft:10,borderLeft:`3px solid ${isToday?C.accent:(dayCompleted>=dayTotal&&dayTotal>0?C.green+'60':C.border)}`,marginLeft:2}}>
-          <span style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:isToday?C.accent:C.text}}>{dayObj.day}</span>
-          {isToday&&<Pill color={C.accent} small>Today</Pill>}
-          {dayObj.isRest&&<span style={{fontFamily:F.ui,fontSize:12,fontWeight:500,color:C.muted,marginLeft:'auto'}}>Rest day</span>}
-          {!dayObj.isRest&&dayTotal>0&&dayCompleted>0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:dayCompleted>=dayTotal?C.green:C.muted,marginLeft:'auto'}}>{dayCompleted}/{dayTotal} done</span>}
-          {!dayObj.isRest&&isPastDay&&dayMissed>0&&dayCompleted===0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.red,marginLeft:'auto'}}>Missed</span>}
+    {/* Week view: overview or detail */}
+    {selectedWeek===null?(<>
+    {/* ─── MODE A: Multi-week overview ─── */}
+    <Label>Upcoming Weeks</Label>
+    {overviewWeeks.map(wk=>{
+      const phColor=phaseColors[wk.phaseIdx%phaseColors.length];
+      const dayAbbr={Monday:'Mon',Tuesday:'Tue',Wednesday:'Wed',Thursday:'Thu',Friday:'Fri',Saturday:'Sat',Sunday:'Sun'};
+      return (<Card key={wk.weekNum} onClick={()=>wk.weekPlan?setSelectedWeek(wk.weekNum):null} accent={wk.isCurrent?C.accent:undefined} style={{marginBottom:12,padding:'16px 18px',cursor:wk.weekPlan?'pointer':'default',opacity:wk.weekPlan?1:0.7}}>
+        {/* Date range + week title */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+          <div>
+            <div style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:phColor,textTransform:'uppercase',letterSpacing:'.04em'}}>{wk.dateRange.label}</div>
+            <div style={{fontFamily:F.display,fontSize:20,fontWeight:800,color:C.text,marginTop:2}}>Week {wk.weekNum}</div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            {wk.isCurrent&&<Pill color={C.accent} small>Current</Pill>}
+            <Icon name='chevRight' size={16} color={C.muted}/>
+          </div>
         </div>
-        {daySessions.length>0&&<Card style={{padding:0,borderColor:isToday?C.accent+'30':C.border,marginLeft:7,borderLeft:`3px solid ${isToday?C.accent+'50':C.border}`}}>
-          {daySessions.map((sess,si)=>{
-            if(sess.type==='brick'&&sess.legs){
-              const brickDone=(sess.legs||[]).every(l=>dayCardio.some(w=>w.sport===l.sport));
-              const fuelKey=`${di}-${si}`;
-              return (<div key={si} style={{borderRadius:12,border:`1.5px solid ${brickDone?C.green+'44':C.yellow+'40'}`,overflow:'hidden',background:brickDone?C.green+'08':'transparent',marginBottom:si<daySessions.length-1?4:0,borderLeft:`3px solid ${brickDone?C.green+'40':C.yellow+'40'}`}}>
-                {/* Brick header */}
-                <div style={{padding:'8px 12px',background:C.yellow+'10',display:'flex',alignItems:'center',gap:8}}>
-                  <Icon name='layers' size={14} color={C.yellow}/><span style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow}}>Brick</span>
-                  {sess.priority&&<div style={{width:6,height:6,borderRadius:'50%',background:sess.priority==='red'?C.accent:C.yellow}}/>}
-                  <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:brickDone?C.green:C.text,flex:1}}>{sess.label}</span>
-                  {brickDone&&<Pill color={C.green} small>Done</Pill>}
-                </div>
-                {/* Purpose: collapsible */}
-                {sess.purpose&&!brickDone&&<div style={{padding:'4px 12px 6px',display:'flex',alignItems:'flex-start',gap:4}}>
-                  <span style={{marginTop:2,flexShrink:0,lineHeight:0}}><Icon name='target' size={10} color={C.muted}/></span>
-                  <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4}}>{sess.purpose}</span>
-                </div>}
-                {/* Per-leg prescription with hero treatment */}
-                {sess.legs.map((leg,li)=>{const lSport=SPORT_META[leg.sport]||SPORT_META.other;const lDone=dayCardio.some(w=>w.sport===leg.sport);const legNoteKey=`${di}-${si}-leg${li}`;return(
-                  <div key={li} style={{padding:'10px 12px',borderTop:`1px solid ${C.border}`}}>
-                    <div style={{display:'flex',alignItems:'center',gap:12}}>
-                      <div style={{width:32,height:32,borderRadius:10,background:lDone?C.green+'20':lSport.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}>{lDone?<Icon name='check' size={15} color={C.green}/>:<Icon name={lSport.icon} size={15} color={lSport.color}/>}</div>
-                      <div style={{flex:1}}>
-                        <span style={{fontFamily:F.ui,fontWeight:500,fontSize:14,color:lDone?C.green:C.text}}>{lSport.label}</span>
-                        {leg.zone&&!lDone&&<div style={{display:'inline-flex',alignItems:'center',gap:4,marginLeft:8,padding:'2px 6px',borderRadius:5,background:lSport.color+'15'}}><Icon name='activity' size={10} color={lSport.color}/><span style={{fontFamily:F.mono,fontSize:11,fontWeight:500,color:lSport.color}}>{leg.zone}</span></div>}
-                      </div>
-                      {leg.duration&&<span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:lDone?C.green:C.text}}>{fmtDur(leg.duration)}</span>}
-                    </div>
-                    {leg.workout&&!lDone&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,marginTop:6,marginLeft:44,padding:'8px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${lSport.color+'25'}`,borderLeft:`3px solid ${lSport.color+'60'}`,lineHeight:1.7,whiteSpace:'pre-wrap'}}>{fmtWorkout(leg.workout)}</div>}
-                    {leg.notes&&!lDone&&<div style={{marginTop:4,marginLeft:44}}>
-                      <button onClick={()=>setShowNotes(showNotes===legNoteKey?null:legNoteKey)} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
-                        <Icon name='sparkle' size={12} color={C.purple}/><span>Coach notes</span><Icon name={showNotes===legNoteKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
-                      </button>
-                      {showNotes===legNoteKey&&<div className="fade-up" style={{marginTop:4,padding:'8px 12px',background:C.purple+'08',borderRadius:8,borderLeft:`3px solid ${C.purple+'40'}`,fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.6}}>{leg.notes}</div>}
-                    </div>}
-                  </div>);})}
-                {/* Fuel: grid layout */}
-                {sess.fuel&&!brickDone&&<div style={{padding:'8px 12px',borderTop:`1px solid ${C.border}`}}>
-                  <button onClick={()=>setShowFuel(showFuel===fuelKey?null:fuelKey)} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
-                    <Icon name='utensils' size={12} color={C.yellow}/><span>Nutrition</span><Icon name={showFuel===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
-                  </button>
-                  {showFuel===fuelKey&&<div className="fade-up" style={{marginTop:6,display:'grid',gridTemplateColumns:sess.fuel.during?'1fr 1fr 1fr':(sess.fuel.pre&&sess.fuel.post?'1fr 1fr':'1fr'),gap:8}}>
-                    {sess.fuel.pre&&<div style={{padding:'8px 10px',background:C.green+'10',borderRadius:8,border:`1px solid ${C.green+'20'}`}}>
-                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Before</div>
-                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.pre}</div>
-                    </div>}
-                    {sess.fuel.during&&<div style={{padding:'8px 10px',background:C.cyan+'10',borderRadius:8,border:`1px solid ${C.cyan+'20'}`}}>
-                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.cyan,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>During</div>
-                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.during}</div>
-                    </div>}
-                    {sess.fuel.post&&<div style={{padding:'8px 10px',background:C.purple+'10',borderRadius:8,border:`1px solid ${C.purple+'20'}`}}>
-                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.purple,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>After</div>
-                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.post}</div>
-                    </div>}
-                  </div>}
-                </div>}
-              </div>);
-            }
-            const sport=SPORT_META[sess.type]||SPORT_META.other;
-            const isStr=sess.type==='strength';
-            const done=isStr?dayStrength.some(sh=>sh.name===sess.label||sh.templateId===sess.templateId):dayCardio.some(w=>w.sport===sess.type);
-            const adhSess=adhDay?.sessions?.[si];
-            const sessStatus=adhSess?.status||'upcoming';
-            const isMissed=sessStatus==='missed';
-            const isShortened=sessStatus==='shortened';
-            const isSub=sessStatus==='substituted';
-            const priorityColor=sess.priority==='red'?C.accent:C.yellow;
-            const fuelKey=`${di}-${si}`;
-            return (<div key={si} onClick={isStr&&sess.exercises&&!done?()=>startStrength(sess):undefined} style={{cursor:isStr&&sess.exercises&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'06':(isMissed?C.red+'05':'transparent')}}>
-              {/* ─── ZONE A: Header ─── */}
-              <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px 8px 14px'}}>
-                <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                  {done?<Icon name='check' size={18} color={C.green}/>:isMissed?<span style={{fontFamily:F.ui,fontSize:14,color:C.red}}>✕</span>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
-                </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-                    <div style={{width:6,height:6,borderRadius:'50%',background:done?C.green:(isMissed?C.red:priorityColor),flexShrink:0}}/>
-                    <div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:(isMissed?C.muted:C.text),textDecoration:isMissed?'line-through':'none'}}>{sess.label}</div>
-                    {done&&!isShortened&&<Pill color={C.green} small>Done</Pill>}
-                    {isShortened&&<Pill color={C.yellow} small>{adhSess?.actualDuration}min / {sess.duration}min</Pill>}
-                    {isMissed&&<Pill color={C.red} small>Missed</Pill>}
-                    {isSub&&<Pill color={C.yellow} small>Swapped → {SPORT_META[adhSess?.substitute]?.label||adhSess?.substitute}</Pill>}
-                    {!done&&!isMissed&&isStr&&activeInjuries.length>0&&sess.notes&&<Pill color={C.yellow} small>Modified</Pill>}
-                  </div>
-                  {sess.purpose&&!done&&<div style={{display:'flex',alignItems:'flex-start',gap:4,marginTop:4}}>
-                    <span style={{marginTop:2,flexShrink:0,lineHeight:0}}><Icon name='target' size={10} color={C.muted}/></span>
-                    <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4}}>{sess.purpose}</span>
-                  </div>}
-                </div>
-                <div style={{textAlign:'right',flexShrink:0}}>
-                  {sess.duration&&<div style={{fontFamily:F.mono,fontSize:13,fontWeight:500,color:done?C.green:C.text}}>{fmtDur(sess.duration)}</div>}
-                  {isStr&&sess.exercises&&!done&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,marginTop:4}}>Start →</div>}
-                </div>
-              </div>
-              {/* ─── ZONE B: Prescription Hero ─── */}
-              {!done&&isStr&&sess.exercises?.length>0&&<StrengthExerciseList exercises={sess.exercises} notes={sess.notes} sportColor={sport.color}/>}
-              {!done&&!(isStr&&sess.exercises?.length>0)&&(sess.workout||sess.zone)&&<div style={{padding:'0 14px 10px',marginLeft:48}}>
-                {sess.zone&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
-                  <div style={{padding:'3px 8px',borderRadius:6,background:sport.color+'15',display:'inline-flex',alignItems:'center',gap:4}}>
-                    <Icon name='activity' size={11} color={sport.color}/>
-                    <span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:sport.color}}>{sess.zone}</span>
-                  </div>
-                  {sess.targetIntensity&&<span style={{fontFamily:F.mono,fontSize:12,color:sport.color+'BB'}}>{sess.targetIntensity}</span>}
-                </div>}
-                {sess.workout&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,padding:'10px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${sport.color+'25'}`,lineHeight:1.7,whiteSpace:'pre-wrap',borderLeft:`3px solid ${sport.color+'60'}`}}>{fmtWorkout(sess.workout)}</div>}
-              </div>}
-              {/* ─── ZONE C: Coaching & Fuel ─── */}
-              {!done&&((!(isStr&&sess.exercises?.length>0)&&sess.notes)||sess.fuel)&&<div style={{padding:'0 14px 12px',marginLeft:48}}>
-                {sess.notes&&!(isStr&&sess.exercises?.length>0)&&<div style={{marginTop:2}}>
-                  <button onClick={(e)=>{e.stopPropagation();setShowNotes(showNotes===fuelKey?null:fuelKey);}} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
-                    <Icon name='sparkle' size={12} color={C.purple}/>
-                    <span>Coach notes</span>
-                    <Icon name={showNotes===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
-                  </button>
-                  {showNotes===fuelKey&&<div className="fade-up" style={{marginTop:6,padding:'8px 12px',background:C.purple+'08',borderRadius:8,borderLeft:`3px solid ${C.purple+'40'}`,fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.6}}>{sess.notes}</div>}
-                </div>}
-                {sess.fuel&&<div style={{marginTop:sess.notes&&!(isStr&&sess.exercises?.length>0)?10:2}}>
-                  <button onClick={(e)=>{e.stopPropagation();setShowFuel(showFuel===fuelKey?null:fuelKey);}} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
-                    <Icon name='utensils' size={12} color={C.yellow}/>
-                    <span>Nutrition</span>
-                    <Icon name={showFuel===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
-                  </button>
-                  {showFuel===fuelKey&&<div className="fade-up" style={{marginTop:6,display:'grid',gridTemplateColumns:sess.fuel.during?'1fr 1fr 1fr':(sess.fuel.pre&&sess.fuel.post?'1fr 1fr':'1fr'),gap:8}}>
-                    {sess.fuel.pre&&<div style={{padding:'8px 10px',background:C.green+'10',borderRadius:8,border:`1px solid ${C.green+'20'}`}}>
-                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Before</div>
-                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.pre}</div>
-                    </div>}
-                    {sess.fuel.during&&<div style={{padding:'8px 10px',background:C.cyan+'10',borderRadius:8,border:`1px solid ${C.cyan+'20'}`}}>
-                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.cyan,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>During</div>
-                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.during}</div>
-                    </div>}
-                    {sess.fuel.post&&<div style={{padding:'8px 10px',background:C.purple+'10',borderRadius:8,border:`1px solid ${C.purple+'20'}`}}>
-                      <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.purple,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>After</div>
-                      <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.post}</div>
-                    </div>}
-                  </div>}
-                </div>}
-              </div>}
-            </div>);
+        {/* Progress bar segments by sport */}
+        {wk.summary&&wk.summary.totalWorkouts>0&&<div style={{display:'flex',gap:2,height:6,borderRadius:3,overflow:'hidden',marginBottom:10}}>
+          {Object.entries(wk.summary.sportBreakdown).map(([sport,count])=>{
+            const sc=(SPORT_META[sport]||SPORT_META.other).color;
+            return <div key={sport} style={{flex:count,background:sc,borderRadius:2}}/>;
           })}
+        </div>}
+        {/* Stats row */}
+        {wk.summary?<div style={{display:'flex',gap:16,marginBottom:10}}>
+          <span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.muted}}>{wk.summary.totalWorkouts} workouts</span>
+          <span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>{fmtDur(wk.summary.totalDuration)}</span>
+          {wk.adherence&&wk.adherence.prescribed>0&&<span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:wk.adherence.adherence>=85?C.green:wk.adherence.adherence>=60?C.yellow:C.red}}>{wk.adherence.adherence}%</span>}
+        </div>:<div style={{fontFamily:F.ui,fontSize:13,color:C.muted,marginBottom:6}}>Not yet planned</div>}
+        {/* Compact day list */}
+        {wk.summary&&wk.summary.dayList.length>0&&<div style={{display:'flex',flexDirection:'column',gap:4}}>
+          {wk.summary.dayList.map((d,di)=><div key={di} style={{display:'flex',alignItems:'center',gap:8}}>
+            <span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.muted,width:28,flexShrink:0}}>{dayAbbr[d.day]||d.day.slice(0,3)}</span>
+            {d.sessions.map((s,si)=>{const sc=(SPORT_META[s.type]||SPORT_META.other).color;return (<div key={si} style={{display:'flex',alignItems:'center',gap:6}}>
+              {si>0&&<span style={{color:C.border}}>+</span>}
+              <div style={{width:8,height:8,borderRadius:'50%',background:sc,flexShrink:0}}/>
+              <span style={{fontFamily:F.ui,fontSize:13,color:C.text}}>{s.label||SPORT_META[s.type]?.label||s.type}</span>
+              {s.duration&&<span style={{fontFamily:F.mono,fontSize:11,color:C.muted}}>{fmtDur(s.duration)}</span>}
+            </div>);})}
+          </div>)}
+        </div>}
+        {/* Ungenerated week CTA */}
+        {!wk.weekPlan&&<div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0'}} onClick={(e)=>{e.stopPropagation();setPlanBuilder({goal:{...events.find(e2=>e2.id===tp.goalId)||{name:tp.raceName},_weekNum:wk.weekNum,_phaseNum:tp.phases?.[wk.phaseIdx]?.number||1},mode:'week'});}}>
+          <Icon name='calendar' size={16} color={C.accent}/>
+          <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.accent,cursor:'pointer'}}>Generate this week</span>
+        </div>}
+      </Card>);
+    })}
+    </>):(<>
+    {/* ─── MODE B: Detailed week view ─── */}
+    {(()=>{
+      const dwk=selectedWeek;
+      const detailWeekPlan=tp.weeklyPlans?.[String(dwk)]||null;
+      const detailAdherence=detailWeekPlan?computeWeekAdherence(tp,dwk,cardio,strengthHistory):null;
+      const detailMultiWeek=dwk>1?computeMultiWeekPatterns(tp,dwk,cardio,strengthHistory):[];
+      const detailDateRange=getWeekDateRange(tp,dwk);
+      const detailSummary=detailWeekPlan?computeWeekSummary(detailWeekPlan):null;
+      let detailPhaseIdx=0,cumW=0;
+      for(let pi=0;pi<(tp.phases?.length||0);pi++){if(dwk<=cumW+tp.phases[pi].weeks){detailPhaseIdx=pi;break;}cumW+=tp.phases[pi].weeks;}
+      const detailPhaseColor=phaseColors[detailPhaseIdx%phaseColors.length];
+
+      return (<div className="fade-up">
+        {/* Back + navigation header */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+          <button onClick={()=>{setSelectedWeek(null);setExpandedSession(null);}} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> All weeks</button>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <button onClick={()=>{if(dwk>1){setSelectedWeek(dwk-1);setExpandedSession(null);}}} disabled={dwk<=1} style={{background:'none',border:'none',cursor:dwk>1?'pointer':'default',padding:4,opacity:dwk>1?1:0.3}}><Icon name='arrowLeft' size={16} color={C.text}/></button>
+            <span style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.text}}>Week {dwk}</span>
+            <button onClick={()=>{if(dwk<tp.totalWeeks){setSelectedWeek(dwk+1);setExpandedSession(null);}}} disabled={dwk>=tp.totalWeeks} style={{background:'none',border:'none',cursor:dwk<tp.totalWeeks?'pointer':'default',padding:4,opacity:dwk<tp.totalWeeks?1:0.3}}><Icon name='chevRight' size={16} color={C.text}/></button>
+          </div>
+        </div>
+        {/* Date range + phase */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+          <span style={{fontFamily:F.ui,fontSize:12,color:C.muted}}>{detailDateRange.label}</span>
+          <Pill color={detailPhaseColor} small>{tp.phases?.[detailPhaseIdx]?.name||'Phase '+(detailPhaseIdx+1)}</Pill>
+        </div>
+        {/* Summary stats */}
+        {detailSummary&&<div style={{display:'flex',gap:12,marginBottom:14,flexWrap:'wrap'}}>
+          <div style={{padding:'8px 14px',background:C.elevated,borderRadius:10,display:'flex',alignItems:'center',gap:6}}>
+            <Icon name='calendar' size={14} color={C.muted}/>
+            <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.text}}>{detailSummary.totalWorkouts} workouts</span>
+          </div>
+          <div style={{padding:'8px 14px',background:C.elevated,borderRadius:10,display:'flex',alignItems:'center',gap:6}}>
+            <Icon name='timer' size={14} color={C.muted}/>
+            <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.text}}>{fmtDur(detailSummary.totalDuration)}</span>
+          </div>
+          {detailAdherence&&detailAdherence.prescribed>0&&<div style={{padding:'8px 14px',background:C.elevated,borderRadius:10,display:'flex',alignItems:'center',gap:6}}>
+            <Icon name='target' size={14} color={detailAdherence.adherence>=85?C.green:detailAdherence.adherence>=60?C.yellow:C.red}/>
+            <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:detailAdherence.adherence>=85?C.green:detailAdherence.adherence>=60?C.yellow:C.red}}>{detailAdherence.adherence}%</span>
+          </div>}
+        </div>}
+        {/* Adherence progress bar */}
+        {detailAdherence&&detailAdherence.prescribed>0&&<div style={{marginBottom:14}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+            <span style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:detailAdherence.adherence>=85?C.green:detailAdherence.adherence>=60?C.yellow:C.red}}>{detailAdherence.completed+detailAdherence.shortened}/{detailAdherence.prescribed} sessions</span>
+            {detailAdherence.missed>0&&<span style={{fontFamily:F.ui,fontSize:11,color:C.muted}}>{detailAdherence.missed} missed</span>}
+          </div>
+          <div style={{height:6,background:C.border,borderRadius:3,overflow:'hidden'}}>
+            <div style={{height:'100%',width:`${detailAdherence.adherence}%`,background:detailAdherence.adherence>=85?C.green:detailAdherence.adherence>=60?C.yellow:C.red,borderRadius:3,transition:'width .3s'}}/>
+          </div>
+          {detailMultiWeek.length>0&&<div style={{marginTop:6}}>{detailMultiWeek.map((p,i)=><div key={i} style={{fontFamily:F.ui,fontSize:11,color:C.yellow,display:'flex',alignItems:'center',gap:4,marginTop:2}}><Icon name='alert' size={11} color={C.yellow}/>{p}</div>)}</div>}
+        </div>}
+        {/* Week focus */}
+        {detailWeekPlan?.focusOfWeek&&<div style={{fontFamily:F.ui,fontSize:13,color:C.subtle,fontStyle:'italic',marginBottom:14,paddingLeft:2}}>{detailWeekPlan.focusOfWeek}</div>}
+        {/* Generate CTA if no plan */}
+        {!detailWeekPlan&&<Card accent={C.accent} onClick={()=>setPlanBuilder({goal:{...events.find(e=>e.id===tp.goalId)||{name:tp.raceName},_weekNum:dwk,_phaseNum:tp.phases?.[detailPhaseIdx]?.number||1},mode:'week'})} style={{textAlign:'center',padding:28,marginBottom:16}}>
+          <div style={{marginBottom:8}}><Icon name='calendar' size={28} color={C.accent}/></div>
+          <div style={{fontFamily:F.display,fontSize:18,fontWeight:700,color:C.accent,marginBottom:4}}>Generate this week</div>
+          <div style={{fontFamily:F.ui,fontSize:13,color:C.subtle}}>Your coach will create sessions based on your current phase and recent training.</div>
+        </Card>}
+        {/* Day-by-day sessions */}
+        {detailWeekPlan?.sessions?.map((dayObj,di)=>{
+          const isToday=dayObj.day===today;
+          const daySessions=dayObj.sessions||[];
+          const dayIndex=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].indexOf(dayObj.day);
+          const weekStart=new Date(detailDateRange.monday);
+          const dayDate=new Date(weekStart);dayDate.setDate(dayDate.getDate()+dayIndex);
+          const dayDateStr=dayDate.toISOString().split('T')[0];
+          const isPastDay=dayDateStr<todayStr();
+          const dayCardio=cardio.filter(w=>w.date===dayDateStr);
+          const dayStrength=strengthHistory.filter(s=>s.date===dayDateStr);
+          const adhDay=detailAdherence?.days?.find(d=>d.day===dayObj.day);
+          const dayCompleted=adhDay?.sessions?.filter(s=>s.status==='completed'||s.status==='shortened').length||0;
+          const dayMissed=adhDay?.sessions?.filter(s=>s.status==='missed').length||0;
+          const dayTotal=adhDay?.sessions?.length||daySessions.length;
+          return (<div key={di} style={{marginBottom:14,opacity:isPastDay&&dayTotal>0&&dayCompleted===0&&dayMissed===dayTotal?0.6:1}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,paddingLeft:10,borderLeft:`3px solid ${isToday?C.accent:(dayCompleted>=dayTotal&&dayTotal>0?C.green+'60':C.border)}`,marginLeft:2}}>
+              <span style={{fontFamily:F.display,fontSize:16,fontWeight:700,color:isToday?C.accent:C.text}}>{dayObj.day}</span>
+              {isToday&&<Pill color={C.accent} small>Today</Pill>}
+              {dayObj.isRest&&<span style={{fontFamily:F.ui,fontSize:12,fontWeight:500,color:C.muted,marginLeft:'auto'}}>Rest day</span>}
+              {!dayObj.isRest&&dayTotal>0&&dayCompleted>0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:dayCompleted>=dayTotal?C.green:C.muted,marginLeft:'auto'}}>{dayCompleted}/{dayTotal} done</span>}
+              {!dayObj.isRest&&isPastDay&&dayMissed>0&&dayCompleted===0&&<span style={{fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.red,marginLeft:'auto'}}>Missed</span>}
+            </div>
+            {daySessions.length>0&&<Card style={{padding:0,borderColor:isToday?C.accent+'30':C.border,marginLeft:7,borderLeft:`3px solid ${isToday?C.accent+'50':C.border}`}}>
+              {daySessions.map((sess,si)=>{
+                if(sess.type==='brick'&&sess.legs){
+                  const brickDone=(sess.legs||[]).every(l=>dayCardio.some(w=>w.sport===l.sport));
+                  const fuelKey=`d${di}-${si}`;
+                  return (<div key={si} style={{borderRadius:12,border:`1.5px solid ${brickDone?C.green+'44':C.yellow+'40'}`,overflow:'hidden',background:brickDone?C.green+'08':'transparent',marginBottom:si<daySessions.length-1?4:0,borderLeft:`3px solid ${brickDone?C.green+'40':C.yellow+'40'}`}}>
+                    <div style={{padding:'8px 12px',background:C.yellow+'10',display:'flex',alignItems:'center',gap:8}}>
+                      <Icon name='layers' size={14} color={C.yellow}/><span style={{fontFamily:F.ui,fontWeight:700,fontSize:12,color:C.yellow}}>Brick</span>
+                      {sess.priority&&<div style={{width:6,height:6,borderRadius:'50%',background:sess.priority==='red'?C.accent:C.yellow}}/>}
+                      <span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:brickDone?C.green:C.text,flex:1}}>{sess.label}</span>
+                      {brickDone&&<Pill color={C.green} small>Done</Pill>}
+                    </div>
+                    {sess.purpose&&!brickDone&&<div style={{padding:'4px 12px 6px',display:'flex',alignItems:'flex-start',gap:4}}>
+                      <span style={{marginTop:2,flexShrink:0,lineHeight:0}}><Icon name='target' size={10} color={C.muted}/></span>
+                      <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4}}>{sess.purpose}</span>
+                    </div>}
+                    {sess.legs.map((leg,li)=>{const lSport=SPORT_META[leg.sport]||SPORT_META.other;const lDone=dayCardio.some(w=>w.sport===leg.sport);const legNoteKey=`d${di}-${si}-leg${li}`;return(
+                      <div key={li} style={{padding:'10px 12px',borderTop:`1px solid ${C.border}`}}>
+                        <div style={{display:'flex',alignItems:'center',gap:12}}>
+                          <div style={{width:32,height:32,borderRadius:10,background:lDone?C.green+'20':lSport.color+'20',display:'flex',alignItems:'center',justifyContent:'center'}}>{lDone?<Icon name='check' size={15} color={C.green}/>:<Icon name={lSport.icon} size={15} color={lSport.color}/>}</div>
+                          <div style={{flex:1}}>
+                            <span style={{fontFamily:F.ui,fontWeight:500,fontSize:14,color:lDone?C.green:C.text}}>{lSport.label}</span>
+                            {leg.zone&&!lDone&&<div style={{display:'inline-flex',alignItems:'center',gap:4,marginLeft:8,padding:'2px 6px',borderRadius:5,background:lSport.color+'15'}}><Icon name='activity' size={10} color={lSport.color}/><span style={{fontFamily:F.mono,fontSize:11,fontWeight:500,color:lSport.color}}>{leg.zone}</span></div>}
+                          </div>
+                          {leg.duration&&<span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:lDone?C.green:C.text}}>{fmtDur(leg.duration)}</span>}
+                        </div>
+                        {leg.workout&&!lDone&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,marginTop:6,marginLeft:44,padding:'8px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${lSport.color+'25'}`,borderLeft:`3px solid ${lSport.color+'60'}`,lineHeight:1.7,whiteSpace:'pre-wrap'}}>{fmtWorkout(leg.workout)}</div>}
+                        {leg.notes&&!lDone&&<div style={{marginTop:4,marginLeft:44}}>
+                          <button onClick={()=>setShowNotes(showNotes===legNoteKey?null:legNoteKey)} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                            <Icon name='sparkle' size={12} color={C.purple}/><span>Coach notes</span><Icon name={showNotes===legNoteKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
+                          </button>
+                          {showNotes===legNoteKey&&<div className="fade-up" style={{marginTop:4,padding:'8px 12px',background:C.purple+'08',borderRadius:8,borderLeft:`3px solid ${C.purple+'40'}`,fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.6}}>{leg.notes}</div>}
+                        </div>}
+                      </div>);})}
+                    {sess.fuel&&!brickDone&&<div style={{padding:'8px 12px',borderTop:`1px solid ${C.border}`}}>
+                      <button onClick={()=>setShowFuel(showFuel===fuelKey?null:fuelKey)} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                        <Icon name='utensils' size={12} color={C.yellow}/><span>Nutrition</span><Icon name={showFuel===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
+                      </button>
+                      {showFuel===fuelKey&&<div className="fade-up" style={{marginTop:6,display:'grid',gridTemplateColumns:sess.fuel.during?'1fr 1fr 1fr':(sess.fuel.pre&&sess.fuel.post?'1fr 1fr':'1fr'),gap:8}}>
+                        {sess.fuel.pre&&<div style={{padding:'8px 10px',background:C.green+'10',borderRadius:8,border:`1px solid ${C.green+'20'}`}}>
+                          <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Before</div>
+                          <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.pre}</div>
+                        </div>}
+                        {sess.fuel.during&&<div style={{padding:'8px 10px',background:C.cyan+'10',borderRadius:8,border:`1px solid ${C.cyan+'20'}`}}>
+                          <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.cyan,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>During</div>
+                          <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.during}</div>
+                        </div>}
+                        {sess.fuel.post&&<div style={{padding:'8px 10px',background:C.purple+'10',borderRadius:8,border:`1px solid ${C.purple+'20'}`}}>
+                          <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.purple,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>After</div>
+                          <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.post}</div>
+                        </div>}
+                      </div>}
+                    </div>}
+                  </div>);
+                }
+                const sport=SPORT_META[sess.type]||SPORT_META.other;
+                const isStr=sess.type==='strength';
+                const done=isStr?dayStrength.some(sh=>sh.name===sess.label||sh.templateId===sess.templateId):dayCardio.some(w=>w.sport===sess.type);
+                const adhSess=adhDay?.sessions?.[si];
+                const sessStatus=adhSess?.status||'upcoming';
+                const isMissed=sessStatus==='missed';
+                const isShortened=sessStatus==='shortened';
+                const isSub=sessStatus==='substituted';
+                const priorityColor=sess.priority==='red'?C.accent:C.yellow;
+                const fuelKey=`d${di}-${si}`;
+                return (<div key={si} onClick={isStr&&sess.exercises&&!done?()=>startStrength(sess):undefined} style={{cursor:isStr&&sess.exercises&&!done&&!isMissed?'pointer':'default',borderBottom:si<daySessions.length-1?`1px solid ${C.border}`:'none',background:done?C.green+'06':(isMissed?C.red+'05':'transparent')}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px 8px 14px'}}>
+                    <div style={{width:36,height:36,borderRadius:12,background:done?C.green+'20':(isMissed?C.red+'15':sport.color+'20'),display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                      {done?<Icon name='check' size={18} color={C.green}/>:isMissed?<span style={{fontFamily:F.ui,fontSize:14,color:C.red}}>✕</span>:<Icon name={isStr?'dumbbell':sport.icon} size={18} color={sport.color}/>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <div style={{width:6,height:6,borderRadius:'50%',background:done?C.green:(isMissed?C.red:priorityColor),flexShrink:0}}/>
+                        <div style={{fontFamily:F.ui,fontWeight:600,fontSize:15,color:done?C.green:(isMissed?C.muted:C.text),textDecoration:isMissed?'line-through':'none'}}>{sess.label}</div>
+                        {done&&!isShortened&&<Pill color={C.green} small>Done</Pill>}
+                        {isShortened&&<Pill color={C.yellow} small>{adhSess?.actualDuration}min / {sess.duration}min</Pill>}
+                        {isMissed&&<Pill color={C.red} small>Missed</Pill>}
+                        {isSub&&<Pill color={C.yellow} small>Swapped &rarr; {SPORT_META[adhSess?.substitute]?.label||adhSess?.substitute}</Pill>}
+                      </div>
+                      {sess.purpose&&!done&&<div style={{display:'flex',alignItems:'flex-start',gap:4,marginTop:4}}>
+                        <span style={{marginTop:2,flexShrink:0,lineHeight:0}}><Icon name='target' size={10} color={C.muted}/></span>
+                        <span style={{fontFamily:F.ui,fontSize:11,color:C.muted,fontStyle:'italic',lineHeight:1.4}}>{sess.purpose}</span>
+                      </div>}
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      {sess.duration&&<div style={{fontFamily:F.mono,fontSize:13,fontWeight:500,color:done?C.green:C.text}}>{fmtDur(sess.duration)}</div>}
+                      {isStr&&sess.exercises&&!done&&<div style={{fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.green,marginTop:4}}>Start &rarr;</div>}
+                    </div>
+                  </div>
+                  {!done&&isStr&&sess.exercises?.length>0&&<StrengthExerciseList exercises={sess.exercises} notes={sess.notes} sportColor={sport.color}/>}
+                  {!done&&!(isStr&&sess.exercises?.length>0)&&(sess.workout||sess.zone)&&<div style={{padding:'0 14px 10px',marginLeft:48}}>
+                    {sess.zone&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                      <div style={{padding:'3px 8px',borderRadius:6,background:sport.color+'15',display:'inline-flex',alignItems:'center',gap:4}}>
+                        <Icon name='activity' size={11} color={sport.color}/>
+                        <span style={{fontFamily:F.mono,fontSize:12,fontWeight:500,color:sport.color}}>{sess.zone}</span>
+                      </div>
+                      {sess.targetIntensity&&<span style={{fontFamily:F.mono,fontSize:12,color:sport.color+'BB'}}>{sess.targetIntensity}</span>}
+                    </div>}
+                    {sess.workout&&<div style={{fontFamily:F.mono,fontSize:13,color:C.text,padding:'10px 12px',background:C.elevated,borderRadius:10,border:`1.5px solid ${sport.color+'25'}`,lineHeight:1.7,whiteSpace:'pre-wrap',borderLeft:`3px solid ${sport.color+'60'}`}}>{fmtWorkout(sess.workout)}</div>}
+                  </div>}
+                  {!done&&((!(isStr&&sess.exercises?.length>0)&&sess.notes)||sess.fuel)&&<div style={{padding:'0 14px 12px',marginLeft:48}}>
+                    {sess.notes&&!(isStr&&sess.exercises?.length>0)&&<div style={{marginTop:2}}>
+                      <button onClick={(e)=>{e.stopPropagation();setShowNotes(showNotes===fuelKey?null:fuelKey);}} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                        <Icon name='sparkle' size={12} color={C.purple}/>
+                        <span>Coach notes</span>
+                        <Icon name={showNotes===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
+                      </button>
+                      {showNotes===fuelKey&&<div className="fade-up" style={{marginTop:6,padding:'8px 12px',background:C.purple+'08',borderRadius:8,borderLeft:`3px solid ${C.purple+'40'}`,fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.6}}>{sess.notes}</div>}
+                    </div>}
+                    {sess.fuel&&<div style={{marginTop:sess.notes?10:2}}>
+                      <button onClick={(e)=>{e.stopPropagation();setShowFuel(showFuel===fuelKey?null:fuelKey);}} style={{background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:5,fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.subtle}}>
+                        <Icon name='utensils' size={12} color={C.yellow}/>
+                        <span>Nutrition</span>
+                        <Icon name={showFuel===fuelKey?'chevUp':'chevDown'} size={11} color={C.muted}/>
+                      </button>
+                      {showFuel===fuelKey&&<div className="fade-up" style={{marginTop:6,display:'grid',gridTemplateColumns:sess.fuel.during?'1fr 1fr 1fr':(sess.fuel.pre&&sess.fuel.post?'1fr 1fr':'1fr'),gap:8}}>
+                        {sess.fuel.pre&&<div style={{padding:'8px 10px',background:C.green+'10',borderRadius:8,border:`1px solid ${C.green+'20'}`}}>
+                          <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Before</div>
+                          <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.pre}</div>
+                        </div>}
+                        {sess.fuel.during&&<div style={{padding:'8px 10px',background:C.cyan+'10',borderRadius:8,border:`1px solid ${C.cyan+'20'}`}}>
+                          <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.cyan,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>During</div>
+                          <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.during}</div>
+                        </div>}
+                        {sess.fuel.post&&<div style={{padding:'8px 10px',background:C.purple+'10',borderRadius:8,border:`1px solid ${C.purple+'20'}`}}>
+                          <div style={{fontFamily:F.ui,fontSize:10,fontWeight:700,color:C.purple,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>After</div>
+                          <div style={{fontFamily:F.ui,fontSize:12,color:C.subtle,lineHeight:1.5}}>{sess.fuel.post}</div>
+                        </div>}
+                      </div>}
+                    </div>}
+                  </div>}
+                </div>);
+              })}
+            </Card>}
+          </div>);
+        })}
+        {/* Weekly summary for detail view */}
+        {detailAdherence&&detailAdherence.days.every(d=>d.isPast||d.isRest)&&detailAdherence.prescribed>0&&<Card style={{marginTop:12,marginBottom:4,padding:'14px 16px',borderColor:detailAdherence.adherence>=85?C.green+'30':detailAdherence.adherence>=60?C.yellow+'30':C.red+'30'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+            <div style={{width:28,height:28,borderRadius:8,background:detailAdherence.adherence>=85?C.green+'18':detailAdherence.adherence>=60?C.yellow+'18':C.red+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={detailAdherence.adherence>=85?'check':'alert'} size={14} color={detailAdherence.adherence>=85?C.green:detailAdherence.adherence>=60?C.yellow:C.red}/></div>
+            <div>
+              <div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.text}}>Week {dwk} Summary</div>
+              <div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>{detailAdherence.completed} completed · {detailAdherence.shortened} shortened · {detailAdherence.missed} missed</div>
+            </div>
+            <div style={{marginLeft:'auto',fontFamily:F.display,fontSize:24,fontWeight:700,color:detailAdherence.adherence>=85?C.green:detailAdherence.adherence>=60?C.yellow:C.red}}>{detailAdherence.adherence}%</div>
+          </div>
+          {Object.keys(detailAdherence.missedByType).length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {Object.entries(detailAdherence.missedByType).map(([sport,count])=><Pill key={sport} color={C.red} small>{SPORT_META[sport]?.label||sport}: {count} missed</Pill>)}
+          </div>}
         </Card>}
       </div>);
-    })}
-
-    {/* Weekly summary for past weeks */}
-    {weekAdherence&&weekAdherence.days.every(d=>d.isPast||d.isRest)&&weekAdherence.prescribed>0&&<Card style={{marginTop:12,marginBottom:4,padding:'14px 16px',borderColor:weekAdherence.adherence>=85?C.green+'30':weekAdherence.adherence>=60?C.yellow+'30':C.red+'30'}}>
-      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-        <div style={{width:28,height:28,borderRadius:8,background:weekAdherence.adherence>=85?C.green+'18':weekAdherence.adherence>=60?C.yellow+'18':C.red+'18',display:'flex',alignItems:'center',justifyContent:'center'}}><Icon name={weekAdherence.adherence>=85?'check':'alert'} size={14} color={weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red}/></div>
-        <div>
-          <div style={{fontFamily:F.ui,fontWeight:700,fontSize:14,color:C.text}}>Week {tp.currentWeek} Summary</div>
-          <div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:1}}>{weekAdherence.completed} completed · {weekAdherence.shortened} shortened · {weekAdherence.missed} missed</div>
-        </div>
-        <div style={{marginLeft:'auto',fontFamily:F.display,fontSize:24,fontWeight:700,color:weekAdherence.adherence>=85?C.green:weekAdherence.adherence>=60?C.yellow:C.red}}>{weekAdherence.adherence}%</div>
-      </div>
-      {Object.keys(weekAdherence.missedByType).length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-        {Object.entries(weekAdherence.missedByType).map(([sport,count])=><Pill key={sport} color={C.red} small>{SPORT_META[sport]?.label||sport}: {count} missed</Pill>)}
-      </div>}
-      {multiWeekPatterns.length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
-        {multiWeekPatterns.map((p,i)=><div key={i} style={{fontFamily:F.ui,fontSize:12,color:C.yellow,display:'flex',alignItems:'center',gap:6,marginTop:i>0?4:0}}><Icon name='alert' size={12} color={C.yellow}/>{p}</div>)}
-      </div>}
-    </Card>}
+    })()}
+    </>)}
 
     {/* Disruption shortcuts */}
     {onDisruption&&<div style={{marginTop:24}}>
@@ -2611,7 +2746,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
           const isPast=wk<tp.currentWeek;
           const isDeload=ph?.deloadWeek&&weekInPhase===ph.deloadWeek;
           const isGenerated=!!tp.weeklyPlans?.[String(wk)];
-          return (<div key={wk} style={{width:28,height:28,borderRadius:6,background:isCurrent?color:(isPast?color+'30':C.elevated),border:isDeload?`2px solid ${C.yellow}80`:`1.5px solid ${isCurrent?color:isPast?color+'20':'transparent'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',cursor:'default'}}>
+          return (<div key={wk} onClick={()=>setSelectedWeek(wk)} style={{width:28,height:28,borderRadius:6,background:isCurrent?color:(isPast?color+'30':C.elevated),border:isDeload?`2px solid ${C.yellow}80`:`1.5px solid ${isCurrent?color:isPast?color+'20':'transparent'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',cursor:'pointer'}}>
             <span style={{fontFamily:F.mono,fontSize:9,fontWeight:isCurrent?700:500,color:isCurrent?'#fff':(isPast?color:C.muted)}}>{wk}</span>
             {isGenerated&&!isCurrent&&<div style={{position:'absolute',top:-1,right:-1,width:7,height:7,borderRadius:'50%',background:C.green,border:`1.5px solid ${C.bg}`}}/>}
           </div>);
