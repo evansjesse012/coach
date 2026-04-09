@@ -5124,7 +5124,7 @@ export default function CoachApp() {
       // Process plan changes
       for(const pc of planChanges){
         if(pc.type==='plan'){setTrainingPlan(pc.data);db.set('coach_training_plan',pc.data);toast.success('Training plan created');}
-        if(pc.type==='week'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(pc.data.weekNumber)]:pc.data}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${pc.data.weekNumber} plan generated`);}
+        if(pc.type==='week'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...(prev.weeklyPlans||{}),[String(pc.data.weekNumber)]:pc.data}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${pc.data.weekNumber} plan generated`);}
         if(pc.type==='progress'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,currentWeek:pc.data.currentWeek,currentPhase:pc.data.currentPhase};db.set('coach_training_plan',u);return u;});}
       }
       // Process app actions
@@ -5162,7 +5162,7 @@ export default function CoachApp() {
         // Plan session edit
         if(target==='plan_session'&&action==='update'){
           const{weekNumber,dayIndex,sessionIndex,updates:sessionUpdates}=data;
-          setTrainingPlan(prev=>{if(!prev)return prev;const wp={...prev.weeklyPlans[String(weekNumber)]};const sessions=[...wp.sessions];const day={...sessions[dayIndex]};const daySessions=[...day.sessions];daySessions[sessionIndex]={...daySessions[sessionIndex],...sessionUpdates};day.sessions=daySessions;sessions[dayIndex]=day;wp.sessions=sessions;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});
+          setTrainingPlan(prev=>{if(!prev)return prev;const wpData=prev.weeklyPlans?.[String(weekNumber)];if(!wpData?.sessions)return prev;const wp={...wpData};const sessions=[...wp.sessions];if(!sessions[dayIndex]?.sessions)return prev;const day={...sessions[dayIndex]};const daySessions=[...day.sessions];daySessions[sessionIndex]={...daySessions[sessionIndex],...sessionUpdates};day.sessions=daySessions;sessions[dayIndex]=day;wp.sessions=sessions;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});
           toast.success('Session updated');
         }
         // Coaching memory
@@ -5242,7 +5242,7 @@ export default function CoachApp() {
       <div style={{padding:'20px 16px 0'}}>
         {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onPushAction={a=>{setTab('chat');setTimeout(()=>handleSend(a.message),100);}} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan} messages={messages} onSend={handleSend} chatLoading={loading} isStreaming={isStreaming} streamText={streamText}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)}/>}
-        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
+        {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...(prev.weeklyPlans||{}),[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
               // Archive plan before deleting
               const tp=trainingPlan;
               if(tp){
