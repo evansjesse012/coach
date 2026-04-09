@@ -951,9 +951,17 @@ async function extractMemory(messages, callAI) {
   try {
     const conv=messages.slice(-8).map(m=>{const content=Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join(''):m.content;return `${m.role==='user'?'Athlete':'Coach'}: ${content}`;}).filter(l=>l.length>10).join('\n\n');
     if (!conv.trim()) return;
-    const resp=await callAI({system:MEMORY_EXTRACTION_PROMPT,messages:[{role:'user',content:conv}],max_tokens:600});
+    const resp=await callAI({system:MEMORY_EXTRACTION_PROMPT,messages:[{role:'user',content:conv}],max_tokens:2048});
     const raw=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';
-    const merged = mergeMemory(loadMemory(), JSON.parse(raw.replace(/```json\n?|\n?```/g,'').trim()));
+    let cleaned=raw.replace(/```json\n?|\n?```/g,'').trim();
+    try{JSON.parse(cleaned);}catch{
+      let repaired=cleaned.replace(/,\s*"[^"]*"?\s*:?\s*[^}\]]*$/,'');
+      const opens=(repaired.match(/[{[]/g)||[]).length;
+      const closes=(repaired.match(/[}\]]/g)||[]).length;
+      for(let i=0;i<opens-closes;i++) repaired+= repaired.lastIndexOf('[')>repaired.lastIndexOf('{')?']':'}';
+      try{JSON.parse(repaired);cleaned=repaired;}catch{}
+    }
+    const merged = mergeMemory(loadMemory(), JSON.parse(cleaned));
     if (merged.conversationSummaries.length > 30) await compressSummaries(merged, callAI);
     saveMemory(merged);
   } catch {}
@@ -1372,7 +1380,7 @@ const Btn=({children,onClick,color,outline,style,disabled})=><button onClick={on
 const DotsLoader=({color})=><div style={{display:'flex',gap:5,padding:'4px 0'}}>{[0,1,2].map(n=><div key={n} style={{width:7,height:7,borderRadius:'50%',background:color||C.muted,animation:`blink 1.3s ease-in-out ${n*.22}s infinite`}}/>)}</div>;
 const Spinner=({color,size=16})=><div style={{width:size,height:size,borderRadius:'50%',border:`2px solid ${(color||C.accent)}30`,borderTop:`2px solid ${color||C.accent}`,animation:'spin .8s linear infinite'}}/>;
 const Textarea=({style,...props})=><textarea style={{background:C.elevated,border:`1.5px solid ${C.border}`,borderRadius:12,padding:'13px 16px',color:C.text,fontFamily:F.ui,fontSize:15,outline:'none',width:'100%',resize:'none',lineHeight:1.7,transition:'all .15s',...style}} onFocus={e=>{e.target.style.borderColor=C.accent;e.target.style.background=C.surface;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.background=C.elevated;}} {...props}/>;
-const Sheet=({children,onClose,title})=>(<div style={{position:'fixed',inset:0,background:'rgba(28,27,46,.35)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center',backdropFilter:'blur(3px)'}} onClick={onClose}><div onClick={e=>e.stopPropagation()} className="fade-up" style={{background:C.surface,borderRadius:'24px 24px 0 0',width:'100%',maxWidth:500,padding:'24px 20px 52px',maxHeight:'92vh',overflowY:'auto',boxShadow:'0 -4px 32px rgba(28,27,46,.12)'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}><div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-.01em'}}>{title}</div><button onClick={onClose} style={{width:32,height:32,borderRadius:10,background:C.elevated,border:'none',color:C.subtle,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button></div>{children}</div></div>);
+const Sheet=({children,onClose,title,maxHeight})=>(<div style={{position:'fixed',inset:0,background:'rgba(28,27,46,.35)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center',backdropFilter:'blur(3px)'}} onClick={onClose}><div onClick={e=>e.stopPropagation()} className="fade-up" style={{background:C.surface,borderRadius:'24px 24px 0 0',width:'100%',maxWidth:500,padding:'24px 20px 52px',maxHeight:maxHeight||'92vh',overflowY:'auto',boxShadow:'0 -4px 32px rgba(28,27,46,.12)',display:'flex',flexDirection:'column'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}><div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-.01em'}}>{title}</div><button onClick={onClose} style={{width:32,height:32,borderRadius:10,background:C.elevated,border:'none',color:C.subtle,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button></div>{children}</div></div>);
 
 // ─── Toggle ────────────────────────────────────────────────────────────────────
 function Toggle({ on, onToggle }) {
@@ -1456,7 +1464,7 @@ Today: ${new Date().toISOString().split('T')[0]}`;
     setMsgs(updated);setInput('');setLoading(true);
     const chain=chainRef.current.length?[...chainRef.current,{role:'user',content:text}]:[{role:'user',content:text}];
     try{
-      const resp=await callAI({system:profilePrompt,messages:chain,tools:TOOLS.filter(t=>t.name==='get_athlete_profile'),max_tokens:800});
+      const resp=await callAI({system:profilePrompt,messages:chain,tools:TOOLS.filter(t=>t.name==='get_athlete_profile'),max_tokens:1024});
       const textContent=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'';
       chainRef.current=[...chain,{role:'assistant',content:textContent}];
       setLoading(false);setIsStreaming(true);setStreamText('');
@@ -1465,14 +1473,24 @@ Today: ${new Date().toISOString().split('T')[0]}`;
       setIsStreaming(false);setStreamText('');
       // Extract and save to memory
       try{
-        const extract=await callAI({system:`Extract facts from this conversation into coaching memory JSON. Return ONLY JSON matching this structure (include only fields with new info, omit empty fields):
-{"permanent":{"equipment":[],"facilities":[],"schedule":{"availableDays":0,"preferredTimes":"","constraints":[]},"medicalHistory":[],"dietaryConstraints":[],"communicationPrefs":"","safetyRules":[]},"benchmarks":[],"injuries":[],"observations":{"patterns":[],"motivators":[],"consistency":"","currentFocus":"","openItems":[],"coachingNotes":[]},"responseProfile":{"volumeVsIntensity":"","recoveryRate":"","skipPatterns":[]}}
-If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.current.map(m=>`${m.role==='user'?'Athlete':'Coach'}: ${m.content}`).join('\n')}],max_tokens:600});
+        const extract=await callAI({system:MEMORY_EXTRACTION_PROMPT,messages:[{role:'user',content:chainRef.current.map(m=>`${m.role==='user'?'Athlete':'Coach'}: ${m.content}`).join('\n')}],max_tokens:4096});
         const raw=extract.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';
-        const parsed=JSON.parse(raw.replace(/```json\n?|\n?```/g,'').trim());
+        let cleaned=raw.replace(/```json\n?|\n?```/g,'').trim();
+        // Attempt to repair truncated JSON by closing open structures
+        try{JSON.parse(cleaned);}catch{
+          let repaired=cleaned;
+          // Strip trailing incomplete key/value
+          repaired=repaired.replace(/,\s*"[^"]*"?\s*:?\s*[^}\]]*$/,'');
+          // Close open brackets/braces
+          const opens=(repaired.match(/[{[]/g)||[]).length;
+          const closes=(repaired.match(/[}\]]/g)||[]).length;
+          for(let i=0;i<opens-closes;i++) repaired+= repaired.lastIndexOf('[')>repaired.lastIndexOf('{')?']':'}';
+          try{cleaned=repaired; JSON.parse(cleaned);}catch{ cleaned=raw.replace(/```json\n?|\n?```/g,'').trim(); }
+        }
+        const parsed=JSON.parse(cleaned);
         if(Object.keys(parsed).length>0){saveMemory(mergeMemory(loadMemory(),parsed));refreshMem();toast.success('Profile updated with new info');}
         else{toast.info('No new info to save — try sharing something specific');}
-      }catch{toast.info('Got it — your coach will remember this context');}
+      }catch(extractErr){console.error('Memory extraction failed:',extractErr);toast.info('Got it — your coach will remember this context');}
     }catch(err){setLoading(false);setIsStreaming(false);setMsgs(prev=>[...prev,{role:'assistant',content:`Something went wrong: ${err.message}`}]);}
   };
 
@@ -1493,13 +1511,13 @@ If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.cur
   const hasResponseProfile = !!(mem.responseProfile?.volumeVsIntensity||mem.responseProfile?.recoveryRate||mem.responseProfile?.skipPatterns?.length||mem.responseProfile?.communicationNeeds);
   const hasHistory = !!(mem.conversationSummaries?.length||mem.periodSummaries?.length);
 
-  return(<div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:'auto',maxWidth:500,margin:'0 auto'}}>
-    <div style={{background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`,padding:'16px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10}}>
+  return(<div className="slide-in" style={{position:'fixed',inset:0,background:C.bg,zIndex:100,overflowY:showChat?'hidden':'auto',maxWidth:500,margin:'0 auto'}}>
+    <div style={{background:C.bg+'F6',backdropFilter:'blur(20px)',borderBottom:`1px solid ${C.border}`,padding:'16px 20px',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:10,opacity:showChat?0.5:1,transition:'opacity .3s ease',pointerEvents:showChat?'none':'auto'}}>
       <button onClick={onClose} style={{borderRadius:12,background:C.elevated,border:`1.5px solid ${C.border}`,color:C.text,cursor:'pointer',display:'flex',alignItems:'center',gap:4,padding:'8px 14px 8px 10px',flexShrink:0}}><Icon name='arrowLeft' size={16}/><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600}}>Back</span></button>
       <div style={{fontFamily:F.display,fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-.01em'}}>Athlete Profile</div>
     </div>
 
-    <div style={{padding:'20px 16px 48px'}}>
+    <div style={{padding:'20px 16px 48px',opacity:showChat?0.5:1,transition:'opacity .3s ease',pointerEvents:showChat?'none':'auto'}}>
       <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,lineHeight:1.7,marginBottom:20}}>This is what your coach knows about you. The more you share, the better the coaching.</div>
 
       <Section icon="dumbbell" color={C.accent} title="Setup" empty="Tell your coach about your schedule, equipment, and preferences">
@@ -1569,9 +1587,9 @@ If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.cur
       <Btn onClick={()=>setShowChat(true)} color={C.accent} style={{width:'100%',padding:15,fontSize:16,marginTop:8}}>Tell your coach more</Btn>
     </div>
 
-    {showChat&&<Sheet onClose={()=>{setShowChat(false);refreshMem();}} title="Update your profile">
+    {showChat&&<Sheet onClose={()=>{setShowChat(false);refreshMem();}} title="Update your profile" maxHeight="50vh">
       <div style={{fontFamily:F.ui,fontSize:14,color:C.subtle,marginBottom:16,lineHeight:1.6}}>Share anything that would help your coach — schedule, equipment, injuries, preferences, goals.</div>
-      <div style={{maxHeight:'45vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+      <div style={{flex:1,minHeight:0,overflowY:'auto',display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
         {msgs.map((m,i)=>m.role==='user'
           ?<div key={i} className="fade-up" style={{alignSelf:'flex-end',background:C.accent,color:'#fff',borderRadius:'16px 16px 4px 16px',padding:'10px 14px',maxWidth:'85%',fontFamily:F.ui,fontSize:14,lineHeight:1.6}}>{m.content}</div>
           :<div key={i} className="fade-up" style={{fontFamily:F.ui,fontSize:14,color:C.text,lineHeight:1.75}}>{renderMd(m.content)}</div>
