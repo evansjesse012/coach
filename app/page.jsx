@@ -951,9 +951,17 @@ async function extractMemory(messages, callAI) {
   try {
     const conv=messages.slice(-8).map(m=>{const content=Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join(''):m.content;return `${m.role==='user'?'Athlete':'Coach'}: ${content}`;}).filter(l=>l.length>10).join('\n\n');
     if (!conv.trim()) return;
-    const resp=await callAI({system:MEMORY_EXTRACTION_PROMPT,messages:[{role:'user',content:conv}],max_tokens:600});
+    const resp=await callAI({system:MEMORY_EXTRACTION_PROMPT,messages:[{role:'user',content:conv}],max_tokens:2048});
     const raw=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';
-    const merged = mergeMemory(loadMemory(), JSON.parse(raw.replace(/```json\n?|\n?```/g,'').trim()));
+    let cleaned=raw.replace(/```json\n?|\n?```/g,'').trim();
+    try{JSON.parse(cleaned);}catch{
+      let repaired=cleaned.replace(/,\s*"[^"]*"?\s*:?\s*[^}\]]*$/,'');
+      const opens=(repaired.match(/[{[]/g)||[]).length;
+      const closes=(repaired.match(/[}\]]/g)||[]).length;
+      for(let i=0;i<opens-closes;i++) repaired+= repaired.lastIndexOf('[')>repaired.lastIndexOf('{')?']':'}';
+      try{JSON.parse(repaired);cleaned=repaired;}catch{}
+    }
+    const merged = mergeMemory(loadMemory(), JSON.parse(cleaned));
     if (merged.conversationSummaries.length > 30) await compressSummaries(merged, callAI);
     saveMemory(merged);
   } catch {}
@@ -1419,7 +1427,7 @@ Today: ${new Date().toISOString().split('T')[0]}`;
     setMsgs(updated);setInput('');setLoading(true);
     const chain=chainRef.current.length?[...chainRef.current,{role:'user',content:text}]:[{role:'user',content:text}];
     try{
-      const resp=await callAI({system:profilePrompt,messages:chain,tools:TOOLS.filter(t=>t.name==='get_athlete_profile'),max_tokens:800});
+      const resp=await callAI({system:profilePrompt,messages:chain,tools:TOOLS.filter(t=>t.name==='get_athlete_profile'),max_tokens:1024});
       const textContent=resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')?.trim()||'';
       chainRef.current=[...chain,{role:'assistant',content:textContent}];
       setLoading(false);setIsStreaming(true);setStreamText('');
@@ -1428,14 +1436,24 @@ Today: ${new Date().toISOString().split('T')[0]}`;
       setIsStreaming(false);setStreamText('');
       // Extract and save to memory
       try{
-        const extract=await callAI({system:`Extract facts from this conversation into coaching memory JSON. Return ONLY JSON matching this structure (include only fields with new info, omit empty fields):
-{"permanent":{"equipment":[],"facilities":[],"schedule":{"availableDays":0,"preferredTimes":"","constraints":[]},"medicalHistory":[],"dietaryConstraints":[],"communicationPrefs":"","safetyRules":[]},"benchmarks":[],"injuries":[],"observations":{"patterns":[],"motivators":[],"consistency":"","currentFocus":"","openItems":[],"coachingNotes":[]},"responseProfile":{"volumeVsIntensity":"","recoveryRate":"","skipPatterns":[]}}
-If no extractable facts, return {}.`,messages:[{role:'user',content:chainRef.current.map(m=>`${m.role==='user'?'Athlete':'Coach'}: ${m.content}`).join('\n')}],max_tokens:600});
+        const extract=await callAI({system:MEMORY_EXTRACTION_PROMPT,messages:[{role:'user',content:chainRef.current.map(m=>`${m.role==='user'?'Athlete':'Coach'}: ${m.content}`).join('\n')}],max_tokens:4096});
         const raw=extract.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'';
-        const parsed=JSON.parse(raw.replace(/```json\n?|\n?```/g,'').trim());
+        let cleaned=raw.replace(/```json\n?|\n?```/g,'').trim();
+        // Attempt to repair truncated JSON by closing open structures
+        try{JSON.parse(cleaned);}catch{
+          let repaired=cleaned;
+          // Strip trailing incomplete key/value
+          repaired=repaired.replace(/,\s*"[^"]*"?\s*:?\s*[^}\]]*$/,'');
+          // Close open brackets/braces
+          const opens=(repaired.match(/[{[]/g)||[]).length;
+          const closes=(repaired.match(/[}\]]/g)||[]).length;
+          for(let i=0;i<opens-closes;i++) repaired+= repaired.lastIndexOf('[')>repaired.lastIndexOf('{')?']':'}';
+          try{cleaned=repaired; JSON.parse(cleaned);}catch{ cleaned=raw.replace(/```json\n?|\n?```/g,'').trim(); }
+        }
+        const parsed=JSON.parse(cleaned);
         if(Object.keys(parsed).length>0){saveMemory(mergeMemory(loadMemory(),parsed));refreshMem();toast.success('Profile updated with new info');}
         else{toast.info('No new info to save — try sharing something specific');}
-      }catch{toast.info('Got it — your coach will remember this context');}
+      }catch(extractErr){console.error('Memory extraction failed:',extractErr);toast.info('Got it — your coach will remember this context');}
     }catch(err){setLoading(false);setIsStreaming(false);setMsgs(prev=>[...prev,{role:'assistant',content:`Something went wrong: ${err.message}`}]);}
   };
 
