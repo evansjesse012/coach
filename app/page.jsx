@@ -383,7 +383,9 @@ function computeWeekAdherence(tp, weekNum, cardio, strength) {
   if (!tp?.weeklyPlans) return null;
   const wp = tp.weeklyPlans[String(weekNum)];
   if (!wp) return null;
+  if (!tp.startDate) return null;
   const planStart = new Date(tp.startDate + 'T00:00:00');
+  if (isNaN(planStart.getTime())) return null;
   const weekMonday = new Date(planStart);
   weekMonday.setDate(weekMonday.getDate() + (weekNum - 1) * 7);
   // Adjust to Monday if startDate isn't Monday
@@ -2182,7 +2184,9 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
 
 // ─── Plan Tab Helpers ─────────────────────────────────────────────────────────
 function getWeekDateRange(tp, weekNum) {
+  if (!tp?.startDate) return { monday: new Date(), sunday: new Date(), label: '' };
   const planStart = new Date(tp.startDate + 'T00:00:00');
+  if (isNaN(planStart.getTime())) return { monday: new Date(), sunday: new Date(), label: '' };
   const weekMonday = new Date(planStart);
   weekMonday.setDate(weekMonday.getDate() + (weekNum - 1) * 7);
   const startDay = weekMonday.getDay();
@@ -2231,7 +2235,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const handleDiscard=()=>{setTracker(null);setActiveWO(null);};
 
   const handleSelectGoal=(e)=>{setSelectedGoal(e);setCreateStep('confirm');};
-  const handleWeekGenerated=(wp)=>{onWeekGenerated(wp);_planBuilderStartedAt=0;setPlanBuilder(null);};
+  const handleWeekGenerated=(wp)=>{onWeekGenerated(wp);if(planBuilder?.mode==='week'){_planBuilderStartedAt=0;setPlanBuilder(null);}};
 
   if(tracker)return (<div style={{paddingBottom:48}}><button onClick={()=>setTracker(null)} style={{background:'none',border:'none',color:C.muted,fontFamily:F.ui,fontSize:13,fontWeight:500,cursor:'pointer',marginBottom:16,padding:0,display:'flex',alignItems:'center',gap:4}}><Icon name='arrowLeft' size={14} color={C.muted}/> Back to plan</button><StrengthTracker workout={tracker} strengthHistory={strengthHistory} prs={prs} onSave={handleSave} onDiscard={handleDiscard} onSaveTemplate={onSaveTemplate} customExercises={customExercises}/></div>);
 
@@ -2327,6 +2331,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
 
   // Multi-week overview data
   const overviewWeeks=useMemo(()=>{
+    if(!tp?.currentWeek||!tp?.totalWeeks) return [];
     const startWk=tp.currentWeek;
     const endWk=Math.min(tp.totalWeeks,tp.currentWeek+3);
     const weeks=[];
