@@ -1017,6 +1017,87 @@ function parsePushActions(raw) {
   return { text, actions };
 }
 
+// ─── Coaching Insights System ─────────────────────────────────────────────────
+async function generateCoachingInsights(personality, customText, appState, callAI) {
+  try {
+    const result = await runAgentLoop({
+      personality, customText,
+      messages: [{
+        role: 'user',
+        content: `Generate coaching insight cards for my dashboard. Gather full context with these tools: get_training_plan(includePhaseDetail=true), get_workouts(sport="all", days=7), get_training_stats(weeks=4), get_goals(), get_week_review(includeMultiWeek=true), get_athlete_profile(), get_nutrition(days=3).
+
+Analyze everything and return coaching insight cards. ONLY include cards that are genuinely relevant right now — don't force cards if there's nothing meaningful to say.
+
+Return your response with INSIGHTS_JSON: followed by a JSON object on the same line or immediately after.
+
+INSIGHTS_JSON: {"cards":[...],"coachCues":{...}}
+
+CARD SCHEMA:
+{"type":"health_alert"|"motivation"|"progress"|"recovery","title":"Short title","content":"Detailed content with real data...","actions":[{"label":"Button","message":"response if tapped"}]}
+
+CARD TYPES — only include what's relevant:
+
+1. "health_alert" — ONLY if there are active/monitoring injuries or recent illness notes. Title should name the specific condition (e.g. "Knee Tendinitis Monitoring" or "Illness Monitoring Active"). Content: current status, what they trained through, what to watch for, when to scale back. Include actions asking about current symptoms.
+
+2. "motivation" — ALWAYS include exactly one. This is your main coaching commentary on recent performance. Reference SPECIFIC sessions by date, duration, pace, or weight. Discuss what they did well AND what's still missing. Be substantial — 4-6 sentences minimum. Make it feel like a real coach who watched every session.
+Style: ${getCommentaryStyle(personality, customText)}.
+
+3. "progress" — ONLY if there's a notable training pattern. Examples: exercise consistency gaps across weeks, improving/declining metrics, streak information, returning to exercises after a gap, skill areas that keep getting skipped. Title must be specific like "Nordic Curls Still Missing — Week 4" not generic like "Progress Update".
+
+4. "recovery" — ONLY if there's something genuinely actionable. Examples: high training load suggesting extra sleep, back-to-back intensity days, recent illness + training = need rest, nutrition gaps before key sessions. Include a specific, bold recommendation (e.g. "IN BED BY 10:00 PM Tonight"). Explain WHY with real data.
+
+COACH CUES — For each of today's prescribed sessions, provide a brief contextual note (1-2 sentences) explaining WHY this session matters in the bigger picture, what to focus on, or how it connects to their goals/race timeline. Key by the exact session label from the plan.
+Example: {"Long Run — Easy Z2 | 70 min": "70 min on tired legs builds durability. Note HR vs pace — this data informs your heat block."}
+
+RULES:
+- Maximum 4 cards total
+- Every claim must reference REAL data from the tools (specific dates, durations, paces, weights, exercise names)
+- Actions are optional — only include if you have a genuine question for the athlete
+- Coach cues for TODAY's sessions only
+- Don't repeat information across cards — each card covers a distinct concern
+- Mobile-concise but substantial`
+      }],
+      appState, callAI, maxRounds: 6
+    });
+    return parseInsightsResponse(result.response);
+  } catch { return { cards: [], coachCues: {} }; }
+}
+
+function parseInsightsResponse(raw) {
+  if (!raw) return { cards: [], coachCues: {} };
+  try {
+    const marker = raw.indexOf('INSIGHTS_JSON:');
+    let jsonStr = marker >= 0 ? raw.slice(marker + 14).trim() : '';
+    if (!jsonStr) {
+      // Try to find JSON object directly
+      const start = raw.indexOf('{"cards"');
+      if (start >= 0) {
+        let depth = 0; let end = start;
+        for (let i = start; i < raw.length; i++) {
+          if (raw[i] === '{') depth++;
+          else if (raw[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+        }
+        jsonStr = raw.slice(start, end);
+      }
+    }
+    jsonStr = jsonStr.replace(/^```json?\n?|\n?```$/g, '').trim();
+    const parsed = JSON.parse(jsonStr);
+    const cards = (parsed.cards || []).filter(c => c.type && c.content).slice(0, 4);
+    cards.forEach(c => {
+      if (!c.actions) c.actions = [];
+      c.actions = c.actions.filter(a => a.label && a.message).slice(0, 3);
+    });
+    return { cards, coachCues: parsed.coachCues || {} };
+  } catch {
+    // Fallback: treat entire response as a single motivation card
+    if (raw?.trim()) {
+      const p = parsePushActions(raw);
+      return { cards: [{ type: 'motivation', title: 'Coach Says', content: p.text, actions: p.actions }], coachCues: {} };
+    }
+    return { cards: [], coachCues: {} };
+  }
+}
+
 
 function typewriter(text, onUpdate) {
   return new Promise(resolve=>{
@@ -1700,7 +1781,7 @@ function SettingsPage({ personality, customPrompt, onPersonalityChange, onCustom
 }
 
 // ─── Today's Session Card ──────────────────────────────────────────────────────
-function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, trainingPlan }) {
+function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, trainingPlan, coachCues }) {
   const today=getDayName(); const td=todayStr();
   const todayC=cardio.filter(w=>w.date===td); const todayS=strength.filter(s=>s.date===td);
   const[showNotes,setShowNotes]=useState(null);
@@ -1780,6 +1861,8 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
                 </div>}
               </div>}
             </div>}
+            {/* Coach Cue for brick session */}
+            {!brickDone&&coachCues&&<div style={{padding:'4px 12px 8px'}}><CoachCueInline cue={coachCues[sess.label]||Object.entries(coachCues||{}).find(([k])=>sess.label?.includes(k)||k.includes(sess.label?.split(' — ')[0]))?.[1]}/></div>}
           </div>);
         }
         const sport=SPORT_META[sess.type]||SPORT_META.other;
@@ -1854,6 +1937,8 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
               </div>}
             </div>}
           </div>}
+          {/* ─── ZONE D: Coach Cue (from insights) ─── */}
+          {!done&&coachCues&&<CoachCueInline cue={coachCues[sess.label]||Object.entries(coachCues||{}).find(([k])=>sess.label?.includes(k)||k.includes(sess.label?.split(' — ')[0]))?.[1]}/>}
         </div>);
       })}</div>
     </Card>);
@@ -1935,6 +2020,8 @@ function TodaySessionCard({ plan, cardio, strength, onStartStrength, setTab, tra
             </div>}
           </div>}
         </div>}
+        {/* Coach Cue (fallback plan) */}
+        {!done&&coachCues&&<CoachCueInline cue={coachCues[sess.label]||Object.entries(coachCues||{}).find(([k])=>sess.label?.includes(k)||k.includes(sess.label?.split(' — ')[0]))?.[1]}/>}
       </div>);
     })}</div>
   </Card>);
@@ -1964,6 +2051,110 @@ function PushMessageCard({ message, actions, personality, loading, onRefresh, on
   </Card>);
 }
 
+// ─── Coaching Insight Cards ───────────────────────────────────────────────────
+function InsightCard({ card, personality, onAction }) {
+  const p = PERSONALITIES[personality] || PERSONALITIES.normal;
+  const isMotivation = card.type === 'motivation';
+  const isHealth = card.type === 'health_alert';
+  const isRecovery = card.type === 'recovery';
+  const isProgress = card.type === 'progress';
+
+  // Style per card type
+  const color = isMotivation ? p.color : C.yellow;
+  const icon = isMotivation ? p.icon : isHealth ? 'alert' : isRecovery ? 'rest' : 'chart';
+  const bgTint = color + (isMotivation ? '08' : '10');
+  const borderTint = color + (isHealth ? '50' : '30');
+
+  // Title with emoji prefix
+  const emoji = isHealth ? '\u26A0 ' : isMotivation ? (personality === 'goggins' ? '\uD83D\uDD25 ' : personality === 'hype' ? '\u26A1 ' : '') : isRecovery ? '\uD83D\uDE34 ' : '';
+  const titleText = card.title || (isMotivation ? `${p.name} Says` : isHealth ? 'Health Alert' : isRecovery ? 'Recovery' : 'Training Insight');
+
+  return (
+    <Card style={{marginBottom: 12, borderColor: borderTint, background: bgTint, position: 'relative', overflow: 'hidden'}}>
+      <div style={{position: 'absolute', bottom: -20, right: -20, width: 80, height: 80, borderRadius: '50%', background: color + '10', pointerEvents: 'none'}} />
+      <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10}}>
+        <div style={{width: 26, height: 26, borderRadius: 8, background: color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <Icon name={icon} size={14} color={color} />
+        </div>
+        <div style={{fontFamily: F.ui, fontWeight: 800, fontSize: 11, color: color, textTransform: 'uppercase', letterSpacing: '.08em'}}>
+          {emoji}{titleText}
+        </div>
+      </div>
+      <div style={{fontFamily: F.ui, fontSize: 14, color: C.text, lineHeight: 1.75, fontStyle: isMotivation ? 'italic' : 'normal'}}>
+        {renderMd(card.content)}
+      </div>
+      {card.actions?.length > 0 && (
+        <div style={{display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${color}20`}}>
+          {card.actions.map((a, i) => (
+            <button key={i} onClick={() => onAction?.(a)} style={{background: color + '12', border: `1.5px solid ${color}30`, borderRadius: 10, padding: '8px 14px', fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: color, cursor: 'pointer', transition: 'all .15s'}}
+              onMouseEnter={e => { e.currentTarget.style.background = color + '22'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = color + '12'; }}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function InsightCardsStack({ cards, coachCues, personality, loading, onRefresh, onAction, hasWorkouts }) {
+  const p = PERSONALITIES[personality] || PERSONALITIES.normal;
+  const defaultCards = personality === 'goggins'
+    ? [{ type: 'motivation', title: 'Goggins Says', content: "You haven't logged a single workout yet. The clock is ticking. Your race doesn't care about your excuses \u2014 it's coming whether you're ready or not. Add a goal above and get to work.", actions: [] }]
+    : [{ type: 'motivation', title: "Coach's Note", content: "Welcome to Coach. Add a goal above to generate your training plan, then log your first workout \u2014 I'll start tracking your progress and giving you real coaching feedback based on your actual training data.", actions: [] }];
+
+  const displayCards = cards.length > 0 ? cards : (!hasWorkouts ? defaultCards : []);
+
+  if (loading) {
+    return (
+      <Card style={{marginBottom: 12, borderColor: p.color + '25'}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12}}>
+          <div style={{width: 28, height: 28, borderRadius: 9, background: p.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><Icon name={p.icon} size={14} color={p.color}/></div>
+          <span style={{fontFamily: F.display, fontWeight: 700, fontSize: 14, color: p.color}}>Analyzing your training\u2026</span>
+        </div>
+        <DotsLoader color={p.color}/>
+        <div style={{fontFamily: F.ui, fontSize: 13, color: C.muted, marginTop: 8}}>Reviewing workouts, plan progress, and patterns\u2026</div>
+      </Card>
+    );
+  }
+
+  if (displayCards.length === 0) return null;
+
+  return (
+    <div>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6}}>
+        <Label style={{marginBottom: 0, fontSize: 11, color: C.muted}}>Coach Insights</Label>
+        {hasWorkouts && <button onClick={onRefresh} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontFamily: F.ui, fontSize: 12, fontWeight: 600, color: C.muted, display: 'flex', alignItems: 'center', gap: 4, transition: 'all .15s'}}
+          onMouseEnter={e => e.currentTarget.style.color = p.color}
+          onMouseLeave={e => e.currentTarget.style.color = C.muted}>
+          <span>\u21BB</span> Refresh
+        </button>}
+      </div>
+      {displayCards.map((card, i) => (
+        <InsightCard key={`${card.type}-${i}`} card={card} personality={personality} onAction={onAction} />
+      ))}
+    </div>
+  );
+}
+
+// ─── Inline Coach Cue ─────────────────────────────────────────────────────────
+function CoachCueInline({ cue }) {
+  if (!cue) return null;
+  return (
+    <div style={{padding: '8px 14px 12px', marginLeft: 48}}>
+      <div style={{padding: '8px 12px', background: C.purple + '08', borderRadius: 10, borderLeft: `3px solid ${C.purple}40`, display: 'flex', alignItems: 'flex-start', gap: 8}}>
+        <div style={{width: 20, height: 20, borderRadius: 6, background: C.purple + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1}}>
+          <Icon name='sparkle' size={11} color={C.purple}/>
+        </div>
+        <div>
+          <div style={{fontFamily: F.ui, fontWeight: 700, fontSize: 11, color: C.purple, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2}}>Coach Cue</div>
+          <div style={{fontFamily: F.ui, fontSize: 12, color: C.subtle, lineHeight: 1.6}}>{cue}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Strength Tracker ──────────────────────────────────────────────────────────
 function RestTimer({seconds,onDone}){const[rem,setRem]=useState(seconds);useEffect(()=>{if(rem<=0){onDone();return;}const t=setTimeout(()=>setRem(r=>r-1),1000);return()=>clearTimeout(t);},[rem]);const pct=(rem/seconds)*100;return(<div style={{background:C.elevated,borderRadius:12,padding:'10px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:14,boxShadow:S.sm}}><div style={{flex:1}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}><span style={{fontFamily:F.ui,fontSize:13,fontWeight:600,color:C.muted}}>Rest</span><span style={{fontFamily:F.display,fontSize:22,fontWeight:700,color:pct>33?C.cyan:C.yellow}}>{rem}s</span></div><div style={{height:4,background:C.border,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${pct}%`,background:`linear-gradient(90deg,${C.yellow},${C.cyan})`,borderRadius:4,transition:'width 1s linear'}}/></div></div><button onClick={onDone} style={{background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:10,padding:'6px 13px',color:C.subtle,fontFamily:F.ui,fontSize:12,fontWeight:600,cursor:'pointer',flexShrink:0}}>Skip</button></div>);}
@@ -4600,7 +4791,7 @@ function GoalsTab({events,onViewGoal,onAddEvent,onAddEventChat}){
 }
 
 // ─── Home Tab ──────────────────────────────────────────────────────────────────
-function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onPushAction,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan,messages,onSend,chatLoading,isStreaming,streamText}){
+function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onRefreshPush,onPushAction,onAddEvent,onAddEventChat,onViewGoal,onViewAllGoals,onLog,onChat,setTab,onStartStrength,plan,trainingPlan,messages,onSend,chatLoading,isStreaming,streamText,insights,insightsLoading,onRefreshInsights}){
   const[selectedWorkout,setSelectedWorkout]=useState(null);
   const[chatInput,setChatInput]=useState('');
   const chatBottomRef=useRef(null);
@@ -4637,8 +4828,8 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
         <button onClick={()=>setTab('plan')} style={{background:C.elevated,border:`1px solid ${C.border}`,borderRadius:8,padding:'5px 12px',fontFamily:F.ui,fontSize:11,fontWeight:600,color:C.accent,cursor:'pointer'}}>View plan →</button>
       </div>
     </Card>}
-    {(plan.length>0||trainingPlan?.weeklyPlans?.[String(trainingPlan?.currentWeek)])&&<TodaySessionCard plan={plan} cardio={cardio} strength={strength} onStartStrength={onStartStrength} setTab={setTab} trainingPlan={trainingPlan}/>}
-    <PushMessageCard message={pushMessage.text} actions={pushMessage.actions} personality={personality} loading={pushLoading} onRefresh={onRefreshPush} onAction={onPushAction} hasWorkouts={hasWorkouts}/>
+    {(plan.length>0||trainingPlan?.weeklyPlans?.[String(trainingPlan?.currentWeek)])&&<TodaySessionCard plan={plan} cardio={cardio} strength={strength} onStartStrength={onStartStrength} setTab={setTab} trainingPlan={trainingPlan} coachCues={insights?.coachCues}/>}
+    <InsightCardsStack cards={insights?.cards||[]} coachCues={insights?.coachCues||{}} personality={personality} loading={insightsLoading} onRefresh={onRefreshInsights} onAction={onPushAction} hasWorkouts={hasWorkouts}/>
     {/* Inline Chat Box */}
     <Card style={{marginBottom:16,padding:0,overflow:'hidden',borderColor:p.color+'25'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px 0'}}>
@@ -4738,6 +4929,8 @@ export default function CoachApp() {
   const [customPrompt, setCustomPrompt]= useState('');
   const [pushMessage,  setPushMsg]     = useState({ text: '', actions: [] });
   const [pushLoading,  setPushLoading] = useState(false);
+  const [insights,     setInsights]    = useState({ cards: [], coachCues: {} });
+  const [insightsLoading, setInsightsLoading] = useState(false);
   const [eventModal,   setEventModal]  = useState(null);
   const [goalDetail,   setGoalDetail]  = useState(null);
   const [goalChat,     setGoalChat]    = useState(false);
@@ -4748,6 +4941,8 @@ export default function CoachApp() {
   const [customExercises, setCustomExercises] = useState([]);
   const lastPushCount = useRef(0);
   const lastPushTime  = useRef(0);
+  const lastInsightsCount = useRef(0);
+  const lastInsightsTime  = useRef(0);
 
   // Inject styles once
   useEffect(()=>{
@@ -4794,6 +4989,8 @@ export default function CoachApp() {
     setPersonality(savedP); setCustomPrompt(savedC);
     const pm=db.get('coach_push_message',null);
     if(pm?.text){setPushMsg({text:pm.text,actions:pm.actions||[]});lastPushCount.current=pm.count||0;lastPushTime.current=pm.ts||0;}
+    const si=db.get('coach_insights',null);
+    if(si?.cards){setInsights({cards:si.cards,coachCues:si.coachCues||{}});lastInsightsCount.current=si.count||0;lastInsightsTime.current=si.ts||0;}
   },[]);
 
   const plan = useMemo(() => [], []);
@@ -4858,6 +5055,13 @@ export default function CoachApp() {
     if(total>0&&(total!==lastPushCount.current||stale)) refreshPushMessage();
   },[cardio.length,strengthH.length]);
 
+  // Auto-refresh coaching insights
+  useEffect(()=>{
+    const total=cardio.length+strengthH.length;
+    const stale=Date.now()-lastInsightsTime.current>8*60*60*1000;
+    if(total>0&&(total!==lastInsightsCount.current||stale)) refreshInsights();
+  },[cardio.length,strengthH.length]);
+
   // Version check — detect new deploys and prompt reload
   const[updateAvailable,setUpdateAvailable]=useState(false);
   useEffect(()=>{
@@ -4881,15 +5085,30 @@ export default function CoachApp() {
     finally{setPushLoading(false);}
   },[personality,customPrompt,getAppState,cardio.length,strengthH.length]);
 
+  const refreshInsights=useCallback(async(pers=null,custom=null)=>{
+    setInsightsLoading(true);
+    try{
+      const result=await generateCoachingInsights(pers||personality,custom!==null?custom:customPrompt,getAppState(),callAI);
+      if(result?.cards?.length>0){
+        setInsights(result);
+        const count=cardio.length+strengthH.length;
+        lastInsightsCount.current=count;lastInsightsTime.current=Date.now();
+        db.set('coach_insights',{...result,count,ts:Date.now()});
+      }
+    }catch{}
+    finally{setInsightsLoading(false);}
+  },[personality,customPrompt,getAppState,cardio.length,strengthH.length]);
+
   const handlePersonalityChange=useCallback(async p=>{
     setPersonality(p);db.set('coach_personality',p);
     refreshPushMessage(p,customPrompt);
-  },[customPrompt,refreshPushMessage]);
+    refreshInsights(p,customPrompt);
+  },[customPrompt,refreshPushMessage,refreshInsights]);
 
   const handleCustomPromptChange=useCallback(async text=>{
     setCustomPrompt(text);db.set('coach_custom_prompt',text);
-    if(personality==='custom') refreshPushMessage('custom',text);
-  },[personality,refreshPushMessage]);
+    if(personality==='custom'){refreshPushMessage('custom',text);refreshInsights('custom',text);}
+  },[personality,refreshPushMessage,refreshInsights]);
 
   const saveEvent=useCallback(ev=>{
     // Migrate existing racePlan to planSections if needed
@@ -5100,7 +5319,7 @@ export default function CoachApp() {
 
       {/* Content */}
       <div style={{padding:'20px 16px 0'}}>
-        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onPushAction={a=>{setTab('chat');setTimeout(()=>handleSend(a.message),100);}} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan} messages={messages} onSend={handleSend} chatLoading={loading} isStreaming={isStreaming} streamText={streamText}/>}
+        {tab==='home'&&<HomeTab events={events} cardio={cardio} strength={strengthH} pushMessage={pushMessage} pushLoading={pushLoading} personality={personality} onRefreshPush={refreshPushMessage} onPushAction={a=>{setTab('chat');setTimeout(()=>handleSend(a.message),100);}} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)} onViewGoal={e=>setGoalDetail(e)} onViewAllGoals={()=>setTab('goals')} onLog={()=>setTab('log')} onChat={()=>setTab('chat')} setTab={setTab} onStartStrength={sess=>{if(sess?.exercises){const wo={id:Date.now(),...sess,startTime:Date.now()};setActiveWO(wo);db.set('coach_active_workout',wo);}setTab('plan');}} plan={plan} trainingPlan={trainingPlan} messages={messages} onSend={handleSend} chatLoading={loading} isStreaming={isStreaming} streamText={streamText} insights={insights} insightsLoading={insightsLoading} onRefreshInsights={refreshInsights}/>}
         {tab==='goals'&&<GoalsTab events={events} onViewGoal={e=>setGoalDetail(e)} onAddEvent={()=>setEventModal('add')} onAddEventChat={()=>setGoalChat(true)}/>}
         {tab==='plan'&&<TrainingPlanTab events={events} cardio={cardio} strengthHistory={strengthH} prs={prs} onSaveStrength={saveStrength} activeWO={activeWO} setActiveWO={setActiveWO} trainingPlan={trainingPlan} onAddEvent={()=>setEventModal('add')} appState={getAppState()} onPlanCreated={plan=>{setTrainingPlan(plan);db.set('coach_training_plan',plan);toast.success('Training plan created');}} onWeekGenerated={wp=>{setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...prev.weeklyPlans,[String(wp.weekNumber)]:wp}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${wp.weekNumber} plan generated`);}} onDeletePlan={(reason,notes)=>{
               // Archive plan before deleting
