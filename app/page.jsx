@@ -5132,13 +5132,7 @@ export default function CoachApp() {
       const{response,workoutsLogged,nutritionLogged,planChanges,appActions}=await runAgentLoop({personality,customText:customPrompt,messages:withUser,appState,callAI,maxRounds:7});
       for(const w of workoutsLogged)addCardio(w);
       for(const m of nutritionLogged){setNutrition(prev=>{const u=[{...m,id:uid()},...prev].slice(0,200);db.set('coach_nutrition',u);return u;});}
-      // Process plan changes
-      for(const pc of planChanges){
-        if(pc.type==='plan'){setTrainingPlan(pc.data);db.set('coach_training_plan',pc.data);toast.success('Training plan created');}
-        if(pc.type==='week'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...(prev.weeklyPlans||{}),[String(pc.data.weekNumber)]:pc.data}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${pc.data.weekNumber} plan generated`);}
-        if(pc.type==='progress'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,currentWeek:pc.data.currentWeek,currentPhase:pc.data.currentPhase};db.set('coach_training_plan',u);return u;});}
-      }
-      // Process app actions
+      // Process app actions BEFORE plan changes so delete-then-create works correctly
       for(const act of appActions){
         const {action,target,id,data,updates,deleted}=act;
         // Workout edits
@@ -5204,6 +5198,12 @@ export default function CoachApp() {
           if(data?.sheet==='coach-chat')setShowCoachChat(true);
           if(data?.sheet==='goal-detail'&&data?.goalId){const ev=events.find(e=>e.id===data.goalId);if(ev)setGoalDetail(ev);}
         }
+      }
+      // Process plan changes after app actions so delete-then-create works
+      for(const pc of planChanges){
+        if(pc.type==='plan'){setTrainingPlan(pc.data);db.set('coach_training_plan',pc.data);toast.success('Training plan created');}
+        if(pc.type==='week'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,weeklyPlans:{...(prev.weeklyPlans||{}),[String(pc.data.weekNumber)]:pc.data}};db.set('coach_training_plan',u);return u;});toast.success(`Week ${pc.data.weekNumber} plan generated`);}
+        if(pc.type==='progress'){setTrainingPlan(prev=>{if(!prev)return prev;const u={...prev,currentWeek:pc.data.currentWeek,currentPhase:pc.data.currentPhase};db.set('coach_training_plan',u);return u;});}
       }
       setLoading(false);setIsStreaming(true);setStreamText('');
       await typewriter(response,chunk=>setStreamText(chunk));
