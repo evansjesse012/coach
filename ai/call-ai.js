@@ -1,0 +1,1 @@
+export async function callAI({system,messages,tools,tool_choice,max_tokens=1024}){const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system,messages,tools,tool_choice,max_tokens})});if(!res.ok)throw new Error(`API error ${res.status}`);const data=await res.json();if(data.error)throw new Error(data.error);return data;}

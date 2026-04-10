@@ -1,0 +1,7 @@
+import React, { useState, useCallback } from 'react';
+import { C, S, F } from '../lib/theme.js';
+import { uid } from '../lib/utils.js';
+
+let _addToast=null;
+export const toast={success:m=>_addToast?.(m,'success'),error:m=>_addToast?.(m,'error'),info:m=>_addToast?.(m,'info'),warn:m=>_addToast?.(m,'warn')};
+export function ToastManager(){const[toasts,setToasts]=useState([]);_addToast=useCallback((msg,type='success')=>{const id=uid();setToasts(p=>[...p.slice(-3),{id,msg,type}]);setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),2800);},[]);const meta={success:{color:C.green,icon:'✓'},error:{color:C.red,icon:'✕'},info:{color:C.cyan,icon:'ℹ'},warn:{color:C.yellow,icon:'!'}};return(<div style={{position:'fixed',top:100,left:'50%',transform:'translateX(-50%)',zIndex:9999,display:'flex',flexDirection:'column',gap:8,alignItems:'center',pointerEvents:'none',width:'calc(100% - 32px)',maxWidth:420}}>{toasts.map(t=>{const m=meta[t.type];return(<div key={t.id} style={{background:C.surface,borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:S.lg,animation:'toastIn .25s ease both',width:'100%',pointerEvents:'auto',border:`1.5px solid ${m.color}30`}}><div style={{width:26,height:26,borderRadius:8,background:m.color+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><span style={{color:m.color,fontSize:13,fontWeight:700}}>{m.icon}</span></div><span style={{fontFamily:F.ui,fontSize:14,color:C.text,fontWeight:500,lineHeight:1.4}}>{t.msg}</span></div>);})}</div>);}
