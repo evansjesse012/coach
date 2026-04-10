@@ -1348,6 +1348,7 @@ const fmtPR = pr => {
 const getDayName= () => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];
 function renderMd(text){
   if(!text)return null;
+  if(typeof text!=='string')text=String(text);
   const inlineBold=(str,keyPfx)=>{const parts=[];let last=0;const re=/\*\*(.+?)\*\*/g;let m;while((m=re.exec(str))!==null){if(m.index>last)parts.push(str.slice(last,m.index));parts.push(<strong key={`${keyPfx}-${m.index}`}>{m[1]}</strong>);last=re.lastIndex;}if(last<str.length)parts.push(str.slice(last));return parts.length?parts:str;};
   return text.split('\n').map((line,i)=>{
     if(!line.trim())return <div key={i} style={{height:8}}/>;
@@ -2287,7 +2288,7 @@ function TrainingPlanTab({events,cardio,strengthHistory,prs,onSaveStrength,activ
   const active=events.filter(e=>!e.completed);const plan=generateWeeklyPlan(events);const today=getDayName();
   const startStrength=sess=>{if(sess?.exercises)setTracker(sess);};
   const handleSave=(completedEx,dur,newPRs)=>{onSaveStrength(completedEx,dur,newPRs,tracker);setTracker(null);setActiveWO(null);};
-  const handleDiscard=()=>{setTracker(null);setActiveWO(null);};
+  const handleDiscard=()=>{setTracker(null);setActiveWO(null);db.set('coach_active_workout',null);};
 
   const handleSelectGoal=(e)=>{setSelectedGoal(e);setCreateStep('confirm');};
   const handleWeekGenerated=(wp)=>{onWeekGenerated(wp);if(planBuilder?.mode==='week'){_planBuilderStartedAt=0;setPlanBuilder(null);}};
@@ -4800,7 +4801,7 @@ function HomeTab({events,cardio,strength,pushMessage,pushLoading,personality,onR
         {recentMessages.length>0&&<button onClick={onChat} style={{background:'none',border:'none',fontFamily:F.ui,fontSize:12,fontWeight:600,color:C.accent,cursor:'pointer',padding:0}}>Full chat →</button>}
       </div>
       {recentMessages.length>0?<div style={{maxHeight:200,overflowY:'auto',display:'flex',flexDirection:'column',gap:6,padding:'10px 14px 4px'}}>
-        {recentMessages.map((m,i)=>(<div key={i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'82%',padding:'8px 12px',lineHeight:1.55,borderRadius:m.role==='user'?'14px 14px 4px 14px':'4px 14px 14px 14px',background:m.role==='user'?C.accent:C.elevated,fontFamily:F.ui,fontSize:13,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal'}}>{m.role==='assistant'?renderMd(m.content.length>120?m.content.slice(0,120)+'…':m.content):m.content}{m.logged&&<span style={{marginLeft:6,color:m.role==='user'?'#fff':C.green,fontSize:11,fontWeight:700}}>✓ Logged</span>}</div></div>))}
+        {recentMessages.map((m,i)=>(<div key={i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'82%',padding:'8px 12px',lineHeight:1.55,borderRadius:m.role==='user'?'14px 14px 4px 14px':'4px 14px 14px 14px',background:m.role==='user'?C.accent:C.elevated,fontFamily:F.ui,fontSize:13,color:m.role==='user'?'#fff':C.text,whiteSpace:m.role==='user'?'pre-wrap':'normal'}}>{m.role==='assistant'?renderMd((typeof m.content==='string'&&m.content.length>120)?m.content.slice(0,120)+'…':(typeof m.content==='string'?m.content:String(m.content||''))):m.content}{m.logged&&<span style={{marginLeft:6,color:m.role==='user'?'#fff':C.green,fontSize:11,fontWeight:700}}>✓ Logged</span>}</div></div>))}
         {isStreaming&&<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{maxWidth:'82%',padding:'8px 12px',lineHeight:1.55,borderRadius:'4px 14px 14px 14px',background:C.elevated,fontFamily:F.ui,fontSize:13,color:C.text}}>{streamText?renderMd(streamText.length>120?streamText.slice(0,120)+'…':streamText):<DotsLoader color={p.color}/>}</div></div>}
         {chatLoading&&!isStreaming&&<div style={{display:'flex'}}><div style={{padding:'8px 12px',borderRadius:'4px 14px 14px 14px',background:C.elevated}}><DotsLoader color={p.color}/></div></div>}
         <div ref={chatBottomRef}/>
