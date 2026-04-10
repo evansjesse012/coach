@@ -4,9 +4,9 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:#F5F4F0;color:#1C1B2E;-webkit-font-smoothing:antialiased}
+  html,body{-webkit-font-smoothing:antialiased}
   input,textarea,button,select{font-family:inherit}
-  ::-webkit-scrollbar{width:3px;height:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#D0CFE0;border-radius:4px}
+  ::-webkit-scrollbar{width:3px;height:3px}::-webkit-scrollbar-track{background:transparent}
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
   @keyframes slideInRight{from{opacity:0;transform:translateX(100%)}to{opacity:1;transform:translateX(0)}}
   @keyframes blink{0%,80%,100%{opacity:.2;transform:scale(.7)}40%{opacity:1;transform:scale(1)}}
@@ -44,8 +44,9 @@ const DARK_S = {
   lg:'0 8px 32px rgba(0,0,0,.5)',
   card:'0 0 0 1px rgba(255,255,255,.05)',
 };
-const C = { ...LIGHT_C };
-const S = { ...LIGHT_S };
+const _initDark = (() => { try { return JSON.parse(localStorage.getItem('coach_dark_mode')) === true; } catch { return false; } })();
+const C = { ...(_initDark ? DARK_C : LIGHT_C) };
+const S = { ...(_initDark ? DARK_S : LIGHT_S) };
 const F = { display:"'Outfit',sans-serif", ui:"'DM Sans',sans-serif", mono:"'JetBrains Mono',monospace" };
 
 // ─── Icons (SVG) ──────────────────────────────────────────────────────────────
@@ -4914,9 +4915,17 @@ export default function CoachApp() {
 
   // Apply document-level styles after render (DOM side effects)
   useEffect(()=>{
-    document.body.style.background  = isDark ? DARK_C.bg : LIGHT_C.bg;
-    document.body.style.color       = isDark ? DARK_C.text : LIGHT_C.text;
+    const bg = isDark ? DARK_C.bg : LIGHT_C.bg;
+    const text = isDark ? DARK_C.text : LIGHT_C.text;
+    document.documentElement.style.background = bg;
+    document.documentElement.style.color      = text;
+    document.body.style.background  = bg;
+    document.body.style.color       = text;
     document.body.style.colorScheme = isDark ? 'dark' : 'light';
+    // Update scrollbar thumb color dynamically
+    let el = document.getElementById('coach-theme-scrollbar');
+    if (!el) { el = document.createElement('style'); el.id = 'coach-theme-scrollbar'; document.head.appendChild(el); }
+    el.textContent = `::-webkit-scrollbar-thumb{background:${isDark ? '#363658' : '#D0CFE0'};border-radius:4px}`;
   },[isDark]);
 
   // Load persisted data
