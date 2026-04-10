@@ -922,6 +922,7 @@ async function runAgentLoop({ personality, customText, messages, appState, callA
       if (!toolUses.length) return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'',workoutsLogged,nutritionLogged,planChanges,appActions,toolCallCount};
       const toolResults=toolUses.map(tu=>{toolCallCount++;let input;try{input=typeof tu.input==='string'?JSON.parse(tu.input):tu.input;}catch{input={};}const result=executeTool(tu.name,input,appState);if(tu.name==='log_workout'){try{const p=JSON.parse(result);if(p.logged&&p.workout)workoutsLogged.push(p.workout);}catch{}}if(tu.name==='log_nutrition'){try{const p=JSON.parse(result);if(p.logged&&p.nutrition)nutritionLogged.push(p.nutrition);}catch{}}if(tu.name==='save_training_plan'){try{const p=JSON.parse(result);if(p.saved&&p.plan)planChanges.push({type:'plan',data:p.plan});}catch{}}if(tu.name==='save_weekly_plan'){try{const p=JSON.parse(result);if(p.saved&&p.weekPlan)planChanges.push({type:'week',data:p.weekPlan});}catch{}}if(tu.name==='update_plan_progress'){try{const p=JSON.parse(result);if(p.updated)planChanges.push({type:'progress',data:{currentWeek:p.currentWeek,currentPhase:p.currentPhase}});}catch{}}if(tu.name==='app_action'){try{const p=JSON.parse(result);if(p.success)appActions.push(p);}catch{}}return{type:'tool_result',tool_use_id:tu.id,content:result};});
       chain=[...chain,{role:'assistant',content:resp.content},{role:'user',content:toolResults}];
+      await new Promise(r=>setTimeout(r,300));
       continue;
     }
     return {response:resp.content?.filter(b=>b.type==='text')?.map(b=>b.text)?.join('')||'Done.',workoutsLogged,nutritionLogged,planChanges,appActions,toolCallCount};
@@ -1371,7 +1372,15 @@ let _confirm=null;
 const confirmDialog=(msg,sub)=>new Promise(r=>_confirm?.(msg,sub,r));
 function ConfirmManager(){const[state,setState]=useState(null);_confirm=useCallback((msg,sub,resolve)=>setState({msg,sub,resolve}),[]);if(!state)return null;const respond=yes=>{state.resolve(yes);setState(null);};return(<div style={{position:'fixed',inset:0,background:'rgba(28,27,46,.4)',zIndex:8000,display:'flex',alignItems:'center',justifyContent:'center',padding:24,backdropFilter:'blur(4px)'}}><div className="fade-up" style={{background:C.surface,borderRadius:20,padding:28,width:'100%',maxWidth:320,boxShadow:S.lg}}><div style={{fontFamily:F.display,fontSize:20,fontWeight:700,color:C.text,marginBottom:state.sub?10:24}}>{state.msg}</div>{state.sub&&<div style={{fontFamily:F.ui,fontSize:15,color:C.subtle,marginBottom:24,lineHeight:1.65}}>{state.sub}</div>}<div style={{display:'flex',gap:10}}><button onClick={()=>respond(false)} style={{flex:1,padding:13,background:C.elevated,border:'none',borderRadius:12,color:C.subtle,fontFamily:F.display,fontSize:15,fontWeight:600,cursor:'pointer'}}>Cancel</button><button onClick={()=>respond(true)} style={{flex:1,padding:13,background:C.red,border:'none',borderRadius:12,color:'#fff',fontFamily:F.display,fontSize:15,fontWeight:600,cursor:'pointer'}}>Confirm</button></div></div></div>);}
 
-async function callAI({system,messages,tools,tool_choice,max_tokens=1024}){const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system,messages,tools,tool_choice,max_tokens})});if(!res.ok)throw new Error(`API error ${res.status}`);const data=await res.json();if(data.error)throw new Error(data.error);return data;}
+async function callAI({system,messages,tools,tool_choice,max_tokens=1024}){
+  for(let attempt=0;attempt<=2;attempt++){
+    const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system,messages,tools,tool_choice,max_tokens})});
+    if(res.ok){const data=await res.json();if(data.error)throw new Error(data.error);return data;}
+    if(res.status===429&&attempt<2){const ra=res.headers.get('retry-after');const wait=ra?parseFloat(ra)*1000:2000*Math.pow(2,attempt)+Math.random()*1000;await new Promise(r=>setTimeout(r,wait));continue;}
+    if(res.status===429)throw new Error('Rate limited — the AI is busy. Please wait a moment and try again.');
+    throw new Error(`API error ${res.status}`);
+  }
+}
 
 // ─── Shared UI ─────────────────────────────────────────────────────────────────
 const Card=({children,style,onClick,accent})=>(<div onClick={onClick} style={{background:accent?accent+'08':C.card,border:`1.5px solid ${accent?accent+'30':C.border}`,borderRadius:16,padding:'16px 18px',cursor:onClick?'pointer':'default',transition:'all .18s',boxShadow:S.card,overflow:'hidden',...style}} onMouseEnter={e=>{if(onClick){e.currentTarget.style.boxShadow=S.md;e.currentTarget.style.transform='translateY(-1px)';e.currentTarget.style.borderColor=accent?accent+'55':C.borderBright;}}} onMouseLeave={e=>{if(onClick){e.currentTarget.style.boxShadow=S.card;e.currentTarget.style.transform='none';e.currentTarget.style.borderColor=accent?accent+'30':C.border;}}}>{children}</div>);
@@ -2150,6 +2159,7 @@ function PlanBuilderSheet({goal,mode,appState,onPlanCreated,onWeekGenerated,onCl
             setMsgs(prev=>[...prev,{role:'assistant',content:textContent}]);
             setIsStreaming(false);setStreamText('');
           }
+          await new Promise(r=>setTimeout(r,300));
           continue;
         }
         break;
@@ -3874,6 +3884,7 @@ function GoalChatSheet({appState,onSave,onClose}){
           if(toolUses.some(tu=>tu.name==='propose_event')){
             chainRef.current=chain;setLoading(false);return;
           }
+          await new Promise(r=>setTimeout(r,300));
           continue;
         }
         break;
@@ -5201,12 +5212,13 @@ export default function CoachApp() {
       setIsStreaming(false);setStreamText('');
       for(const w of workoutsLogged){const s=SPORT_META[w.sport]||SPORT_META.other;toast.success(`${s.label} logged — ${fmtDur(w.duration)}`);}
       for(const m of nutritionLogged){toast.success(`Nutrition logged — ${m.timing} training`);}
-      extractMemory(final.slice(-8),callAI);
+      setTimeout(()=>extractMemory(final.slice(-8),callAI),2000);
     }catch(err){
       setLoading(false);setIsStreaming(false);setStreamText('');
-      const errMsg={role:'assistant',content:`Something went wrong: ${err.message}`,isError:true};
+      const isRateLimit=err.message.toLowerCase().includes('rate limit');
+      const errMsg={role:'assistant',content:isRateLimit?'I\'m getting rate limited right now. Please wait about 30 seconds and try again.':`Something went wrong: ${err.message}`,isError:true};
       setMessages(prev=>[...prev,errMsg]);db.set('coach_messages',[...messages,userMsg].slice(-60));
-      toast.error('Message failed — check connection');
+      toast.error(isRateLimit?'Rate limited — wait a moment and retry':'Message failed — check connection');
     }
   },[messages,personality,customPrompt,getAppState,addCardio,trainingPlan,cardio,strengthH,events,goalDetail]);
 
