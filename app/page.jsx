@@ -4817,7 +4817,7 @@ function CoachChatSheet({messages,onSend,loading,isStreaming,streamText,personal
   const p=PERSONALITIES[personality]||PERSONALITIES.normal;
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[messages,loading,streamText]);
   useEffect(()=>{const t=setTimeout(()=>inputRef.current?.focus(),100);return()=>clearTimeout(t);},[]);
-  const send=()=>{const t=input.trim();if(!t||loading||isStreaming)return;onSend(t);setInput('');inputRef.current?.focus();};
+  const send=()=>{const t=input.trim();if(!t||loading||isStreaming)return;onSend(t);setInput('');if(inputRef.current)inputRef.current.style.height='auto';inputRef.current?.focus();};
   const suggestions=["I just ran 45 min easy at 10:30/mi","How am I doing this week?","What should I focus on?","Finished a 90 min Zone 2 ride"];
   const isDisabled=loading||isStreaming||!input.trim();
   return(<Sheet onClose={onClose} title="Coach">
@@ -4828,9 +4828,9 @@ function CoachChatSheet({messages,onSend,loading,isStreaming,streamText,personal
       {loading&&!isStreaming&&<div className="fade-up" style={{display:'flex'}}><div style={{padding:'14px 18px',borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,border:`1.5px solid ${C.border}`}}><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:6}}>Reviewing your training…</div></div></div>}
       <div ref={bottomRef}/>
     </div>
-    <div style={{display:'flex',gap:8}}>
-      <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(),send())} placeholder="Talk to your coach…" style={{flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:'14px 18px',color:C.text,fontFamily:F.ui,fontSize:15,outline:'none',transition:'all .15s',boxShadow:S.sm}} onFocus={e=>{e.target.style.borderColor=C.accent;e.target.style.boxShadow=S.md;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow=S.sm;}}/>
-      <button onClick={send} disabled={isDisabled} style={{width:52,background:isDisabled?C.elevated:C.accent,border:'none',borderRadius:16,cursor:isDisabled?'not-allowed':'pointer',fontSize:20,color:isDisabled?C.muted:'#fff',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s',boxShadow:!isDisabled?S.sm:'none'}}>↑</button>
+    <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+      <textarea ref={inputRef} value={input} onChange={e=>{setInput(e.target.value);e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px';}} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(),send())} placeholder="Talk to your coach…" rows={1} style={{flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:'14px 18px',color:C.text,fontFamily:F.ui,fontSize:15,outline:'none',transition:'border-color .15s, box-shadow .15s',boxShadow:S.sm,resize:'none',lineHeight:1.5,maxHeight:150,overflowY:'auto',boxSizing:'border-box'}} onFocus={e=>{e.target.style.borderColor=C.accent;e.target.style.boxShadow=S.md;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow=S.sm;}}/>
+      <button onClick={send} disabled={isDisabled} style={{width:52,height:52,background:isDisabled?C.elevated:C.accent,border:'none',borderRadius:16,cursor:isDisabled?'not-allowed':'pointer',fontSize:20,color:isDisabled?C.muted:'#fff',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s',boxShadow:!isDisabled?S.sm:'none'}}>↑</button>
     </div>
   </Sheet>);
 }
@@ -4840,7 +4840,7 @@ function ChatTab({messages,onSend,loading,isStreaming,streamText,personality}){
   const[input,setInput]=useState('');const bottomRef=useRef(null);const inputRef=useRef(null);
   const p=PERSONALITIES[personality]||PERSONALITIES.normal;
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[messages,loading,streamText]);
-  const send=()=>{const t=input.trim();if(!t||loading||isStreaming)return;onSend(t);setInput('');inputRef.current?.focus();};
+  const send=()=>{const t=input.trim();if(!t||loading||isStreaming)return;onSend(t);setInput('');if(inputRef.current)inputRef.current.style.height='auto';inputRef.current?.focus();};
   const suggestions=["I just ran 45 min easy at 10:30/mi","Finished a 90 min Zone 2 ride","How am I doing this week?","What should I focus on?"];
   const isDisabled=loading||isStreaming||!input.trim();
   return(<div style={{display:'flex',flexDirection:'column',height:'calc(100svh - 180px)',minHeight:400}}>
@@ -4851,9 +4851,9 @@ function ChatTab({messages,onSend,loading,isStreaming,streamText,personality}){
       {loading&&!isStreaming&&<div className="fade-up" style={{display:'flex'}}><div style={{padding:'14px 18px',borderRadius:'6px 20px 20px 20px',background:C.surface,boxShadow:S.card,border:`1.5px solid ${C.border}`}}><DotsLoader color={p.color}/><div style={{fontFamily:F.ui,fontSize:12,color:C.muted,marginTop:6}}>Reviewing your training…</div></div></div>}
       <div ref={bottomRef}/>
     </div>
-    <div style={{paddingTop:12,display:'flex',gap:8}}>
-      <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(),send())} placeholder="Talk to your coach…" style={{flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:'14px 18px',color:C.text,fontFamily:F.ui,fontSize:15,outline:'none',transition:'all .15s',boxShadow:S.sm}} onFocus={e=>{e.target.style.borderColor=C.accent;e.target.style.boxShadow=S.md;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow=S.sm;}}/>
-      <button onClick={send} disabled={isDisabled} style={{width:52,background:isDisabled?C.elevated:C.accent,border:'none',borderRadius:16,cursor:isDisabled?'not-allowed':'pointer',fontSize:20,color:isDisabled?C.muted:'#fff',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s',boxShadow:!isDisabled?S.sm:'none'}}>↑</button>
+    <div style={{paddingTop:12,display:'flex',gap:8,alignItems:'flex-end'}}>
+      <textarea ref={inputRef} value={input} onChange={e=>{setInput(e.target.value);e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px';}} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(),send())} placeholder="Talk to your coach…" rows={1} style={{flex:1,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:16,padding:'14px 18px',color:C.text,fontFamily:F.ui,fontSize:15,outline:'none',transition:'border-color .15s, box-shadow .15s',boxShadow:S.sm,resize:'none',lineHeight:1.5,maxHeight:150,overflowY:'auto',boxSizing:'border-box'}} onFocus={e=>{e.target.style.borderColor=C.accent;e.target.style.boxShadow=S.md;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow=S.sm;}}/>
+      <button onClick={send} disabled={isDisabled} style={{width:52,height:52,background:isDisabled?C.elevated:C.accent,border:'none',borderRadius:16,cursor:isDisabled?'not-allowed':'pointer',fontSize:20,color:isDisabled?C.muted:'#fff',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s',boxShadow:!isDisabled?S.sm:'none'}}>↑</button>
     </div>
   </div>);}
 
