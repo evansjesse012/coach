@@ -10,10 +10,9 @@ final class SupabaseService {
     let client: SupabaseClient
 
     private init() {
-        // TODO: Replace with your Supabase project URL and anon key
         // These are safe to embed in the app — RLS protects the data
-        let supabaseURL = URL(string: "https://YOUR_PROJECT.supabase.co")!
-        let supabaseAnonKey = "YOUR_ANON_KEY"
+        let supabaseURL = URL(string: "https://pfbcsdkbrjdwvrckcnbg.supabase.co")!
+        let supabaseAnonKey = "sb_publishable_83nhtrTXoM1SvHMrV9BvMA_zIK7rkh0"
 
         client = SupabaseClient(
             supabaseURL: supabaseURL,
