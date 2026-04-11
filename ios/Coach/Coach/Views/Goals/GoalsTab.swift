@@ -1,0 +1,161 @@
+import SwiftUI
+
+struct GoalsTab: View {
+    @Environment(DataService.self) var data
+    @State private var showCreateSheet = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Active goals
+                    let active = data.events.filter { !$0.completed }
+                    if !active.isEmpty {
+                        CoachLabel(text: "Active Goals")
+                        ForEach(active) { event in
+                            GoalCard(event: event)
+                        }
+                    }
+
+                    // Completed goals
+                    let completed = data.events.filter(\.completed)
+                    if !completed.isEmpty {
+                        CoachLabel(text: "Completed")
+                        ForEach(completed) { event in
+                            GoalCard(event: event)
+                        }
+                    }
+
+                    if data.events.isEmpty {
+                        ContentUnavailableView(
+                            "No Goals Yet",
+                            systemImage: "target",
+                            description: Text("Add a race or training goal to get started.")
+                        )
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Goals")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showCreateSheet = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(CoachColors.accent)
+                    }
+                }
+            }
+            .sheet(isPresented: $showCreateSheet) {
+                GoalFormSheet(isPresented: $showCreateSheet)
+            }
+        }
+    }
+}
+
+// MARK: - Goal Card
+
+private struct GoalCard: View {
+    let event: Event
+
+    var body: some View {
+        CoachCard {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(event.name)
+                            .font(CoachFonts.ui(15, weight: .semibold))
+                        if event.completed {
+                            CoachPill(text: "Done", color: CoachColors.green)
+                        }
+                    }
+                    if let date = event.date {
+                        Text(formatDateShort(date))
+                            .font(CoachFonts.ui(13))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let goal = event.goal, !goal.isEmpty {
+                        Text("Goal: \(goal)")
+                            .font(CoachFonts.ui(13))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if let date = event.date, !event.completed, let days = daysUntil(date), days >= 0 {
+                    Text("\(days)d")
+                        .font(CoachFonts.mono(16, weight: .medium))
+                        .foregroundStyle(CoachColors.accent)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Goal Form (placeholder)
+
+struct GoalFormSheet: View {
+    @Binding var isPresented: Bool
+    @Environment(DataService.self) var data
+    @State private var name = ""
+    @State private var selectedPreset: EventPreset?
+    @State private var date = ""
+    @State private var location = ""
+    @State private var goal = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Event Type") {
+                    ForEach(EventPreset.all) { preset in
+                        Button {
+                            selectedPreset = preset
+                            if name.isEmpty { name = preset.name }
+                        } label: {
+                            HStack {
+                                Image(systemName: preset.icon)
+                                Text(preset.name)
+                                Spacer()
+                                if selectedPreset?.id == preset.id {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(CoachColors.accent)
+                                }
+                            }
+                        }
+                        .tint(.primary)
+                    }
+                }
+                Section("Details") {
+                    TextField("Name", text: $name)
+                    TextField("Date (YYYY-MM-DD)", text: $date)
+                    TextField("Location", text: $location)
+                    TextField("Goal time", text: $goal)
+                }
+            }
+            .navigationTitle("New Goal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isPresented = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        var event = Event.create(
+                            presetId: selectedPreset?.id ?? "custom",
+                            name: name,
+                            mode: selectedPreset?.defaultMode ?? .goal
+                        )
+                        event.date = date.isEmpty ? nil : date
+                        event.location = location.isEmpty ? nil : location
+                        event.goal = goal.isEmpty ? nil : goal
+                        Task {
+                            try? await data.addEvent(event)
+                            isPresented = false
+                        }
+                    }
+                    .disabled(name.isEmpty)
+                }
+            }
+        }
+    }
+}
