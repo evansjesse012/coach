@@ -1,4 +1,36 @@
-node_modules/
-.next/
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+
+# CocoaPods
+Pods/
+
+# Supabase
+.supabase/
+
+# Environment
+.env
 .env.local
-package-lock.json
+.env.*.local
+
+# macOS
+.DS_Store
+*.swp
+*~
