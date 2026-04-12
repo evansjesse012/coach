@@ -115,8 +115,11 @@ struct PrescribedSession: Codable, Identifiable {
     var type: String       // sport name or "strength" or "brick"
     var label: String
     var duration: Int?
+    var estimatedDurationMin: Int?
+    var estimatedDurationMax: Int?
     var distanceMiles: Double?
     var effortCategory: EffortCategory?
+    var completed: Bool?
     var zone: String?
     var targetIntensity: String?
     var purpose: String?
@@ -131,8 +134,11 @@ struct PrescribedSession: Codable, Identifiable {
     // Legacy keys stay in camelCase for backward compat with existing JSONB.
     enum CodingKeys: String, CodingKey {
         case type, label, duration
+        case estimatedDurationMin = "estimated_duration_min"
+        case estimatedDurationMax = "estimated_duration_max"
         case distanceMiles = "distance_miles"
         case effortCategory = "effort_category"
+        case completed
         case zone
         case targetIntensity
         case purpose, workout, fuel, priority, notes, exercises, legs

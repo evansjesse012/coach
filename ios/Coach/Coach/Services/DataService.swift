@@ -125,6 +125,22 @@ final class DataService {
         try await client.from("training_plans").upsert(plan).execute()
     }
 
+    /// Toggles the explicit `completed` flag on a single prescribed session and persists the plan.
+    func toggleSessionCompleted(weekNum: Int, dayIdx: Int, sessionIdx: Int) async throws {
+        guard var plan = trainingPlan else { return }
+        let key = String(weekNum)
+        guard var wp = plan.weeklyPlans[key],
+              dayIdx >= 0, dayIdx < wp.sessions.count else { return }
+        var dayPlan = wp.sessions[dayIdx]
+        guard sessionIdx >= 0, sessionIdx < dayPlan.sessions.count else { return }
+        var session = dayPlan.sessions[sessionIdx]
+        session.completed = !(session.completed ?? false)
+        dayPlan.sessions[sessionIdx] = session
+        wp.sessions[dayIdx] = dayPlan
+        plan.weeklyPlans[key] = wp
+        try await savePlan(plan)
+    }
+
     func deletePlan(_ id: String, archiveTo history: PlanHistory) async throws {
         trainingPlan = nil
         planHistory.append(history)

@@ -7,40 +7,13 @@ struct PlanTab: View {
         NavigationStack {
             ScrollView {
                 if let plan = data.trainingPlan {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Race header
-                        CoachCard(accentColor: CoachColors.accent) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(plan.raceName ?? "Training Plan")
-                                    .font(CoachFonts.display(18, weight: .bold))
-                                HStack(spacing: 12) {
-                                    if let raceDate = plan.raceDate {
-                                        Label(formatDateShort(raceDate), systemImage: "calendar")
-                                            .font(CoachFonts.ui(13))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text("Week \(plan.currentWeek)/\(plan.totalWeeks)")
-                                        .font(CoachFonts.mono(13))
-                                        .foregroundStyle(CoachColors.accent)
-                                }
-                            }
-                        }
+                    VStack(alignment: .leading, spacing: 24) {
+                        // Goal header
+                        GoalHeader(plan: plan)
 
-                        // Weekly cards
-                        let weekNums = plan.weeklyPlans.keys.compactMap(Int.init).sorted()
-                        ForEach(weekNums, id: \.self) { num in
-                            if let wp = plan.weeklyPlans[String(num)] {
-                                WeekCard(
-                                    plan: plan,
-                                    weeklyPlan: wp,
-                                    adherence: computeWeekAdherence(
-                                        plan: plan,
-                                        weekNum: num,
-                                        cardio: data.cardio,
-                                        strength: data.strength
-                                    )
-                                )
-                            }
+                        // Period sections with nested week cards
+                        ForEach(plan.phases) { phase in
+                            PeriodSection(plan: plan, phase: phase)
                         }
                     }
                     .padding()
@@ -58,12 +31,103 @@ struct PlanTab: View {
     }
 }
 
+// MARK: - Goal Header
+
+private struct GoalHeader: View {
+    let plan: TrainingPlan
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("YOUR GOAL")
+                .font(CoachFonts.ui(11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .tracking(0.8)
+            Text(plan.raceName ?? "Training Plan")
+                .font(CoachFonts.display(24, weight: .bold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+            if let raceDate = plan.raceDate {
+                Text(formatDateLong(raceDate))
+                    .font(CoachFonts.ui(15, weight: .medium))
+                    .foregroundStyle(CoachColors.accent)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [CoachColors.accent.opacity(0.15), CoachColors.accent.opacity(0.04)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(CoachColors.accent.opacity(0.3), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Period Section
+
+private struct PeriodSection: View {
+    let plan: TrainingPlan
+    let phase: TrainingPhase
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Phase header
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(phase.name.uppercased())
+                        .font(CoachFonts.ui(11, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(CoachColors.accent)
+                    Spacer()
+                    if let dateRange = phaseDateRange {
+                        Text(dateRange)
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let philosophy = phase.philosophy {
+                    Text(philosophy)
+                        .font(CoachFonts.ui(13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // Nested week cards
+            ForEach(weeksForThisPhase, id: \.weekNumber) { wp in
+                NavigationLink {
+                    WeekDetailView(initialWeekNum: wp.weekNumber)
+                } label: {
+                    WeekCard(plan: plan, weeklyPlan: wp)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var weeksForThisPhase: [WeeklyPlan] {
+        plan.weeklyPlans.values
+            .filter { $0.phase == phase.number }
+            .sorted { $0.weekNumber < $1.weekNumber }
+    }
+
+    private var phaseDateRange: String? {
+        guard let start = phase.startDate, let end = phase.endDate else { return nil }
+        return "\(formatDateShort(start)) – \(formatDateShort(end))"
+    }
+}
+
 // MARK: - Week Card
 
 private struct WeekCard: View {
     let plan: TrainingPlan
     let weeklyPlan: WeeklyPlan
-    let adherence: WeekAdherence?
 
     @Environment(\.colorScheme) var colorScheme
 
@@ -79,10 +143,8 @@ private struct WeekCard: View {
                     .font(CoachFonts.display(20, weight: .bold))
             }
 
-            // Segmented progress bar
             ProgressSegments(total: totalSessions, completed: completedSessions)
 
-            // Summary
             HStack(spacing: 16) {
                 Label("Total Workouts: \(totalSessions)", systemImage: "checklist")
                     .font(CoachFonts.ui(12))
@@ -96,19 +158,16 @@ private struct WeekCard: View {
 
             Divider()
 
-            // Session list
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(weeklyPlan.sessions.enumerated()), id: \.offset) { dayIdx, dayPlan in
+                ForEach(Array(weeklyPlan.sessions.enumerated()), id: \.offset) { _, dayPlan in
                     if dayPlan.isRest != true && !dayPlan.sessions.isEmpty {
-                        DayRow(
-                            dayPlan: dayPlan,
-                            statuses: sessionStatuses(forDayIndex: dayIdx)
-                        )
+                        DayRow(dayPlan: dayPlan)
                     }
                 }
             }
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
@@ -119,23 +178,14 @@ private struct WeekCard: View {
 
     // MARK: derived
 
-    private var totalSessions: Int {
-        weeklyPlan.sessions.flatMap(\.sessions).count
-    }
+    private var allSessions: [PrescribedSession] { weeklyPlan.sessions.flatMap(\.sessions) }
 
-    private var completedSessions: Int {
-        guard let adherence else { return 0 }
-        return adherence.days
-            .flatMap(\.sessions)
-            .filter { $0.status == .completed }
-            .count
-    }
+    private var totalSessions: Int { allSessions.count }
+
+    private var completedSessions: Int { allSessions.filter { $0.completed == true }.count }
 
     private var totalDistance: Double {
-        weeklyPlan.sessions
-            .flatMap(\.sessions)
-            .compactMap(\.distanceMiles)
-            .reduce(0, +)
+        allSessions.compactMap(\.distanceMiles).reduce(0, +)
     }
 
     private var dateRangeString: String {
@@ -150,13 +200,6 @@ private struct WeekCard: View {
         display.dateFormat = "MMM d"
         return "\(display.string(from: weekStart).uppercased()) - \(display.string(from: weekEnd).uppercased())"
     }
-
-    private func sessionStatuses(forDayIndex dayIdx: Int) -> [SessionStatus] {
-        guard let adherence, dayIdx < adherence.days.count else {
-            return Array(repeating: .upcoming, count: weeklyPlan.sessions[dayIdx].sessions.count)
-        }
-        return adherence.days[dayIdx].sessions.map(\.status)
-    }
 }
 
 // MARK: - Progress Segments
@@ -168,17 +211,13 @@ private struct ProgressSegments: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        GeometryReader { geo in
-            HStack(spacing: 4) {
-                ForEach(0..<total, id: \.self) { idx in
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(idx < completed ? CoachColors.teal : segmentBg)
-                        .frame(height: 6)
-                }
+        HStack(spacing: 4) {
+            ForEach(0..<max(total, 1), id: \.self) { idx in
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(idx < completed ? CoachColors.teal : segmentBg)
+                    .frame(height: 6)
             }
-            .frame(width: geo.size.width)
         }
-        .frame(height: 6)
     }
 
     private var segmentBg: Color {
@@ -186,25 +225,21 @@ private struct ProgressSegments: View {
     }
 }
 
-// MARK: - Day Row (handles same-day stacking)
+// MARK: - Day Row
 
 private struct DayRow: View {
     let dayPlan: DayPlan
-    let statuses: [SessionStatus]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { idx, session in
                 HStack(spacing: 10) {
-                    // Day label only on first session of the day
                     Text(idx == 0 ? dayAbbreviation : "")
                         .font(CoachFonts.ui(12, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 32, alignment: .leading)
 
-                    // Dot or checkmark
-                    let status = idx < statuses.count ? statuses[idx] : .upcoming
-                    if status == .completed {
+                    if session.completed == true {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(CoachColors.teal)
@@ -216,16 +251,14 @@ private struct DayRow: View {
                             .frame(width: 14, height: 14)
                     }
 
-                    // Name
                     Text(session.label)
                         .font(CoachFonts.ui(13))
                         .lineLimit(1)
-                        .strikethrough(status == .completed, color: .secondary)
-                        .foregroundStyle(status == .completed ? .secondary : .primary)
+                        .strikethrough(session.completed == true, color: .secondary)
+                        .foregroundStyle(session.completed == true ? .secondary : .primary)
 
                     Spacer()
 
-                    // Distance or duration
                     Text(metricString(session))
                         .font(CoachFonts.mono(12))
                         .foregroundStyle(.secondary)

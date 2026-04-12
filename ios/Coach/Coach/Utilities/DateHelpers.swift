@@ -46,6 +46,26 @@ func formatDateShort(_ dateStr: String) -> String {
     return output.string(from: date)
 }
 
+/// Long date with year: "Sun, Nov 15, 2026"
+func formatDateLong(_ dateStr: String) -> String {
+    let input = DateFormatter()
+    input.dateFormat = "yyyy-MM-dd"
+    guard let date = input.date(from: dateStr) else { return dateStr }
+    let output = DateFormatter()
+    output.dateFormat = "EEE, MMM d, yyyy"
+    return output.string(from: date)
+}
+
+/// Full day + date: "Thursday, Apr 9"
+func formatDayLong(_ dateStr: String) -> String {
+    let input = DateFormatter()
+    input.dateFormat = "yyyy-MM-dd"
+    guard let date = input.date(from: dateStr) else { return dateStr }
+    let output = DateFormatter()
+    output.dateFormat = "EEEE, MMM d"
+    return output.string(from: date)
+}
+
 /// Relative date: "Today", "Yesterday", "3 days ago", "Jan 5"
 func formatDateRelative(_ dateStr: String) -> String {
     let formatter = DateFormatter()

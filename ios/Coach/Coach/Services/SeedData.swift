@@ -166,9 +166,10 @@ enum SeedData {
                 taperPhase(startOffset: 63),
             ],
             weeklyPlans: Dictionary(
-                uniqueKeysWithValues: (1...6).map { String($0) }
-                    .enumerated()
-                    .map { (i, key) in (key, baseWeek(num: i + 1)) }
+                uniqueKeysWithValues:
+                    (1...6).map { (String($0), baseWeek(num: $0)) }
+                    + (7...11).map { (String($0), buildWeek(num: $0)) }
+                    + [("12", taperWeek())]
             )
         )
         try await data.savePlan(plan)
@@ -583,6 +584,8 @@ enum SeedData {
         let longRunIdx = min(num - 1, longRunMiles.count - 1)
         let longRun = longRunMiles[longRunIdx]
         let isDeload = num == 4
+        // Demo completion on the first two weeks (in the past)
+        let isPast = num <= 2
 
         let easyMiles = isDeload ? 3.0 : 5.0
         let tempoMiles = isDeload ? 4.0 : Double(5 + min(num, 3))
@@ -596,99 +599,289 @@ enum SeedData {
                 : "Aerobic base — long run \(Int(longRun))mi, one tempo session.",
             sessions: [
                 DayPlan(day: "monday", isRest: false, sessions: [
-                    PrescribedSession(
-                        type: "run",
-                        label: "Easy run",
-                        duration: Int(easyMiles * 9),
-                        distanceMiles: easyMiles,
-                        effortCategory: .easy,
-                        zone: "Z2",
-                        targetIntensity: "conversational",
-                        purpose: "Aerobic base",
-                        workout: "\(Int(easyMiles))mi steady",
-                        fuel: nil, priority: .yellow, notes: "Keep HR under 145.",
-                        exercises: nil, legs: nil, templateId: nil
+                    runSession(
+                        label: "\(easyMiles.formattedMi) Easy Run",
+                        miles: easyMiles, effort: .easy, zone: "Z2",
+                        durMin: Int(easyMiles * 8.5), durMax: Int(easyMiles * 9.5),
+                        purpose: "Aerobic base", workout: "\(Int(easyMiles))mi steady",
+                        notes: "Keep HR under 145.",
+                        completed: isPast
                     )
                 ]),
                 DayPlan(day: "tuesday", isRest: false, sessions: [
-                    PrescribedSession(
-                        type: "strength", label: "Lower body strength",
-                        duration: 50, distanceMiles: nil,
-                        effortCategory: .strength,
-                        zone: nil, targetIntensity: nil,
-                        purpose: "Max strength",
+                    strengthSession(
+                        label: "Lower Body Strength",
+                        durMin: 45, durMax: 55,
                         workout: "Trap bar DL 4x5, BSS 3x8, SL RDL 3x10",
-                        fuel: nil, priority: .yellow, notes: nil,
-                        exercises: nil, legs: nil, templateId: nil
+                        completed: isPast
                     ),
-                    PrescribedSession(
-                        type: "bike", label: "Easy spin",
-                        duration: 30, distanceMiles: 8,
-                        effortCategory: .recovery,
-                        zone: "Z1", targetIntensity: "very easy",
-                        purpose: "Recovery",
-                        workout: "30m spin, easy gear",
-                        fuel: nil, priority: nil, notes: nil,
-                        exercises: nil, legs: nil, templateId: nil
+                    runSession(
+                        label: "30m Easy Spin", miles: 8, effort: .recovery, zone: "Z1",
+                        durMin: 25, durMax: 35,
+                        sport: "bike",
+                        purpose: "Recovery", workout: "30m spin, easy gear",
+                        notes: nil,
+                        completed: isPast
                     ),
                 ]),
                 DayPlan(day: "wednesday", isRest: false, sessions: [
-                    PrescribedSession(
-                        type: "run", label: isDeload ? "Easy run" : "Tempo",
-                        duration: Int(tempoMiles * 9),
-                        distanceMiles: tempoMiles,
-                        effortCategory: isDeload ? .easy : .tempo,
+                    runSession(
+                        label: isDeload ? "\(tempoMiles.formattedMi) Easy Run" : "\(tempoMiles.formattedMi) Tempo",
+                        miles: tempoMiles,
+                        effort: isDeload ? .easy : .tempo,
                         zone: isDeload ? "Z2" : "Z3",
-                        targetIntensity: isDeload ? "conversational" : "comfortably hard",
+                        durMin: Int(tempoMiles * 8), durMax: Int(tempoMiles * 9),
                         purpose: isDeload ? "Recovery" : "Lactate threshold",
                         workout: isDeload ? "\(Int(tempoMiles))mi easy" : "1.5mi wu / 3x1mi @ tempo / 1mi cd",
-                        fuel: nil, priority: isDeload ? .yellow : .red, notes: nil,
-                        exercises: nil, legs: nil, templateId: nil
+                        notes: nil,
+                        completed: isPast
                     )
                 ]),
                 DayPlan(day: "thursday", isRest: false, sessions: [
-                    PrescribedSession(
-                        type: "swim", label: "Aerobic swim",
-                        duration: 40, distanceMiles: 1.2,
-                        effortCategory: .easy,
-                        zone: "Z2", targetIntensity: "steady",
-                        purpose: "Cross-train",
-                        workout: "Drills + 8x100",
-                        fuel: nil, priority: .yellow, notes: nil,
-                        exercises: nil, legs: nil, templateId: nil
+                    runSession(
+                        label: "Aerobic Swim",
+                        miles: 1.2, effort: .easy, zone: "Z2",
+                        durMin: 35, durMax: 45,
+                        sport: "swim",
+                        purpose: "Cross-train", workout: "Drills + 8x100",
+                        notes: nil,
+                        completed: isPast
                     )
                 ]),
                 DayPlan(day: "friday", isRest: true, sessions: []),
                 DayPlan(day: "saturday", isRest: false, sessions: [
-                    PrescribedSession(
-                        type: "run", label: "Long run",
-                        duration: Int(longRun * 10),
-                        distanceMiles: longRun,
-                        effortCategory: .longEndurance,
-                        zone: "Z2",
-                        targetIntensity: "easy",
+                    runSession(
+                        label: "\(longRun.formattedMi) Long Run",
+                        miles: longRun, effort: .longEndurance, zone: "Z2",
+                        durMin: Int(longRun * 9), durMax: Int(longRun * 11),
                         purpose: "Aerobic endurance",
-                        workout: "\(Int(longRun))mi steady — last 2mi at marathon pace if feeling strong",
-                        fuel: SessionFuel(pre: "Oats + banana", during: "Gel every 30m", post: "Recovery shake"),
-                        priority: .red, notes: "Practice race-day fueling.",
-                        exercises: nil, legs: nil, templateId: nil
+                        workout: "\(Int(longRun))mi steady — last 2mi at MP if feeling strong",
+                        notes: "Practice race-day fueling.",
+                        completed: isPast
                     )
                 ]),
                 DayPlan(day: "sunday", isRest: false, sessions: [
-                    PrescribedSession(
-                        type: "bike", label: "Endurance ride",
-                        duration: Int(bikeMiles * 3),
-                        distanceMiles: bikeMiles,
-                        effortCategory: .easy,
-                        zone: "Z2",
-                        targetIntensity: "steady",
+                    runSession(
+                        label: "\(bikeMiles.formattedMi) Endurance Ride",
+                        miles: bikeMiles, effort: .easy, zone: "Z2",
+                        durMin: Int(bikeMiles * 2.7), durMax: Int(bikeMiles * 3.2),
+                        sport: "bike",
                         purpose: "Aerobic + recovery",
                         workout: "\(Int(bikeMiles))mi rolling Z2",
-                        fuel: nil, priority: .yellow, notes: nil,
-                        exercises: nil, legs: nil, templateId: nil
+                        notes: nil,
+                        completed: isPast
                     )
                 ]),
             ]
         )
+    }
+
+    private static func buildWeek(num: Int) -> WeeklyPlan {
+        // num is 7-11 within the plan
+        let buildIdx = num - 7   // 0-4
+        let longRunMiles: [Double] = [16, 17, 18, 14, 18]   // week 10 (idx 3) is deload
+        let longRun = longRunMiles[min(buildIdx, longRunMiles.count - 1)]
+        let isDeload = num == 10
+        let mpMiles = isDeload ? 0.0 : Double(min(buildIdx + 2, 6))   // last 2-6mi at MP
+
+        return WeeklyPlan(
+            weekNumber: num,
+            phase: 2,
+            focusOfWeek: isDeload
+                ? "Deload — recover from peak build, hold one threshold session."
+                : "Build — long run \(Int(longRun))mi with \(Int(mpMiles))mi @ marathon pace.",
+            sessions: [
+                DayPlan(day: "monday", isRest: false, sessions: [
+                    runSession(
+                        label: "5.0mi Easy Run", miles: 5.0, effort: .easy, zone: "Z2",
+                        durMin: 42, durMax: 48,
+                        purpose: "Recovery from threshold day",
+                        workout: "5mi conversational",
+                        notes: nil
+                    )
+                ]),
+                DayPlan(day: "tuesday", isRest: false, sessions: [
+                    strengthSession(
+                        label: "Power Strength",
+                        durMin: 35, durMax: 45,
+                        workout: "Jump squats 4x5, KB swings 4x10, push press 3x5",
+                        notes: "Explosive intent, full recovery."
+                    ),
+                    runSession(
+                        label: "30m Easy Spin", miles: 8, effort: .recovery, zone: "Z1",
+                        durMin: 25, durMax: 35, sport: "bike",
+                        purpose: "Recovery",
+                        workout: "Z1 only",
+                        notes: nil
+                    ),
+                ]),
+                DayPlan(day: "wednesday", isRest: false, sessions: [
+                    runSession(
+                        label: isDeload ? "5.0mi Tempo" : "Threshold Intervals",
+                        miles: isDeload ? 5.0 : 7.0,
+                        effort: .threshold, zone: "Z4",
+                        durMin: isDeload ? 40 : 55, durMax: isDeload ? 45 : 65,
+                        purpose: "Lactate threshold velocity",
+                        workout: isDeload
+                            ? "5mi @ tempo, smooth"
+                            : "1.5mi wu / 5x1mi @ threshold w/ 90s jog / 1mi cd",
+                        notes: "Stay relaxed in upper body."
+                    )
+                ]),
+                DayPlan(day: "thursday", isRest: false, sessions: [
+                    runSession(
+                        label: "Yoga", miles: 0, effort: .recovery, zone: nil,
+                        durMin: 30, durMax: 45, sport: "other",
+                        purpose: "Mobility + recovery",
+                        workout: "Hip openers + hamstring focus",
+                        notes: nil
+                    )
+                ]),
+                DayPlan(day: "friday", isRest: true, sessions: []),
+                DayPlan(day: "saturday", isRest: false, sessions: [
+                    runSession(
+                        label: "\(longRun.formattedMi) Long Run + MP",
+                        miles: longRun,
+                        effort: .longEndurance, zone: "Z2-Z3",
+                        durMin: Int(longRun * 9), durMax: Int(longRun * 10),
+                        purpose: "Race-specific endurance",
+                        workout: isDeload
+                            ? "\(Int(longRun))mi steady — no quality work"
+                            : "\(Int(longRun - mpMiles))mi steady → final \(Int(mpMiles))mi @ MP",
+                        notes: "Fuel every 30 min. Practice race-day breakfast."
+                    )
+                ]),
+                DayPlan(day: "sunday", isRest: false, sessions: [
+                    runSession(
+                        label: "30mi Endurance Ride", miles: 30, effort: .easy, zone: "Z2",
+                        durMin: 90, durMax: 105, sport: "bike",
+                        purpose: "Aerobic recovery from long run",
+                        workout: "Rolling Z2",
+                        notes: nil
+                    )
+                ]),
+            ]
+        )
+    }
+
+    private static func taperWeek() -> WeeklyPlan {
+        WeeklyPlan(
+            weekNumber: 12,
+            phase: 3,
+            focusOfWeek: "Race week — sharpen, rest, fuel. Final hard session 5 days out.",
+            sessions: [
+                DayPlan(day: "monday", isRest: false, sessions: [
+                    runSession(
+                        label: "4.0mi Easy + Strides", miles: 4.0, effort: .easy, zone: "Z2",
+                        durMin: 32, durMax: 38,
+                        purpose: "Maintain neuromuscular system",
+                        workout: "4mi easy + 6x100m strides @ MP",
+                        notes: nil
+                    )
+                ]),
+                DayPlan(day: "tuesday", isRest: false, sessions: [
+                    runSession(
+                        label: "Mini Tempo", miles: 4.5, effort: .tempo, zone: "Z3",
+                        durMin: 38, durMax: 42,
+                        purpose: "Last quality work",
+                        workout: "1mi wu / 2mi @ tempo / 1.5mi cd",
+                        notes: "Crisp and short. No grinding."
+                    )
+                ]),
+                DayPlan(day: "wednesday", isRest: true, sessions: []),
+                DayPlan(day: "thursday", isRest: false, sessions: [
+                    runSession(
+                        label: "3.0mi Easy Run", miles: 3.0, effort: .easy, zone: "Z2",
+                        durMin: 24, durMax: 28,
+                        purpose: "Shake out the legs",
+                        workout: "3mi easy",
+                        notes: nil
+                    )
+                ]),
+                DayPlan(day: "friday", isRest: false, sessions: [
+                    runSession(
+                        label: "Shakeout + Strides", miles: 2.5, effort: .recovery, zone: "Z1-Z2",
+                        durMin: 22, durMax: 26,
+                        purpose: "Race day prep",
+                        workout: "2mi easy + 4x100m strides",
+                        notes: "Carb load starts today."
+                    )
+                ]),
+                DayPlan(day: "saturday", isRest: true, sessions: []),
+                DayPlan(day: "sunday", isRest: false, sessions: [
+                    runSession(
+                        label: "Race Day", miles: 26.2, effort: .race, zone: "Z3-Z4",
+                        durMin: 220, durMax: 235,
+                        purpose: "Execute the race plan",
+                        workout: "Big Sur Marathon",
+                        notes: "Conservative through Hurricane Point. Trust the work."
+                    )
+                ]),
+            ]
+        )
+    }
+
+    // MARK: - Session helpers
+
+    private static func runSession(
+        label: String, miles: Double, effort: EffortCategory, zone: String?,
+        durMin: Int, durMax: Int,
+        sport: String = "run",
+        purpose: String, workout: String, notes: String?,
+        completed: Bool = false
+    ) -> PrescribedSession {
+        PrescribedSession(
+            type: sport,
+            label: label,
+            duration: (durMin + durMax) / 2,
+            estimatedDurationMin: durMin,
+            estimatedDurationMax: durMax,
+            distanceMiles: miles > 0 ? miles : nil,
+            effortCategory: effort,
+            completed: completed ? true : nil,
+            zone: zone,
+            targetIntensity: nil,
+            purpose: purpose,
+            workout: workout,
+            fuel: nil,
+            priority: nil,
+            notes: notes,
+            exercises: nil,
+            legs: nil,
+            templateId: nil
+        )
+    }
+
+    private static func strengthSession(
+        label: String, durMin: Int, durMax: Int, workout: String, notes: String? = nil,
+        completed: Bool = false
+    ) -> PrescribedSession {
+        PrescribedSession(
+            type: "strength",
+            label: label,
+            duration: (durMin + durMax) / 2,
+            estimatedDurationMin: durMin,
+            estimatedDurationMax: durMax,
+            distanceMiles: nil,
+            effortCategory: .strength,
+            completed: completed ? true : nil,
+            zone: nil,
+            targetIntensity: nil,
+            purpose: "Strength",
+            workout: workout,
+            fuel: nil,
+            priority: nil,
+            notes: notes,
+            exercises: nil,
+            legs: nil,
+            templateId: nil
+        )
+    }
+}
+
+private extension Double {
+    var formattedMi: String {
+        if self == self.rounded() { return "\(Int(self))mi" }
+        return String(format: "%.1fmi", self)
     }
 }

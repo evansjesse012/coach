@@ -50,6 +50,28 @@ extension EffortCategory {
         case .rest: return Color.gray
         }
     }
+
+    /// Vertical gradient used for the left edge color bar on session cards.
+    var gradient: LinearGradient {
+        let stops: [Color]
+        switch self {
+        case .easy:
+            stops = [CoachColors.green, CoachColors.yellow]
+        case .recovery:
+            stops = [CoachColors.green, CoachColors.cyan]
+        case .tempo, .threshold:
+            stops = [CoachColors.yellow, CoachColors.accent]
+        case .longEndurance:
+            stops = [CoachColors.purple, Color(hex: "E84CA0")]
+        case .strength:
+            stops = [CoachColors.blue, CoachColors.purple]
+        case .vo2max, .race:
+            stops = [CoachColors.accent, CoachColors.red]
+        case .rest:
+            stops = [Color.gray.opacity(0.5), Color.gray.opacity(0.3)]
+        }
+        return LinearGradient(colors: stops, startPoint: .top, endPoint: .bottom)
+    }
 }
 
 // MARK: - Sport Colors
