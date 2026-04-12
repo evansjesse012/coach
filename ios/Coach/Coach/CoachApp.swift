@@ -5,7 +5,7 @@ import Auth
 // TODO: Move to .xcconfig or env vars before making the repo public.
 // Dev credentials for silent auto-login during single-user testing.
 private let DEV_USER_EMAIL = "evansjesse012@gmail.com"
-private let DEV_USER_PASSWORD = "SJ05e2860!"
+private let DEV_USER_PASSWORD = "CoachApp1234!$"
 
 @main
 struct CoachApp: App {
