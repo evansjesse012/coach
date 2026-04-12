@@ -1,6 +1,7 @@
 # Xcode
 build/
 DerivedData/
+xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
@@ -24,6 +25,7 @@ Pods/
 
 # Supabase
 .supabase/
+supabase/.temp/
 
 # Environment
 .env
