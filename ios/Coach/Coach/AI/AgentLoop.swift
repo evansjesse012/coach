@@ -216,12 +216,10 @@ private func callEdgeFunction(
 
     let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-    // Call the Supabase Edge Function
-    let response = try await client.functions.invoke(
+    // Call the Supabase Edge Function — use the generic version that decodes to our type
+    let result: AnthropicResponse = try await client.functions.invoke(
         "chat",
         options: .init(body: bodyData)
     )
-
-    let decoder = JSONDecoder()
-    return try decoder.decode(AnthropicResponse.self, from: response.data)
+    return result
 }

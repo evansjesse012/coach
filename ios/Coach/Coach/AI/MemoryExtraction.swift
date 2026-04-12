@@ -158,11 +158,10 @@ func extractMemory(
             "max_tokens": 1024,
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
-        let response = try await client.functions.invoke("chat", options: .init(body: bodyData))
-
-        // Parse the response to get the JSON memory update
-        let decoder = JSONDecoder()
-        let anthropicResponse = try decoder.decode(AnthropicResponse.self, from: response.data)
+        let anthropicResponse: AnthropicResponse = try await client.functions.invoke(
+            "chat",
+            options: .init(body: bodyData)
+        )
         let text = anthropicResponse.content.first(where: { $0.type == "text" })?.text ?? ""
 
         // Try to parse the JSON from the response
