@@ -1,5 +1,7 @@
 import SwiftUI
 import AuthenticationServices
+import Supabase
+import Auth
 
 struct AuthView: View {
     @Binding var isAuthenticated: Bool

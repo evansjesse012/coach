@@ -1,4 +1,6 @@
 import SwiftUI
+import Supabase
+import Auth
 
 struct SettingsView: View {
     @Environment(DataService.self) var data

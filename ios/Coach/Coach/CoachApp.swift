@@ -1,5 +1,6 @@
 import SwiftUI
 import Supabase
+import Auth
 
 @main
 struct CoachApp: App {
