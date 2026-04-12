@@ -1,8 +1,8 @@
 import Foundation
 import Supabase
+import Auth
 
 /// Central Supabase client configuration.
-/// Replace placeholder values with your actual Supabase project credentials.
 @MainActor
 final class SupabaseService {
     static let shared = SupabaseService()
@@ -16,7 +16,12 @@ final class SupabaseService {
 
         client = SupabaseClient(
             supabaseURL: supabaseURL,
-            supabaseKey: supabaseAnonKey
+            supabaseKey: supabaseAnonKey,
+            options: SupabaseClientOptions(
+                auth: SupabaseClientOptions.AuthOptions(
+                    emitLocalSessionAsInitialSession: true
+                )
+            )
         )
     }
 }
