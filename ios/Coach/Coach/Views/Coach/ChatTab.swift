@@ -55,7 +55,7 @@ struct ChatTab: View {
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32))
-                            .foregroundStyle(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? .quaternary : CoachColors.accent)
+                            .foregroundStyle(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.3) : CoachColors.accent)
                     }
                     .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
                 }

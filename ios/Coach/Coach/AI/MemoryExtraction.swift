@@ -1,4 +1,5 @@
 import Foundation
+import Supabase
 
 // MARK: - Memory Merge Helpers
 
@@ -164,9 +165,11 @@ func extractMemory(
         )
         let text = anthropicResponse.content.first(where: { $0.type == "text" })?.text ?? ""
 
+
         // Try to parse the JSON from the response
+        let jsonDecoder = JSONDecoder()
         guard let jsonData = text.data(using: .utf8),
-              let update = try? decoder.decode(CoachingMemory.self, from: jsonData) else {
+              let update = try? jsonDecoder.decode(CoachingMemory.self, from: jsonData) else {
             return
         }
 

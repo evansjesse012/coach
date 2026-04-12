@@ -69,9 +69,9 @@ actor WeatherService {
         return WeatherData(
             temperatureHigh: forecast.daily.temperature_2m_max[idx],
             temperatureLow: forecast.daily.temperature_2m_min[idx],
-            windSpeed: forecast.daily.wind_speed_10m_max[idx],
-            precipitation: forecast.daily.precipitation_sum[idx],
-            weatherDescription: weatherCodeToDescription(forecast.daily.weather_code[idx]),
+            windSpeed: forecast.daily.windSpeedMax.indices.contains(idx) ? forecast.daily.windSpeedMax[idx] : nil,
+            precipitation: forecast.daily.precipitationSum.indices.contains(idx) ? forecast.daily.precipitationSum[idx] : nil,
+            weatherDescription: forecast.daily.weatherCode.indices.contains(idx) ? weatherCodeToDescription(forecast.daily.weatherCode[idx]) : nil,
             isClimateEstimate: false
         )
     }
@@ -101,7 +101,7 @@ actor WeatherService {
 
             if let (data, _) = try? await URLSession.shared.data(from: components.url!),
                let archive = try? JSONDecoder().decode(ForecastResponse.self, from: data) {
-                temps.append(contentsOf: archive.daily.temperature_2m_max)
+                temps.append(contentsOf: archive.daily.temperature_2m_max as [Double])
             }
         }
 
