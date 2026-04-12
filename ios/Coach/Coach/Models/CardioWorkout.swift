@@ -34,6 +34,15 @@ struct CardioWorkout: Codable, Identifiable {
     var location: String?
     var source: String?
 
+    // Rich HealthKit data (added in migration 003)
+    var healthData: HealthWorkoutDetail?
+    var routeSummary: RouteSummary?
+    var avgCadence: Int?
+    var avgSpeed: Double?
+    var elevationGain: Int?
+    var weather: WeatherSnapshot?
+    var syncedAt: String?
+
     enum CodingKeys: String, CodingKey {
         case id
         case sport
@@ -51,6 +60,13 @@ struct CardioWorkout: Codable, Identifiable {
         case endTime = "end_time"
         case location
         case source
+        case healthData = "health_data"
+        case routeSummary = "route_summary"
+        case avgCadence = "avg_cadence"
+        case avgSpeed = "avg_speed"
+        case elevationGain = "elevation_gain"
+        case weather
+        case syncedAt = "synced_at"
     }
 
     static func create(sport: Sport, duration: Int, notes: String? = nil, date: String? = nil) -> CardioWorkout {

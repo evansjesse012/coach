@@ -1,5 +1,31 @@
 import Foundation
 
+// MARK: - Phase Sub-Types
+
+struct VolumeRange: Codable {
+    var min: Double
+    var max: Double
+    var unit: String   // "hours" | "miles" | "km"
+}
+
+struct IntensityDistribution: Codable {
+    var easy: Int       // % of weekly volume
+    var tempo: Int
+    var threshold: Int
+    var vo2max: Int
+
+    enum CodingKeys: String, CodingKey {
+        case easy, tempo, threshold
+        case vo2max = "vo2_max"
+    }
+}
+
+struct KeyWorkout: Codable, Identifiable {
+    var id: String { name }
+    var name: String
+    var description: String
+}
+
 // MARK: - Phase
 struct TrainingPhase: Codable, Identifiable {
     var id: Int { number }
@@ -8,13 +34,52 @@ struct TrainingPhase: Codable, Identifiable {
     var startDate: String?
     var endDate: String?
     var weeks: Int
+    var deloadWeek: Int?
+
+    // Expert coach specifications (added after the model overhaul)
+    var philosophy: String?
+    var weeklyVolumeRange: VolumeRange?
+    var sessionsPerWeek: Int?
+    var intensityDistribution: IntensityDistribution?
+    var keyWorkouts: [KeyWorkout]?
+    var strengthFocus: String?
+    var physiologicalGoals: [String]?
+    var progressionRules: String?
+    var raceSpecificNotes: String?
+
+    // Legacy fields kept nullable so historical plan_history rows still decode
     var weeklyVolume: String?
     var intensityCeiling: String?
     var intensityMix: String?
     var strengthFreq: String?
     var focus: String?
     var keySessionTypes: [String]?
-    var deloadWeek: Int?
+
+    // Legacy keys (startDate/endDate/etc.) stay in camelCase to remain
+    // backward-compatible with seed data already in the DB. New fields
+    // use snake_case to match the rest of our model conventions.
+    enum CodingKeys: String, CodingKey {
+        case number, name
+        case startDate
+        case endDate
+        case weeks
+        case deloadWeek
+        case philosophy
+        case weeklyVolumeRange = "weekly_volume_range"
+        case sessionsPerWeek = "sessions_per_week"
+        case intensityDistribution = "intensity_distribution"
+        case keyWorkouts = "key_workouts"
+        case strengthFocus = "strength_focus"
+        case physiologicalGoals = "physiological_goals"
+        case progressionRules = "progression_rules"
+        case raceSpecificNotes = "race_specific_notes"
+        case weeklyVolume
+        case intensityCeiling
+        case intensityMix
+        case strengthFreq
+        case focus
+        case keySessionTypes
+    }
 }
 
 // MARK: - Session Fuel
@@ -50,6 +115,8 @@ struct PrescribedSession: Codable, Identifiable {
     var type: String       // sport name or "strength" or "brick"
     var label: String
     var duration: Int?
+    var distanceMiles: Double?
+    var effortCategory: EffortCategory?
     var zone: String?
     var targetIntensity: String?
     var purpose: String?
@@ -60,6 +127,17 @@ struct PrescribedSession: Codable, Identifiable {
     var exercises: [PrescribedExercise]?
     var legs: [PrescribedBrickLeg]?
     var templateId: String?
+
+    // Legacy keys stay in camelCase for backward compat with existing JSONB.
+    enum CodingKeys: String, CodingKey {
+        case type, label, duration
+        case distanceMiles = "distance_miles"
+        case effortCategory = "effort_category"
+        case zone
+        case targetIntensity
+        case purpose, workout, fuel, priority, notes, exercises, legs
+        case templateId
+    }
 }
 
 // MARK: - Day Plan

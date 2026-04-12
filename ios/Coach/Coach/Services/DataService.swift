@@ -136,7 +136,7 @@ final class DataService {
 
     func saveMemory(_ mem: CoachingMemory) async throws {
         memory = mem
-        try await client.from("coaching_memory").upsert(mem).execute()
+        try await client.from("coaching_memory").upsert(mem, onConflict: "user_id").execute()
     }
 
     // MARK: - Chat Messages
@@ -150,7 +150,7 @@ final class DataService {
 
     func saveSettings(_ s: UserSettings) async throws {
         settings = s
-        try await client.from("settings").upsert(s).execute()
+        try await client.from("settings").upsert(s, onConflict: "user_id").execute()
     }
 
     // MARK: - Personal Records

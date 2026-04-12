@@ -33,6 +33,23 @@ enum CoachColors {
     static let yellow = Color(hex: "F0A830")
     static let purple = Color(hex: "8B6FE8")
     static let red = Color(hex: "CC1111")
+    static let blue = Color(hex: "4A8FE8")
+    static let teal = Color(hex: "2BAFC4")
+}
+
+// MARK: - Effort Category Colors
+
+extension EffortCategory {
+    var color: Color {
+        switch self {
+        case .easy, .recovery: return CoachColors.green
+        case .tempo, .threshold: return CoachColors.yellow
+        case .longEndurance: return CoachColors.purple
+        case .strength: return CoachColors.blue
+        case .vo2max, .race: return CoachColors.red
+        case .rest: return Color.gray
+        }
+    }
 }
 
 // MARK: - Sport Colors

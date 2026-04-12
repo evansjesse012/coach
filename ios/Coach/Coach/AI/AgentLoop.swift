@@ -1,5 +1,6 @@
 import Foundation
 import Supabase
+import Functions
 
 // MARK: - Agent Loop Result
 
@@ -216,10 +217,24 @@ private func callEdgeFunction(
 
     let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-    // Call the Supabase Edge Function — use the generic version that decodes to our type
-    let result: AnthropicResponse = try await client.functions.invoke(
+    // Use the closure overload so we get raw (Data, HTTPURLResponse) instead of
+    // letting Functions try to JSON-decode into our return type. This lets us
+    // log the body on any failure.
+    return try await client.functions.invoke(
         "chat",
         options: .init(body: bodyData)
-    )
-    return result
+    ) { data, response in
+        guard 200..<300 ~= response.statusCode else {
+            let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
+            NSLog("[chat] HTTP \(response.statusCode): \(preview)")
+            throw FunctionsError.httpError(code: response.statusCode, data: data)
+        }
+        do {
+            return try JSONDecoder().decode(AnthropicResponse.self, from: data)
+        } catch {
+            let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
+            NSLog("[chat] decode failed: \(error)\nbody: \(preview)")
+            throw error
+        }
+    }
 }

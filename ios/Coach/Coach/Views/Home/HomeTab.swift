@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeTab: View {
     @Environment(DataService.self) var data
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -106,6 +107,18 @@ struct HomeTab: View {
                 .padding()
             }
             .navigationTitle("Coach")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
         }
     }
 

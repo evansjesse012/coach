@@ -39,25 +39,33 @@ struct LogTab: View {
                             : data.cardio.filter { $0.sport == sportFilter }
 
                         ForEach(filtered.sorted(by: { $0.date > $1.date })) { workout in
-                            CoachCard {
-                                HStack {
-                                    SportBadge(sport: workout.sport)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(formatDateRelative(workout.date))
-                                            .font(CoachFonts.ui(13, weight: .medium))
-                                        if let notes = workout.notes, !notes.isEmpty {
-                                            Text(notes)
-                                                .font(CoachFonts.ui(12))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
+                            NavigationLink {
+                                WorkoutDetailView(workout: workout)
+                            } label: {
+                                CoachCard {
+                                    HStack {
+                                        SportBadge(sport: workout.sport)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(formatDateRelative(workout.date))
+                                                .font(CoachFonts.ui(13, weight: .medium))
+                                            if let notes = workout.notes, !notes.isEmpty {
+                                                Text(notes)
+                                                    .font(CoachFonts.ui(12))
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                            }
                                         }
+                                        Spacer()
+                                        Text(formatDuration(workout.duration))
+                                            .font(CoachFonts.mono(14))
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(.tertiary)
                                     }
-                                    Spacer()
-                                    Text(formatDuration(workout.duration))
-                                        .font(CoachFonts.mono(14))
                                 }
+                                .padding(.horizontal)
                             }
-                            .padding(.horizontal)
+                            .buttonStyle(.plain)
                         }
 
                         if filtered.isEmpty {
@@ -70,24 +78,32 @@ struct LogTab: View {
                     } else {
                         // Strength sessions list
                         ForEach(data.strength.sorted(by: { $0.date > $1.date })) { session in
-                            CoachCard {
-                                HStack {
-                                    SportBadge(sport: .strength)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(session.name)
-                                            .font(CoachFonts.ui(13, weight: .medium))
-                                        let sets = session.exercises.reduce(0) { $0 + $1.sets.filter(\.completed).count }
-                                        Text("\(session.exercises.count) exercises, \(sets) sets")
+                            NavigationLink {
+                                StrengthDetailView(session: session)
+                            } label: {
+                                CoachCard {
+                                    HStack {
+                                        SportBadge(sport: .strength)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(session.name)
+                                                .font(CoachFonts.ui(13, weight: .medium))
+                                            let sets = session.exercises.reduce(0) { $0 + $1.sets.filter(\.completed).count }
+                                            Text("\(session.exercises.count) exercises, \(sets) sets")
+                                                .font(CoachFonts.ui(12))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(formatDateRelative(session.date))
                                             .font(CoachFonts.ui(12))
                                             .foregroundStyle(.secondary)
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(.tertiary)
                                     }
-                                    Spacer()
-                                    Text(formatDateRelative(session.date))
-                                        .font(CoachFonts.ui(12))
-                                        .foregroundStyle(.secondary)
                                 }
+                                .padding(.horizontal)
                             }
-                            .padding(.horizontal)
+                            .buttonStyle(.plain)
                         }
 
                         if data.strength.isEmpty {

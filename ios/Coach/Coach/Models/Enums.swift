@@ -92,6 +92,33 @@ enum SessionPriority: String, Codable {
     case red, yellow
 }
 
+// MARK: - Effort Category (drives session dot color in plan UI)
+enum EffortCategory: String, Codable, CaseIterable {
+    case easy
+    case recovery
+    case tempo
+    case threshold
+    case longEndurance = "long_endurance"
+    case vo2max
+    case strength
+    case race
+    case rest
+
+    var label: String {
+        switch self {
+        case .easy: return "Easy"
+        case .recovery: return "Recovery"
+        case .tempo: return "Tempo"
+        case .threshold: return "Threshold"
+        case .longEndurance: return "Long Endurance"
+        case .vo2max: return "VO2 Max"
+        case .strength: return "Strength"
+        case .race: return "Race"
+        case .rest: return "Rest"
+        }
+    }
+}
+
 // MARK: - Injury Status
 enum InjuryStatus: String, Codable {
     case active, monitoring, resolved

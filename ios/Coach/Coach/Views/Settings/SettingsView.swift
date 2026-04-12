@@ -7,6 +7,9 @@ struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @State private var personality: Personality = .normal
     @State private var customPrompt = ""
+    @State private var seeding = false
+    @State private var seedError: String?
+    @State private var showClearConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -40,6 +43,14 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Athlete") {
+                    NavigationLink {
+                        AthleteMemoryView()
+                    } label: {
+                        Label("Athlete Memory", systemImage: "person.text.rectangle")
+                    }
+                }
+
                 Section("Account") {
                     Button("Sign Out", role: .destructive) {
                         Task {
@@ -47,6 +58,46 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                Section {
+                    Button {
+                        Task { await runSeed() }
+                    } label: {
+                        HStack {
+                            Label("Load Sample Data", systemImage: "tray.and.arrow.down")
+                            Spacer()
+                            if seeding { ProgressView() }
+                        }
+                    }
+                    .disabled(seeding)
+
+                    Button(role: .destructive) {
+                        showClearConfirm = true
+                    } label: {
+                        Label("Clear Sample Data", systemImage: "trash")
+                    }
+                    .disabled(seeding)
+
+                    if let err = seedError {
+                        Text(err)
+                            .font(CoachFonts.ui(12))
+                            .foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Dev Tools")
+                } footer: {
+                    Text("Sample data covers workouts, plan, goals, and athlete memory. Clear deletes all of that for the signed-in user.")
+                }
+            }
+            .confirmationDialog(
+                "Delete all workouts, strength sessions, events, training plan, and coaching memory?",
+                isPresented: $showClearConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete Everything", role: .destructive) {
+                    Task { await runClear() }
+                }
+                Button("Cancel", role: .cancel) { }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -68,6 +119,30 @@ struct SettingsView: View {
                 customPrompt = data.settings.customPrompt
             }
         }
+    }
+
+    private func runSeed() async {
+        seeding = true
+        seedError = nil
+        do {
+            try await SeedData.load(into: data)
+            await data.loadAll()
+        } catch {
+            seedError = error.localizedDescription
+        }
+        seeding = false
+    }
+
+    private func runClear() async {
+        seeding = true
+        seedError = nil
+        do {
+            try await SeedData.clear(in: data)
+            await data.loadAll()
+        } catch {
+            seedError = error.localizedDescription
+        }
+        seeding = false
     }
 
     private func personalityDescription(_ p: Personality) -> String {
