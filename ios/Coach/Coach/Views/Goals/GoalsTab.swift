@@ -58,7 +58,7 @@ struct GoalsTab: View {
                 }
             }
             .sheet(isPresented: $showCreateSheet) {
-                GoalFormSheet(isPresented: $showCreateSheet)
+                CreateGoalSheet(isPresented: $showCreateSheet)
             }
         }
     }
@@ -102,70 +102,3 @@ private struct GoalCard: View {
     }
 }
 
-// MARK: - Goal Form (placeholder)
-
-struct GoalFormSheet: View {
-    @Binding var isPresented: Bool
-    @Environment(DataService.self) var data
-    @State private var name = ""
-    @State private var selectedPreset: EventPreset?
-    @State private var date = ""
-    @State private var location = ""
-    @State private var goal = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Event Type") {
-                    ForEach(EventPreset.all) { preset in
-                        Button {
-                            selectedPreset = preset
-                            if name.isEmpty { name = preset.name }
-                        } label: {
-                            HStack {
-                                Image(systemName: preset.icon)
-                                Text(preset.name)
-                                Spacer()
-                                if selectedPreset?.id == preset.id {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(CoachColors.accent)
-                                }
-                            }
-                        }
-                        .tint(.primary)
-                    }
-                }
-                Section("Details") {
-                    TextField("Name", text: $name)
-                    TextField("Date (YYYY-MM-DD)", text: $date)
-                    TextField("Location", text: $location)
-                    TextField("Goal time", text: $goal)
-                }
-            }
-            .navigationTitle("New Goal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { isPresented = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        var event = Event.create(
-                            presetId: selectedPreset?.id ?? "custom",
-                            name: name,
-                            mode: selectedPreset?.defaultMode ?? .goal
-                        )
-                        event.date = date.isEmpty ? nil : date
-                        event.location = location.isEmpty ? nil : location
-                        event.goal = goal.isEmpty ? nil : goal
-                        Task {
-                            try? await data.addEvent(event)
-                            isPresented = false
-                        }
-                    }
-                    .disabled(name.isEmpty)
-                }
-            }
-        }
-    }
-}

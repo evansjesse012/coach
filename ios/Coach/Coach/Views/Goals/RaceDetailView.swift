@@ -7,6 +7,7 @@ struct RaceDetailView: View {
 
     @Environment(DataService.self) var data
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
 
     @State private var weather: WeatherData?
     @State private var weatherLoading = false
@@ -20,6 +21,8 @@ struct RaceDetailView: View {
     @State private var safariURL: IdentifiedURL?
     @State private var editingURL = false
     @State private var urlDraft = ""
+
+    @State private var showEditSheet = false
 
     var body: some View {
         ScrollView {
@@ -47,6 +50,17 @@ struct RaceDetailView: View {
         }
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if currentEvent != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showEditSheet = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                }
+            }
+        }
         .task(id: eventId) {
             await loadWeather()
         }
@@ -56,6 +70,13 @@ struct RaceDetailView: View {
         }
         .sheet(isPresented: $editingURL) {
             editURLSheet
+        }
+        .sheet(isPresented: $showEditSheet) {
+            EditGoalSheet(eventId: eventId, isPresented: $showEditSheet) { result in
+                if case .deleted = result {
+                    dismiss()
+                }
+            }
         }
     }
 
@@ -105,6 +126,11 @@ struct RaceDetailView: View {
                 }
                 if let location = event.location, !location.isEmpty {
                     Label(location, systemImage: "mappin.circle")
+                        .font(CoachFonts.ui(13))
+                        .foregroundStyle(.secondary)
+                }
+                if let distance = event.distance, !distance.isEmpty {
+                    Label(distance, systemImage: "ruler")
                         .font(CoachFonts.ui(13))
                         .foregroundStyle(.secondary)
                 }

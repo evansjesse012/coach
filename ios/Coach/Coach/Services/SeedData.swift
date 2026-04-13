@@ -137,6 +137,7 @@ enum SeedData {
         var marathon = Event.create(presetId: "marathon", name: "Big Sur Marathon", mode: .race)
         marathon.date = day(45)
         marathon.location = "Carmel, CA"
+        marathon.distance = "26.2mi"
         marathon.goal = "3:45:00"
         marathon.stretchGoal = "3:38:00"
         try await data.addEvent(marathon)
@@ -144,6 +145,7 @@ enum SeedData {
         var ten_k = Event.create(presetId: "10k", name: "Spring 10K", mode: .race)
         ten_k.date = day(-30)
         ten_k.location = "Local"
+        ten_k.distance = "10K"
         ten_k.goal = "44:00"
         ten_k.result = "43:21"
         ten_k.completed = true

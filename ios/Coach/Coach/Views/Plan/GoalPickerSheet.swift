@@ -81,7 +81,7 @@ struct GoalPickerSheet: View {
                 }
             }
             .sheet(isPresented: $showGoalForm) {
-                GoalFormSheet(isPresented: $showGoalForm)
+                CreateGoalSheet(isPresented: $showGoalForm)
             }
         }
     }

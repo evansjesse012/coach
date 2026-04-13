@@ -31,6 +31,7 @@ struct Event: Codable, Identifiable {
     var name: String
     var date: String?
     var location: String?
+    var distance: String?
     var mode: EventMode
     var goal: String?
     var stretchGoal: String?
@@ -52,7 +53,7 @@ struct Event: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id
         case presetId = "preset_id"
-        case name, date, location, mode, goal
+        case name, date, location, distance, mode, goal
         case stretchGoal = "stretch_goal"
         case baseline, result, completed, notes, splits
         case bibNumber = "bib_number"
