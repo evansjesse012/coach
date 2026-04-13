@@ -10,14 +10,19 @@ struct PlanTab: View {
                     VStack(alignment: .leading, spacing: 20) {
                         GoalHeader(plan: plan)
 
+                        PlanOverviewCard(plan: plan)
+
                         if let current = plan.current {
                             CurrentPhaseCard(plan: plan, phase: current)
                         }
 
-                        PlanProgressionBar(plan: plan)
-
-                        ForEach(plan.phases.sorted(by: { $0.number < $1.number })) { phase in
-                            PeriodSection(plan: plan, phase: phase)
+                        ForEach(allWeeks(plan: plan), id: \.weekNumber) { wp in
+                            NavigationLink {
+                                WeekDetailView(initialWeekNum: wp.weekNumber)
+                            } label: {
+                                WeekCard(plan: plan, weeklyPlan: wp)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding()
@@ -31,18 +36,11 @@ struct PlanTab: View {
                 }
             }
             .navigationTitle("Plan")
-            .toolbar {
-                if let plan = data.trainingPlan {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NavigationLink {
-                            PlanReviewView(plan: plan)
-                        } label: {
-                            Image(systemName: "doc.text.magnifyingglass")
-                        }
-                    }
-                }
-            }
         }
+    }
+
+    private func allWeeks(plan: TrainingPlan) -> [WeeklyPlan] {
+        plan.weeklyPlans.values.sorted { $0.weekNumber < $1.weekNumber }
     }
 }
 
@@ -221,51 +219,105 @@ private struct CurrentPhaseCard: View {
     }
 }
 
-// MARK: - Plan Progression Bar
+// MARK: - Plan Overview Card
 
-private struct PlanProgressionBar: View {
+private struct PlanOverviewCard: View {
     let plan: TrainingPlan
 
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Week \(plan.currentWeek) of \(plan.totalWeeks)")
-                    .font(CoachFonts.ui(12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if let weeks = plan.weeksUntilRace(), let race = plan.raceName {
-                    Text("\(weeks) weeks until \(race)")
-                        .font(CoachFonts.ui(11))
+        NavigationLink {
+            PlanReviewView(plan: plan)
+        } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("PLAN OVERVIEW")
+                        .font(CoachFonts.ui(11, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .tracking(0.8)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                 }
-            }
 
-            HStack(spacing: 3) {
-                ForEach(plan.phaseSegmentFractions(), id: \.phase.number) { entry in
-                    let isCurrent = entry.phase.number == plan.currentPhase
-                    phaseSegment(phase: entry.phase, isCurrent: isCurrent)
-                        .layoutPriority(entry.fraction)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(plan.totalWeeks)-Week Plan")
+                        .font(CoachFonts.display(22, weight: .bold))
+                    Text(positionLine)
+                        .font(CoachFonts.ui(12))
+                        .foregroundStyle(.secondary)
+                }
+
+                if !phasePillRow.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(phasePillRow, id: \.0) { name, color in
+                            Text(name)
+                                .font(CoachFonts.ui(10, weight: .semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(color.opacity(0.15))
+                                .foregroundStyle(color)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+
+                timeline
+
+                HStack {
+                    Spacer()
+                    Text("View full plan →")
+                        .font(CoachFonts.ui(12, weight: .semibold))
+                        .foregroundStyle(CoachColors.accent)
                 }
             }
-            .frame(height: 32)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+            )
         }
+        .buttonStyle(.plain)
+    }
+
+    private var positionLine: String {
+        var parts = ["Week \(plan.currentWeek) of \(plan.totalWeeks)"]
+        if let weeks = plan.weeksUntilRace() {
+            parts.append("\(weeks) weeks until race day")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var phasePillRow: [(String, Color)] {
+        plan.phases.sorted(by: { $0.number < $1.number }).map { ($0.name, $0.accentColor) }
+    }
+
+    private var timeline: some View {
+        HStack(spacing: 3) {
+            ForEach(plan.phaseSegmentFractions(), id: \.phase.number) { entry in
+                let isCurrent = entry.phase.number == plan.currentPhase
+                timelineSegment(phase: entry.phase, isCurrent: isCurrent)
+                    .layoutPriority(entry.fraction)
+            }
+        }
+        .frame(height: 32)
     }
 
     @ViewBuilder
-    private func phaseSegment(phase: TrainingPhase, isCurrent: Bool) -> some View {
+    private func timelineSegment(phase: TrainingPhase, isCurrent: Bool) -> some View {
         let completed = plan.completedWeeks(in: phase)
-        ZStack(alignment: .center) {
+        ZStack {
             RoundedRectangle(cornerRadius: 6)
                 .fill(phase.accentColor.opacity(isCurrent ? 0.30 : 0.12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(phase.accentColor.opacity(isCurrent ? 1.0 : 0.4), lineWidth: isCurrent ? 1.5 : 1)
                 )
-
-            // Mini week markers
             HStack(spacing: 2) {
                 ForEach(0..<phase.weeks, id: \.self) { idx in
                     Circle()
@@ -273,127 +325,8 @@ private struct PlanProgressionBar: View {
                         .frame(width: 5, height: 5)
                 }
             }
-
-            VStack {
-                Spacer()
-                Text(phase.name)
-                    .font(CoachFonts.ui(9, weight: .semibold))
-                    .foregroundStyle(phase.accentColor)
-                    .lineLimit(1)
-                    .padding(.bottom, 2)
-            }
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-// MARK: - Period Section
-
-private struct PeriodSection: View {
-    let plan: TrainingPlan
-    let phase: TrainingPhase
-
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            ForEach(weeksForThisPhase, id: \.weekNumber) { wp in
-                NavigationLink {
-                    WeekDetailView(initialWeekNum: wp.weekNumber)
-                } label: {
-                    WeekCard(plan: plan, weeklyPlan: wp)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private var isCurrent: Bool { phase.number == plan.currentPhase }
-
-    private var header: some View {
-        NavigationLink {
-            PhaseDetailView(plan: plan, phase: phase)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(phase.name.uppercased())
-                        .font(CoachFonts.ui(11, weight: .semibold))
-                        .tracking(0.8)
-                        .foregroundStyle(phase.accentColor)
-                    if isCurrent {
-                        Text("CURRENT")
-                            .font(CoachFonts.ui(9, weight: .bold))
-                            .tracking(0.5)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(phase.accentColor)
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
-                    }
-                    Spacer()
-                    if let dateRange = phaseDateRange {
-                        Text(dateRange)
-                            .font(CoachFonts.ui(11))
-                            .foregroundStyle(.secondary)
-                    }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                if let philosophy = phase.philosophy {
-                    Text(philosophy)
-                        .font(CoachFonts.ui(13))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Text(quickStatsLine)
-                    .font(CoachFonts.ui(11))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isCurrent
-                    ? phase.accentColor.opacity(0.08)
-                    : (colorScheme == .dark ? CoachColors.darkElevated : CoachColors.lightElevated)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isCurrent ? phase.accentColor.opacity(0.6) : Color.clear, lineWidth: isCurrent ? 1.5 : 0)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var quickStatsLine: String {
-        var parts: [String] = []
-        if let v = phase.weeklyVolumeRange {
-            let lo = v.min == v.min.rounded() ? "\(Int(v.min))" : String(format: "%.1f", v.min)
-            let hi = v.max == v.max.rounded() ? "\(Int(v.max))" : String(format: "%.1f", v.max)
-            parts.append("\(lo)–\(hi) \(v.unit)")
-        }
-        if let s = phase.sessionsPerWeek {
-            parts.append("\(s) sessions/wk")
-        }
-        if let n = phase.keyWorkouts?.count, n > 0 {
-            parts.append("\(n) key workouts")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private var weeksForThisPhase: [WeeklyPlan] {
-        plan.weeklyPlans.values
-            .filter { $0.phase == phase.number }
-            .sorted { $0.weekNumber < $1.weekNumber }
-    }
-
-    private var phaseDateRange: String? {
-        guard let start = phase.startDate, let end = phase.endDate else { return nil }
-        return "\(formatDateShort(start)) – \(formatDateShort(end))"
     }
 }
 
