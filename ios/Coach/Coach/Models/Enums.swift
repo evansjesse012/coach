@@ -72,6 +72,20 @@ enum EventMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+// MARK: - Appearance
+enum Appearance: String, Codable, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
 // MARK: - Coaching Personality
 enum Personality: String, Codable, CaseIterable, Identifiable {
     case normal, goggins, hype, custom

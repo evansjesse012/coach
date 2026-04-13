@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @State private var personality: Personality = .normal
     @State private var customPrompt = ""
+    @State private var appearance: Appearance = .system
     @State private var seeding = false
     @State private var seedError: String?
     @State private var showClearConfirm = false
@@ -14,6 +15,23 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Appearance") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(Appearance.allCases) { a in
+                            Text(a.label).tag(a)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: appearance) { _, newValue in
+                        Task {
+                            var s = data.settings
+                            s.appearance = newValue
+                            s.darkMode = newValue == .dark
+                            try? await data.saveSettings(s)
+                        }
+                    }
+                }
+
                 Section("Coaching Personality") {
                     ForEach(Personality.allCases) { p in
                         Button {
@@ -117,6 +135,7 @@ struct SettingsView: View {
             .onAppear {
                 personality = data.settings.personality
                 customPrompt = data.settings.customPrompt
+                appearance = data.settings.effectiveAppearance
             }
         }
     }

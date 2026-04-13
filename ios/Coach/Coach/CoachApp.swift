@@ -24,6 +24,7 @@ struct CoachApp: App {
                 } else if isAuthenticated {
                     MainTabView()
                         .environment(dataService)
+                        .preferredColorScheme(preferredScheme)
                 } else if let errorMessage {
                     VStack(spacing: 12) {
                         Text("Sign-in failed")
@@ -44,6 +45,16 @@ struct CoachApp: App {
             .task {
                 await silentSignIn()
             }
+        }
+    }
+
+    /// Maps the user's appearance preference to SwiftUI's ColorScheme.
+    /// .system returns nil so the OS scheme passes through.
+    private var preferredScheme: ColorScheme? {
+        switch dataService.settings.effectiveAppearance {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
         }
     }
 
