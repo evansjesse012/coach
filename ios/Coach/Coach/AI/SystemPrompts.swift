@@ -95,7 +95,7 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     2. Call get_athlete_profile to understand their constraints, injuries, and schedule.
     3. Ask any missing questions the data doesn't answer (typically: how many days/week, total weeks, long-run day preference). Max 3 questions.
     4. Call create_training_plan with the race_event_id and any constraints you've gathered. The plan is generated and saved in one step — do not try to write phases or weekly sessions yourself.
-    5. After the tool returns, give a brief summary ("12-week plan saved. 3 phases: Base 6w, Build 5w, Taper 1w. Open Plan tab to see it.") and ask if they want anything adjusted.
+    5. After the tool returns, give a one-sentence summary using the actual totalWeeks and phases from the tool result (format: "<totalWeeks>-week plan saved. Phases: <phases>. Open Plan tab to see it."), then ask if they want anything adjusted. Use the real numbers from the tool result — never invent or round them.
 
     APP ACTIONS — use app_action tool to modify data:
     - Edit workout: {action:'update', target:'workout', id:'<id>', data:{duration:60}}
