@@ -13,7 +13,12 @@ struct GoalsTab: View {
                     if !active.isEmpty {
                         CoachLabel(text: "Active Goals")
                         ForEach(active) { event in
-                            GoalCard(event: event)
+                            NavigationLink {
+                                RaceDetailView(eventId: event.id)
+                            } label: {
+                                GoalCard(event: event)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
 
@@ -22,7 +27,12 @@ struct GoalsTab: View {
                     if !completed.isEmpty {
                         CoachLabel(text: "Completed")
                         ForEach(completed) { event in
-                            GoalCard(event: event)
+                            NavigationLink {
+                                RaceDetailView(eventId: event.id)
+                            } label: {
+                                GoalCard(event: event)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
 

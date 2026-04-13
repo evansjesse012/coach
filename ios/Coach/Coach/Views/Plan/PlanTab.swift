@@ -48,13 +48,41 @@ struct PlanTab: View {
 
 private struct GoalHeader: View {
     let plan: TrainingPlan
+    @Environment(DataService.self) var data
 
     var body: some View {
+        if let event = linkedEvent {
+            NavigationLink {
+                RaceDetailView(eventId: event.id)
+            } label: {
+                content(showChevron: true)
+            }
+            .buttonStyle(.plain)
+        } else {
+            content(showChevron: false)
+        }
+    }
+
+    private var linkedEvent: Event? {
+        guard let goalId = plan.goalId else { return nil }
+        return data.events.first { $0.id == goalId }
+    }
+
+    @ViewBuilder
+    private func content(showChevron: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("YOUR GOAL")
-                .font(CoachFonts.ui(11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            HStack {
+                Text("YOUR GOAL")
+                    .font(CoachFonts.ui(11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.8)
+                Spacer()
+                if showChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
             Text(plan.raceName ?? "Training Plan")
                 .font(CoachFonts.display(24, weight: .bold))
                 .lineLimit(2)

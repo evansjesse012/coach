@@ -77,30 +77,35 @@ struct HomeTab: View {
                     if !activeGoals.isEmpty {
                         CoachLabel(text: "Upcoming")
                         ForEach(activeGoals.prefix(3)) { event in
-                            CoachCard {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(event.name)
-                                            .font(CoachFonts.ui(14, weight: .medium))
-                                        if let date = event.date {
-                                            Text(formatDateShort(date))
-                                                .font(CoachFonts.ui(12))
-                                                .foregroundStyle(.secondary)
+                            NavigationLink {
+                                RaceDetailView(eventId: event.id)
+                            } label: {
+                                CoachCard {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(event.name)
+                                                .font(CoachFonts.ui(14, weight: .medium))
+                                            if let date = event.date {
+                                                Text(formatDateShort(date))
+                                                    .font(CoachFonts.ui(12))
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
-                                    }
-                                    Spacer()
-                                    if let date = event.date, let days = daysUntil(date), days >= 0 {
-                                        VStack {
-                                            Text("\(days)")
-                                                .font(CoachFonts.display(20, weight: .bold))
-                                                .foregroundStyle(CoachColors.accent)
-                                            Text("days")
-                                                .font(CoachFonts.ui(11))
-                                                .foregroundStyle(.secondary)
+                                        Spacer()
+                                        if let date = event.date, let days = daysUntil(date), days >= 0 {
+                                            VStack {
+                                                Text("\(days)")
+                                                    .font(CoachFonts.display(20, weight: .bold))
+                                                    .foregroundStyle(CoachColors.accent)
+                                                Text("days")
+                                                    .font(CoachFonts.ui(11))
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
                                     }
                                 }
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
