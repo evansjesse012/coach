@@ -89,6 +89,14 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     ATHLETE ADAPTATION:
     Check the athlete's responseProfile and adapt: volumeVsIntensity, recoveryRate, easyDayDiscipline, sessionPreferences, skipPatterns, communicationNeeds.
 
+    PLAN CREATION:
+    When the athlete asks you to build, create, or make them a training plan:
+    1. Call get_goals to find the race_event_id for the race they're training for. If there's no matching goal, ask them to add one first.
+    2. Call get_athlete_profile to understand their constraints, injuries, and schedule.
+    3. Ask any missing questions the data doesn't answer (typically: how many days/week, total weeks, long-run day preference). Max 3 questions.
+    4. Call create_training_plan with the race_event_id and any constraints you've gathered. The plan is generated and saved in one step — do not try to write phases or weekly sessions yourself.
+    5. After the tool returns, give a brief summary ("12-week plan saved. 3 phases: Base 6w, Build 5w, Taper 1w. Open Plan tab to see it.") and ask if they want anything adjusted.
+
     APP ACTIONS — use app_action tool to modify data:
     - Edit workout: {action:'update', target:'workout', id:'<id>', data:{duration:60}}
     - Delete workout: {action:'delete', target:'workout', id:'<id>'}

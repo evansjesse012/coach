@@ -20,7 +20,7 @@ struct ChatTab: View {
                             if isLoading {
                                 HStack(spacing: 8) {
                                     DotsLoader()
-                                    Text("Thinking...")
+                                    Text(loadingLabel)
                                         .font(CoachFonts.ui(13))
                                         .foregroundStyle(.secondary)
                                 }
@@ -65,6 +65,32 @@ struct ChatTab: View {
             .navigationTitle("Coach")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .onAppear {
+            consumePendingPrompt()
+        }
+        .onChange(of: data.pendingChatPrompt) { _, _ in
+            consumePendingPrompt()
+        }
+    }
+
+    private var loadingLabel: String {
+        switch data.activeToolName {
+        case "create_training_plan": return "Building your plan…"
+        case "get_workouts", "get_training_stats", "get_week_review", "get_plan_history":
+            return "Reviewing your data…"
+        case "get_athlete_profile": return "Checking your profile…"
+        case "log_workout": return "Logging workout…"
+        case "log_nutrition": return "Logging nutrition…"
+        case nil: return "Thinking…"
+        default: return "Working…"
+        }
+    }
+
+    private func consumePendingPrompt() {
+        guard let prompt = data.pendingChatPrompt, !prompt.isEmpty else { return }
+        inputText = prompt
+        isInputFocused = true
+        data.pendingChatPrompt = nil
     }
 
     // MARK: - Send Message
@@ -88,19 +114,40 @@ struct ChatTab: View {
             )
 
             let assistantMsg = ChatMessage.assistant(result.response, metadata: ChatMessageMetadata(
-                logged: !result.workoutsLogged.isEmpty,
-                nutritionLogged: !result.nutritionLogged.isEmpty,
-                planChanged: !result.planChanges.isEmpty,
-                appActionTaken: !result.appActions.isEmpty
+                logged: result.hasWorkoutLogs,
+                nutritionLogged: result.hasNutritionLogs,
+                planChanged: result.hasPlanChanges,
+                appActionTaken: result.hasAppActions
             ))
             try? await data.addMessage(assistantMsg)
 
-            // Process side effects
-            for workout in result.workoutsLogged {
-                try? await data.addCardio(workout)
-            }
-            for entry in result.nutritionLogged {
-                try? await data.addNutrition(entry)
+            // Apply typed side effects from the agent loop
+            for effect in result.effects {
+                switch effect {
+                case .workoutLogged(let workout):
+                    try? await data.addCardio(workout)
+                case .nutritionLogged(let entry):
+                    try? await data.addNutrition(entry)
+                case .planCreated(let plan), .planUpdated(let plan):
+                    try? await data.savePlan(plan)
+                case .weekUpdated(let weekNum, let weekPlan):
+                    if var current = data.trainingPlan {
+                        current.weeklyPlans[String(weekNum)] = weekPlan
+                        try? await data.savePlan(current)
+                    }
+                case .progressUpdated(let week, let phase):
+                    if var current = data.trainingPlan {
+                        current.currentWeek = week
+                        current.currentPhase = phase
+                        try? await data.savePlan(current)
+                    }
+                case .eventCreated(let event):
+                    try? await data.addEvent(event)
+                case .eventUpdated(let event):
+                    try? await data.updateEvent(event)
+                case .eventDeleted(let id):
+                    try? await data.deleteEvent(id)
+                }
             }
 
             // Background memory extraction

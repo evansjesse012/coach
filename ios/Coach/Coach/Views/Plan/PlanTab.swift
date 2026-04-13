@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PlanTab: View {
     @Environment(DataService.self) var data
+    @State private var showGoalPicker = false
 
     var body: some View {
         NavigationStack {
@@ -11,6 +12,8 @@ struct PlanTab: View {
                         GoalHeader(plan: plan)
 
                         PlanOverviewCard(plan: plan)
+
+                        modifyWithCoachButton
 
                         if let current = plan.current {
                             CurrentPhaseCard(plan: plan, phase: current)
@@ -27,16 +30,80 @@ struct PlanTab: View {
                     }
                     .padding()
                 } else {
-                    ContentUnavailableView(
-                        "No Training Plan",
-                        systemImage: "calendar.badge.plus",
-                        description: Text("Ask your coach to create a periodized training plan.")
-                    )
-                    .padding(.top, 60)
+                    emptyState
                 }
             }
             .navigationTitle("Plan")
+            .sheet(isPresented: $showGoalPicker) {
+                GoalPickerSheet(isPresented: $showGoalPicker) { event in
+                    routeToCoach(for: event, modify: false)
+                }
+            }
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 24) {
+            ContentUnavailableView(
+                "No Training Plan",
+                systemImage: "calendar.badge.plus",
+                description: Text("Your coach can build one around any goal you've added.")
+            )
+            Button {
+                showGoalPicker = true
+            } label: {
+                Label("Build a plan with your coach", systemImage: "sparkles")
+                    .font(CoachFonts.ui(15, weight: .semibold))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(CoachColors.accent)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 60)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var modifyWithCoachButton: some View {
+        Button {
+            guard let plan = data.trainingPlan else { return }
+            routeToCoachForModify(plan: plan)
+        } label: {
+            Label("Modify plan with your coach", systemImage: "bubble.left.and.bubble.right")
+                .font(CoachFonts.ui(13, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(CoachColors.accent.opacity(0.12))
+                .foregroundStyle(CoachColors.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(CoachColors.accent.opacity(0.4), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func routeToCoach(for event: Event, modify: Bool) {
+        let dateClause = event.date.map { " on \($0)" } ?? ""
+        let goalClause = event.goal.map { ". Goal: \($0)." } ?? "."
+        let weeksClause = event.date.flatMap { dateStr -> String? in
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            guard let d = formatter.date(from: dateStr) else { return nil }
+            let days = Calendar.current.dateComponents([.day], from: Date(), to: d).day ?? 0
+            return days > 7 ? " I have \(days / 7) weeks." : nil
+        } ?? ""
+        data.pendingChatPrompt = "Build me a training plan for \(event.name)\(dateClause)\(goalClause)\(weeksClause) Let's do it together."
+        data.selectedTab = "coach"
+    }
+
+    private func routeToCoachForModify(plan: TrainingPlan) {
+        let race = plan.raceName ?? "my race"
+        data.pendingChatPrompt = "I want to modify my current training plan for \(race). I'm in week \(plan.currentWeek) of \(plan.totalWeeks). What would you like to change?"
+        data.selectedTab = "coach"
     }
 
     private func allWeeks(plan: TrainingPlan) -> [WeeklyPlan] {

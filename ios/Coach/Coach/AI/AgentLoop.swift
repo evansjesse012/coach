@@ -6,17 +6,32 @@ import Functions
 
 struct AgentResult {
     var response: String
-    var workoutsLogged: [CardioWorkout]
-    var nutritionLogged: [NutritionEntry]
-    var planChanges: [PlanChange]
-    var appActions: [[String: Any]]
+    var effects: [ToolEffect]
     var toolCallCount: Int
-}
 
-enum PlanChange {
-    case plan(TrainingPlan)
-    case week(WeeklyPlan)
-    case progress(currentWeek: Int, currentPhase: Int)
+    // Convenience predicates for ChatMessageMetadata
+    var hasWorkoutLogs: Bool {
+        effects.contains { if case .workoutLogged = $0 { return true }; return false }
+    }
+    var hasNutritionLogs: Bool {
+        effects.contains { if case .nutritionLogged = $0 { return true }; return false }
+    }
+    var hasPlanChanges: Bool {
+        effects.contains {
+            switch $0 {
+            case .planCreated, .planUpdated, .weekUpdated, .progressUpdated: return true
+            default: return false
+            }
+        }
+    }
+    var hasAppActions: Bool {
+        effects.contains {
+            switch $0 {
+            case .eventCreated, .eventUpdated, .eventDeleted: return true
+            default: return false
+            }
+        }
+    }
 }
 
 // MARK: - Anthropic API Response Types
@@ -102,10 +117,7 @@ func runAgentLoop(
 
     var chain: [[String: Any]] = clean
     var toolCallCount = 0
-    var workoutsLogged: [CardioWorkout] = []
-    var nutritionLogged: [NutritionEntry] = []
-    var planChanges: [PlanChange] = []
-    var appActions: [[String: Any]] = []
+    var effects: [ToolEffect] = []
 
     for _ in 0..<maxRounds {
         // Call Claude via Supabase Edge Function
@@ -122,43 +134,42 @@ func runAgentLoop(
                 .compactMap(\.text)
                 .joined()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return AgentResult(
-                response: text,
-                workoutsLogged: workoutsLogged,
-                nutritionLogged: nutritionLogged,
-                planChanges: planChanges,
-                appActions: appActions,
-                toolCallCount: toolCallCount
-            )
+            return AgentResult(response: text, effects: effects, toolCallCount: toolCallCount)
         }
 
         if response.stopReason == "tool_use" {
             let toolUses = response.content.filter { $0.type == "tool_use" }
             guard !toolUses.isEmpty else {
                 let text = response.content.filter { $0.type == "text" }.compactMap(\.text).joined()
-                return AgentResult(response: text, workoutsLogged: workoutsLogged, nutritionLogged: nutritionLogged, planChanges: planChanges, appActions: appActions, toolCallCount: toolCallCount)
+                return AgentResult(response: text, effects: effects, toolCallCount: toolCallCount)
             }
 
             var toolResults: [[String: Any]] = []
             for tu in toolUses {
                 toolCallCount += 1
+                let toolName = tu.name ?? ""
                 let input = (tu.input?.value as? [String: Any]) ?? [:]
-                let result = executeTool(
-                    name: tu.name ?? "",
+
+                // Publish progress so ChatTab can show a custom loading state
+                dataService.activeToolName = toolName
+
+                let result = await executeTool(
+                    name: toolName,
                     input: input,
                     dataService: dataService
                 )
 
-                // Extract side effects
-                // TODO: Parse result JSON to extract workoutsLogged, nutritionLogged, planChanges, appActions
-                // This mirrors the JS side-effect extraction in page.jsx lines 922-923
+                // Collect typed side-effects (replaces the old TODO)
+                effects.append(contentsOf: result.effects)
 
                 toolResults.append([
                     "type": "tool_result",
                     "tool_use_id": tu.id ?? "",
-                    "content": result,
+                    "content": result.summary,
                 ])
             }
+
+            dataService.activeToolName = nil
 
             // Encode assistant content for the chain
             let assistantContent: [[String: Any]] = response.content.map { block in
@@ -179,15 +190,12 @@ func runAgentLoop(
 
         // Unexpected stop reason
         let text = response.content.filter { $0.type == "text" }.compactMap(\.text).joined()
-        return AgentResult(response: text.isEmpty ? "Done." : text, workoutsLogged: workoutsLogged, nutritionLogged: nutritionLogged, planChanges: planChanges, appActions: appActions, toolCallCount: toolCallCount)
+        return AgentResult(response: text.isEmpty ? "Done." : text, effects: effects, toolCallCount: toolCallCount)
     }
 
     return AgentResult(
         response: "I needed more context. Try asking again.",
-        workoutsLogged: workoutsLogged,
-        nutritionLogged: nutritionLogged,
-        planChanges: planChanges,
-        appActions: appActions,
+        effects: effects,
         toolCallCount: toolCallCount
     )
 }

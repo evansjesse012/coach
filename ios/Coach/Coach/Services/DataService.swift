@@ -24,6 +24,18 @@ final class DataService {
     var isLoading = false
     var error: String?
 
+    /// Name of the tool currently being executed by the agent loop, or nil.
+    /// Used by ChatTab to show custom loading states (e.g. "Building your plan…").
+    var activeToolName: String?
+
+    /// Pre-seeded prompt for the chat tab set by other tabs (e.g. Plan tab's
+    /// "Build with your coach" button). Consumed on next chat appear.
+    var pendingChatPrompt: String?
+
+    /// Currently-selected tab. Kept here so any view can switch tabs
+    /// programmatically (e.g. Plan tab routing to the coach).
+    var selectedTab: String = "home"
+
     private var client: SupabaseClient { SupabaseService.shared.client }
 
     // MARK: - Load All Data

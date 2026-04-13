@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab = "home"
     @Environment(DataService.self) var dataService
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        @Bindable var dataService = dataService
+        TabView(selection: $dataService.selectedTab) {
             HomeTab()
                 .tabItem {
                     Label("Home", systemImage: "house.fill")

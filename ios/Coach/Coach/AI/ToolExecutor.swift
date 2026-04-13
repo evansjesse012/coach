@@ -2,11 +2,11 @@ import Foundation
 
 // MARK: - Tool Executor
 
-/// Port of executeTool from page.jsx lines 467-738.
-/// Executes tool calls locally using in-memory data from DataService.
-/// Training data never leaves the device during tool execution.
+/// Executes a tool call locally using in-memory data from DataService.
+/// Returns a ToolResult: `summary` goes back to the model, `effects` are
+/// persisted by the caller after the agent loop completes.
 @MainActor
-func executeTool(name: String, input: [String: Any], dataService: DataService) -> String {
+func executeTool(name: String, input: [String: Any], dataService: DataService) async -> ToolResult {
     let today = todayString()
 
     switch name {
@@ -21,7 +21,6 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
 
-        // Build brick ID lookup
         var brickIds: [String: [String: Any]] = [:]
         for b in dataService.bricks {
             for leg in b.legs {
@@ -31,7 +30,6 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
 
         var all: [[String: Any]] = []
 
-        // Cardio workouts
         for w in dataService.cardio {
             guard let d = formatter.date(from: w.date), d >= cutoff else { continue }
             guard sport == "all" || w.sport.rawValue == sport else { continue }
@@ -41,7 +39,6 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
             all.append(entry)
         }
 
-        // Strength sessions
         if sport == "all" || sport == "strength" {
             for s in dataService.strength {
                 guard let d = formatter.date(from: s.date), d >= cutoff else { continue }
@@ -50,19 +47,18 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
             }
         }
 
-        // Sort by date descending and limit
         all.sort { ($0["date"] as? String ?? "") > ($1["date"] as? String ?? "") }
         let limited = Array(all.prefix(limit))
 
         if limited.isEmpty {
-            return "No \(sport == "all" ? "" : sport + " ")workouts in last \(days) days."
+            return ToolResult(summary: "No \(sport == "all" ? "" : sport + " ")workouts in last \(days) days.")
         }
-        return jsonString(["count": limited.count, "workouts": limited])
+        return ToolResult(summary: jsonString(["count": limited.count, "workouts": limited]))
 
     // MARK: get_training_plan
     case "get_training_plan":
         guard let plan = dataService.trainingPlan else {
-            return "No training plan set."
+            return ToolResult(summary: "No training plan set.")
         }
         let includeDetail = input["includePhaseDetail"] as? Bool ?? false
         let weekNum = input["weekNumber"] as? Int ?? plan.currentWeek
@@ -85,7 +81,7 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
             result["weekPlan"] = ["weekNumber": wp.weekNumber, "focusOfWeek": wp.focusOfWeek ?? ""]
         }
 
-        return jsonString(result)
+        return ToolResult(summary: jsonString(result))
 
     // MARK: get_training_stats
     case "get_training_stats":
@@ -105,13 +101,13 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
         }
 
         let totalMinutes = weeklyVolume.values.reduce(0, +)
-        return jsonString([
+        return ToolResult(summary: jsonString([
             "period": "\(weeks) weeks",
             "totalMinutes": totalMinutes,
             "totalHours": String(format: "%.1f", Double(totalMinutes) / 60.0),
             "bySport": weeklyVolume,
             "sessionsCount": dataService.cardio.filter { formatter.date(from: $0.date)! >= cutoff }.count + dataService.strength.filter { formatter.date(from: $0.date)! >= cutoff }.count,
-        ])
+        ]))
 
     // MARK: get_personal_records
     case "get_personal_records":
@@ -119,18 +115,18 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
         if let exercise, !exercise.isEmpty {
             let slug = exercise.slugified
             if let pr = dataService.prs[slug] {
-                return jsonString(["exercise": exercise, "pr": formatPR(pr)])
+                return ToolResult(summary: jsonString(["exercise": exercise, "pr": formatPR(pr)]))
             }
-            return "No PR found for '\(exercise)'."
+            return ToolResult(summary: "No PR found for '\(exercise)'.")
         }
         let allPRs = dataService.prs.mapValues { formatPR($0) }
-        return allPRs.isEmpty ? "No personal records yet." : jsonString(allPRs)
+        return ToolResult(summary: allPRs.isEmpty ? "No personal records yet." : jsonString(allPRs))
 
     // MARK: get_goals
     case "get_goals":
         let includeCompleted = input["include_completed"] as? Bool ?? false
         let filtered = includeCompleted ? dataService.events : dataService.events.filter { !$0.completed }
-        if filtered.isEmpty { return "No active goals." }
+        if filtered.isEmpty { return ToolResult(summary: "No active goals.") }
 
         let goals = filtered.map { e -> [String: Any] in
             var g: [String: Any] = ["id": e.id, "name": e.name, "mode": e.mode.rawValue]
@@ -143,60 +139,73 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
             g["completed"] = e.completed
             return g
         }
-        return jsonString(["count": goals.count, "goals": goals])
+        return ToolResult(summary: jsonString(["count": goals.count, "goals": goals]))
 
     // MARK: get_athlete_profile
     case "get_athlete_profile":
         let mem = dataService.memory
-        return jsonString([
+        return ToolResult(summary: jsonString([
             "permanent": [
                 "equipment": mem.permanent.equipment,
                 "facilities": mem.permanent.facilities,
                 "schedule": [
                     "availableDays": mem.permanent.schedule.availableDays,
                     "preferredTimes": mem.permanent.schedule.preferredTimes,
+                    "constraints": mem.permanent.schedule.constraints,
                 ] as [String: Any],
                 "medicalHistory": mem.permanent.medicalHistory,
+                "dietaryConstraints": mem.permanent.dietaryConstraints,
+                "communicationPrefs": mem.permanent.communicationPrefs,
                 "safetyRules": mem.permanent.safetyRules.map { ["rule": $0.rule, "reason": $0.reason] },
             ] as [String: Any],
             "benchmarks": mem.benchmarks.map { ["metric": $0.metric, "value": $0.value, "testDate": $0.testDate ?? ""] as [String: Any] },
-            "injuries": mem.injuries.map { ["area": $0.area, "status": $0.status, "severity": $0.severity] as [String: Any] },
+            "injuries": mem.injuries.map { ["area": $0.area, "status": $0.status, "severity": $0.severity, "triggers": $0.triggers, "safeActivities": $0.safeActivities, "modifications": $0.modifications] as [String: Any] },
             "observations": [
                 "patterns": mem.observations.patterns,
                 "motivators": mem.observations.motivators,
                 "consistency": mem.observations.consistency,
                 "currentFocus": mem.observations.currentFocus,
+                "coachingNotes": mem.observations.coachingNotes,
             ] as [String: Any],
             "responseProfile": [
                 "volumeVsIntensity": mem.responseProfile.volumeVsIntensity,
                 "recoveryRate": mem.responseProfile.recoveryRate,
+                "easyDayDiscipline": mem.responseProfile.easyDayDiscipline,
+                "sessionPreferences": mem.responseProfile.sessionPreferences,
                 "skipPatterns": mem.responseProfile.skipPatterns,
+                "communicationNeeds": mem.responseProfile.communicationNeeds,
             ] as [String: Any],
-        ])
+        ]))
 
     // MARK: log_workout
     case "log_workout":
         guard let sportStr = input["sport"] as? String,
               let sport = Sport(rawValue: sportStr),
               let duration = input["duration"] as? Int else {
-            return #"{"error":"Missing sport or duration"}"#
+            return ToolResult(summary: #"{"error":"Missing sport or duration"}"#)
         }
         let notes = input["notes"] as? String
         let date = input["date"] as? String ?? today
         let workout = CardioWorkout.create(sport: sport, duration: duration, notes: notes, date: date)
-        return jsonString(["logged": true, "workout": ["id": workout.id, "sport": sport.rawValue, "duration": duration, "date": date]])
+        return ToolResult(
+            summary: jsonString(["logged": true, "workout": ["id": workout.id, "sport": sport.rawValue, "duration": duration, "date": date]]),
+            effects: [.workoutLogged(workout)]
+        )
 
     // MARK: log_nutrition
     case "log_nutrition":
         guard let meal = input["meal"] as? String,
               let timingStr = input["timing"] as? String,
               let timing = NutritionTiming(rawValue: timingStr) else {
-            return #"{"error":"Missing meal or timing"}"#
+            return ToolResult(summary: #"{"error":"Missing meal or timing"}"#)
         }
         let relatedWorkout = input["relatedWorkout"] as? String
         let date = input["date"] as? String ?? today
         let entry = NutritionEntry.create(meal: meal, timing: timing, relatedWorkout: relatedWorkout, date: date)
-        return jsonString(["logged": true, "nutrition": ["id": entry.id, "meal": meal, "timing": timingStr, "date": date]])
+        return ToolResult(
+            summary: jsonString(["logged": true, "nutrition": ["id": entry.id, "meal": meal, "timing": timingStr, "date": date]]),
+            effects: [.nutritionLogged(entry)]
+        )
 
     // MARK: get_nutrition
     case "get_nutrition":
@@ -210,33 +219,81 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
             guard let d = formatter.date(from: entry.date), d >= cutoff else { return false }
             return timing == "all" || entry.timing.rawValue == timing
         }
-        if filtered.isEmpty { return "No nutrition entries in last \(days) days." }
+        if filtered.isEmpty { return ToolResult(summary: "No nutrition entries in last \(days) days.") }
         let entries = filtered.map { ["meal": $0.meal, "timing": $0.timing.rawValue, "date": $0.date] as [String: Any] }
-        return jsonString(["count": entries.count, "entries": entries])
+        return ToolResult(summary: jsonString(["count": entries.count, "entries": entries]))
 
-    // MARK: save_training_plan
+    // MARK: create_training_plan (NEW — calls TrainingPlanGenerator)
+    case "create_training_plan":
+        guard let raceEventId = input["race_event_id"] as? String,
+              let event = dataService.events.first(where: { $0.id == raceEventId }) else {
+            return ToolResult(summary: #"{"error":"Event not found. Call get_goals first to find the race_event_id."}"#)
+        }
+
+        // Refuse to overwrite unless confirm_overwrite is true
+        let confirmOverwrite = input["confirm_overwrite"] as? Bool ?? false
+        if dataService.trainingPlan != nil, !confirmOverwrite {
+            return ToolResult(summary: #"{"error":"A training plan already exists. Ask the athlete to confirm replacement, then call again with confirm_overwrite: true."}"#)
+        }
+
+        let totalWeeks = input["total_weeks"] as? Int ?? 12
+        let trainingDays = input["training_days_per_week"] as? Int
+        let volumeHours = input["weekly_volume_hours"] as? Double
+        let longRunDay = input["long_run_day"] as? String
+        let strengthDays = input["strength_days"] as? [String]
+        let planNotes = input["notes"] as? String
+
+        do {
+            let plan = try await TrainingPlanGenerator.generate(
+                for: event,
+                athleteMemory: dataService.memory,
+                totalWeeks: totalWeeks,
+                trainingDaysPerWeek: trainingDays,
+                weeklyVolumeHours: volumeHours,
+                longRunDay: longRunDay,
+                strengthDays: strengthDays,
+                notes: planNotes
+            )
+            let phasesSummary = plan.phases.map { "\($0.name) (\($0.weeks)w)" }.joined(separator: ", ")
+            return ToolResult(
+                summary: jsonString([
+                    "created": true,
+                    "totalWeeks": plan.totalWeeks,
+                    "phases": phasesSummary,
+                    "currentWeek": plan.currentWeek,
+                    "weeksPopulated": plan.weeklyPlans.count,
+                ]),
+                effects: [.planCreated(plan)]
+            )
+        } catch {
+            return ToolResult(summary: jsonString(["error": "Plan generation failed: \(error.localizedDescription)"]))
+        }
+
+    // MARK: save_training_plan (legacy — kept for compat, no-op effect)
     case "save_training_plan":
-        // Return the plan data for the caller to persist
-        return jsonString(["saved": true, "plan": input])
+        return ToolResult(summary: jsonString(["saved": true, "plan": input]))
 
     // MARK: save_weekly_plan
     case "save_weekly_plan":
-        return jsonString(["saved": true, "weekPlan": input])
+        return ToolResult(summary: jsonString(["saved": true, "weekPlan": input]))
 
     // MARK: update_plan_progress
     case "update_plan_progress":
         let week = input["currentWeek"] as? Int ?? 1
         let phase = input["currentPhase"] as? Int ?? 1
-        return jsonString(["updated": true, "currentWeek": week, "currentPhase": phase])
+        return ToolResult(
+            summary: jsonString(["updated": true, "currentWeek": week, "currentPhase": phase]),
+            effects: [.progressUpdated(currentWeek: week, currentPhase: phase)]
+        )
 
     // MARK: get_week_review
     case "get_week_review":
-        guard let plan = dataService.trainingPlan else { return "No training plan." }
+        guard let plan = dataService.trainingPlan else { return ToolResult(summary: "No training plan.") }
         let weekNum = input["weekNumber"] as? Int ?? max(1, plan.currentWeek - 1)
         let includeMultiWeek = input["includeMultiWeek"] as? Bool ?? false
 
         guard let review = computeWeekAdherence(plan: plan, weekNum: weekNum, cardio: dataService.cardio, strength: dataService.strength) else {
-            return "No data for week \(weekNum)."
+            return ToolResult(summary: "No data for week \(weekNum).")
         }
 
         var result: [String: Any] = [
@@ -255,11 +312,11 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
             if !patterns.isEmpty { result["multiWeekPatterns"] = patterns }
         }
 
-        return jsonString(result)
+        return ToolResult(summary: jsonString(result))
 
     // MARK: get_plan_history
     case "get_plan_history":
-        if dataService.planHistory.isEmpty { return "No past plans." }
+        if dataService.planHistory.isEmpty { return ToolResult(summary: "No past plans.") }
         let plans = dataService.planHistory.map { p in
             [
                 "raceName": p.raceName ?? "",
@@ -269,17 +326,16 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) -
                 "completedWeeks": p.completedWeeks ?? 0,
             ] as [String: Any]
         }
-        return jsonString(["count": plans.count, "plans": plans])
+        return ToolResult(summary: jsonString(["count": plans.count, "plans": plans]))
 
     // MARK: app_action
     case "app_action":
         let action = input["action"] as? String ?? ""
         let target = input["target"] as? String ?? ""
-        // Return success — actual CRUD handled by the caller (CoachViewModel.handleSend)
-        return jsonString(["success": true, "action": action, "target": target, "data": input["data"] ?? [:]])
+        return ToolResult(summary: jsonString(["success": true, "action": action, "target": target, "data": input["data"] ?? [:]]))
 
     default:
-        return #"{"error":"Unknown tool: \#(name)"}"#
+        return ToolResult(summary: #"{"error":"Unknown tool: \#(name)"}"#)
     }
 }
 
