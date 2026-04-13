@@ -15,21 +15,20 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Appearance") {
-                    Picker("Appearance", selection: $appearance) {
-                        ForEach(Appearance.allCases) { a in
-                            Text(a.label).tag(a)
+                Section {
+                    AppearancePicker(selection: $appearance)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowBackground(Color.clear)
+                        .onChange(of: appearance) { _, newValue in
+                            Task {
+                                var s = data.settings
+                                s.appearance = newValue
+                                s.darkMode = newValue == .dark
+                                try? await data.saveSettings(s)
+                            }
                         }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: appearance) { _, newValue in
-                        Task {
-                            var s = data.settings
-                            s.appearance = newValue
-                            s.darkMode = newValue == .dark
-                            try? await data.saveSettings(s)
-                        }
-                    }
+                } header: {
+                    Text("Appearance")
                 }
 
                 Section("Coaching Personality") {
@@ -137,6 +136,15 @@ struct SettingsView: View {
                 customPrompt = data.settings.customPrompt
                 appearance = data.settings.effectiveAppearance
             }
+        }
+        .preferredColorScheme(schemeFor(appearance))
+    }
+
+    private func schemeFor(_ a: Appearance) -> ColorScheme? {
+        switch a {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
         }
     }
 
