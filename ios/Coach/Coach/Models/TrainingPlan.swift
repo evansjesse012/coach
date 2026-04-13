@@ -122,11 +122,13 @@ struct PrescribedSession: Codable, Identifiable {
     var completed: Bool?
     var zone: String?
     var targetIntensity: String?
+    var paceRange: String?         // e.g. "10:30-11:00/mi" — AI-computed from athlete benchmarks + zone
     var purpose: String?
     var workout: String?
     var fuel: SessionFuel?
     var priority: SessionPriority?
     var notes: String?
+    var warning: String?           // yellow callout for injury-driven modifications
     var exercises: [PrescribedExercise]?
     var legs: [PrescribedBrickLeg]?
     var templateId: String?
@@ -141,7 +143,8 @@ struct PrescribedSession: Codable, Identifiable {
         case completed
         case zone
         case targetIntensity
-        case purpose, workout, fuel, priority, notes, exercises, legs
+        case paceRange = "pace_range"
+        case purpose, workout, fuel, priority, notes, warning, exercises, legs
         case templateId
     }
 }

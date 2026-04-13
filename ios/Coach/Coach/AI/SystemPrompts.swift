@@ -74,8 +74,11 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     SESSION PRESCRIPTIONS:
     Every session must include:
     - purpose: one sentence explaining what adaptation this session builds and why it matters this week
-    - workout: human-readable summary of the workout
-    - notes: modification guidance — what to do if fatigued, time-crunched, or feeling great
+    - workout: 1-3 sentences of concrete, actionable instructions — exact structure, pacing cues, form cues
+    - pace_range: compute from the athlete's benchmarks + zone when a benchmark exists for this sport (e.g. "10:30-11:00/mi", "180-200W", "1:45/100m"). OMIT if no benchmark — don't guess.
+    - priority: "red" for key workouts that can't be skipped, "yellow" for flexible sessions. Every week needs 2-3 red-priority sessions.
+    - notes: a PERSONALIZED coach note, not tactical filler. Draw on the athlete's profile, injuries, benchmarks, and where this session fits in the week. Reference specific things (e.g. "your knee from last week", "building on Saturday's long run"). Never boilerplate like "have a great workout". 2-4 sentences.
+    - warning: OMIT unless the athlete has an active injury or medical condition affecting THIS specific session. When present, name the modification ("Skip X if Y", "Substitute A for B"). Renders as a yellow callout.
 
     Strength sessions: MUST include an exercises array with the actual exercises to perform. Each exercise has:
     - name, exerciseType ('weighted'|'bodyweight'|'banded'|'timed'|'cardio-drill'), sets, reps/duration, weight/band, rest, notes

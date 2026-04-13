@@ -137,34 +137,44 @@ private struct SessionCard: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Vertical color bar
-            (session.effortCategory ?? .easy).gradient
-                .frame(width: 6)
+            NavigationLink {
+                PrescribedSessionDetailView(session: session, dateString: dateString)
+            } label: {
+                HStack(spacing: 0) {
+                    // Vertical color bar
+                    (session.effortCategory ?? .easy).gradient
+                        .frame(width: 6)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(session.label)
-                    .font(CoachFonts.ui(16, weight: .bold))
-                    .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(session.label)
+                            .font(CoachFonts.ui(16, weight: .bold))
+                            .lineLimit(2)
+                            .foregroundStyle(.primary)
 
-                Text(secondLine)
-                    .font(CoachFonts.ui(12))
-                    .foregroundStyle(.secondary)
+                        Text(secondLine)
+                            .font(CoachFonts.ui(12))
+                            .foregroundStyle(.secondary)
 
-                Text(thirdLine)
-                    .font(CoachFonts.ui(12, weight: .medium))
-                    .foregroundStyle((session.effortCategory ?? .easy).color)
+                        Text(thirdLine)
+                            .font(CoachFonts.ui(12, weight: .medium))
+                            .foregroundStyle((session.effortCategory ?? .easy).color)
 
-                if let note = session.notes, !note.isEmpty {
-                    Text(note)
-                        .font(CoachFonts.ui(11))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 2)
+                        if let note = session.notes, !note.isEmpty {
+                            Text(note)
+                                .font(CoachFonts.ui(11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .padding(.top, 2)
+                        }
+                    }
+                    .padding(.leading, 12)
+                    .padding(.vertical, 12)
+
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
             }
-            .padding(.leading, 12)
-            .padding(.vertical, 12)
-
-            Spacer()
+            .buttonStyle(.plain)
 
             Button {
                 Task {

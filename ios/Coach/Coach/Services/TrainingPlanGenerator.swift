@@ -102,9 +102,59 @@ enum TrainingPlanGenerator {
                       "distance_miles": 5.0,
                       "effort_category": "easy",
                       "zone": "Z2",
-                      "purpose": "Aerobic base",
-                      "workout": "5mi steady at conversational pace",
-                      "notes": "Keep HR under 145."
+                      "pace_range": "10:30-11:00/mi",
+                      "priority": "yellow",
+                      "purpose": "Build aerobic base while staying well within comfort zone.",
+                      "workout": "5mi steady at conversational pace. Focus on landing midfoot, relaxed shoulders, consistent breathing rhythm.",
+                      "notes": "If your knee feels tight after 2mi, stop and foam roll. This is a recovery-pace run, not a tempo effort — if pace drifts below 11:00/mi, walk for 60 seconds and restart. You're building a foundation this week, not chasing numbers.",
+                      "warning": "Skip this session and substitute a 20min walk if knee soreness from yesterday's strength work persists.",
+                      "fuel": {
+                        "pre": "40g carbs + 15g protein 60min before (banana + peanut butter, or a small bowl of oats with honey).",
+                        "during": "Water only — session is under 60min.",
+                        "post": "25g protein + 40g carbs within 45min (Greek yogurt + berries + granola, or a protein shake with a banana)."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "day": "wednesday",
+                  "isRest": false,
+                  "sessions": [
+                    {
+                      "type": "strength",
+                      "label": "Lower Body Strength",
+                      "duration": 50,
+                      "effort_category": "strength",
+                      "priority": "red",
+                      "purpose": "Build single-leg strength and posterior chain to protect the knee.",
+                      "workout": "45min lower-body session focused on hinge and unilateral work.",
+                      "notes": "Deload sets 1-2 by 10lb if hamstrings are still sore from Monday's run. Form over load today — this is a priority session and you cannot skip it.",
+                      "warning": "Skip single-leg squats if knee uncomfortable. Substitute with glute bridges or hip thrusts.",
+                      "exercises": [
+                        {
+                          "name": "Romanian Deadlift",
+                          "exerciseType": "weighted",
+                          "sets": 3,
+                          "reps": 8,
+                          "weight": 135,
+                          "rest": 90,
+                          "notes": "Focus on hamstring engagement. 2-second hold at top."
+                        },
+                        {
+                          "name": "Bulgarian Split Squat",
+                          "exerciseType": "weighted",
+                          "sets": 3,
+                          "reps": 10,
+                          "weight": 25,
+                          "rest": 60,
+                          "notes": "Use chair for balance if needed. Skip if knee uncomfortable."
+                        }
+                      ],
+                      "fuel": {
+                        "pre": "30g carbs + 20g protein 45min before (toast + eggs, or a protein shake with oats).",
+                        "during": "Water + electrolytes if sweating heavily.",
+                        "post": "30g protein within 30min (shake or chicken + rice)."
+                      }
                     }
                   ]
                 }
@@ -126,6 +176,16 @@ enum TrainingPlanGenerator {
         10. Populate every week, every day. No placeholders.
         11. Long runs progress week-over-week within a phase. Deload weeks cut volume ~30%.
         12. Match the intensity_distribution to the phase: base is ~80/15/5/0, build is ~75/10/12/3, taper is ~80/10/8/2.
+
+        SESSION-LEVEL FIELD RULES (apply to every non-rest session):
+        13. purpose: one sentence explaining what adaptation this session builds and why it matters this week. Plain language, not jargon.
+        14. workout: 1-3 sentences of concrete, actionable instructions — exact structure, form cues, pacing strategy. This is what the athlete reads to know what to do.
+        15. pace_range: compute from the athlete's recent benchmarks combined with the session's zone. For runs use min/mi, for bikes use watts or mph, for swims use /100m. If the athlete has no benchmark for this sport, OMIT the field rather than guessing.
+        16. priority: "red" for key workouts (long run, race-pace intervals, threshold work, key strength) that cannot be skipped. "yellow" for flexible sessions that can be moved or shortened. Every week must have 2-3 red-priority sessions.
+        17. notes: A PERSONALIZED coach note, not tactical "do X if fatigued" filler. Draw on the athlete's profile, injuries, benchmarks, and where this session fits in the week. Reference specific things (e.g. "your knee from last week", "building on Saturday's long run"). If there's no personal context for this session, write a short form cue or mental anchor — but never boilerplate. Never say "have a great workout". 2-4 sentences.
+        18. warning: OMIT this field unless the athlete has an active injury or medical history that affects THIS specific session. When present, it must name the modification ("Skip X if Y", "Substitute A for B") — this renders as a yellow callout above the exercise list.
+        19. fuel: REQUIRED on every non-rest session. pre = macro targets + timing + 2-3 specific food options. during = carbs/hour + hydration for sessions over 60min, "water only" for shorter. post = protein/carb grams + recovery window + 2-3 food options.
+        20. exercises: REQUIRED on every strength session. Each exercise has name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets, reps (or duration for timed), weight/band, rest (seconds), notes (form cue specific to this athlete).
         """
 
         let body: [String: Any] = [
