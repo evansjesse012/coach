@@ -41,6 +41,14 @@ struct StrengthDetailView: View {
                     .font(CoachFonts.ui(15, weight: .semibold))
                 Spacer()
                 CoachPill(text: exercise.exerciseType.label, color: CoachColors.yellow)
+                NavigationLink {
+                    ExerciseDetailView(slug: exercise.name.slugified)
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(CoachColors.accent)
+                }
+                .buttonStyle(.plain)
             }
 
             VStack(spacing: 4) {

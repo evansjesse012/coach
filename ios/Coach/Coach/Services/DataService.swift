@@ -20,6 +20,7 @@ final class DataService {
     var settings: UserSettings = .defaults()
     var templates: [Template] = []
     var customExercises: [CustomExercise] = []
+    var catalogExercises: [CatalogExercise] = []
 
     var isLoading = false
     var error: String?
@@ -56,6 +57,7 @@ final class DataService {
             async let st: [UserSettings] = client.from("settings").select().execute().value
             async let t: [Template] = client.from("templates").select().execute().value
             async let ce: [CustomExercise] = client.from("custom_exercises").select().execute().value
+            async let cat: [CatalogExercise] = client.from("exercises").select().execute().value
             async let pr: [PersonalRecord] = client.from("personal_records").select().execute().value
 
             cardio = try await c
@@ -70,6 +72,7 @@ final class DataService {
             settings = try await st.first ?? .defaults()
             templates = try await t
             customExercises = try await ce
+            catalogExercises = try await cat
 
             // Build PRs dictionary keyed by exercise slug
             let prList = try await pr
@@ -214,5 +217,206 @@ final class DataService {
     func deleteTemplate(_ id: String) async throws {
         templates.removeAll { $0.id == id }
         try await client.from("templates").delete().eq("id", value: id).execute()
+    }
+
+    // MARK: - Exercise Library
+
+    /// Merged, deduped view of catalog + custom + from-history exercises.
+    /// Catalog wins on slug collision; history-only slugs appear flagged.
+    func allExercises() -> [ExerciseLibraryItem] {
+        var items: [ExerciseLibraryItem] = catalogExercises.map { cat in
+            ExerciseLibraryItem(
+                slug: cat.slug,
+                name: cat.name,
+                bodyPart: cat.bodyPart,
+                category: cat.category,
+                exerciseType: cat.exerciseType,
+                isCustom: false,
+                isFromHistory: false,
+                customId: nil
+            )
+        }
+        var knownSlugs = Set(items.map(\.slug))
+
+        for custom in customExercises where !knownSlugs.contains(custom.slug) {
+            items.append(ExerciseLibraryItem(
+                slug: custom.slug,
+                name: custom.name,
+                bodyPart: custom.bodyPart ?? "Other",
+                category: custom.category ?? "Other",
+                exerciseType: custom.exerciseType,
+                isCustom: true,
+                isFromHistory: false,
+                customId: custom.id
+            ))
+            knownSlugs.insert(custom.slug)
+        }
+
+        var firstByHistorySlug: [String: Exercise] = [:]
+        for session in strength {
+            for exercise in session.exercises {
+                let slug = exercise.name.slugified
+                guard !slug.isEmpty, !knownSlugs.contains(slug) else { continue }
+                if firstByHistorySlug[slug] == nil {
+                    firstByHistorySlug[slug] = exercise
+                }
+            }
+        }
+        for (slug, ex) in firstByHistorySlug {
+            items.append(ExerciseLibraryItem(
+                slug: slug,
+                name: ex.name,
+                bodyPart: "Other",
+                category: "Other",
+                exerciseType: ex.exerciseType,
+                isCustom: false,
+                isFromHistory: true,
+                customId: nil
+            ))
+        }
+
+        return items.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    /// Compute per-slug PRs by walking all strength sessions chronologically.
+    /// Used by the library to render per-row PR summaries — the `personal_records`
+    /// table is sparsely populated on real accounts, so we recompute from sessions.
+    func sessionPRs() -> [String: PersonalRecord] {
+        var result: [String: PersonalRecord] = [:]
+        let chrono = strength.sorted { $0.date < $1.date }
+        for session in chrono {
+            for exercise in session.exercises {
+                let slug = exercise.name.slugified
+                guard !slug.isEmpty else { continue }
+                for set in exercise.sets where set.completed {
+                    if let updated = computeExercisePR(
+                        existing: result[slug],
+                        name: exercise.name,
+                        set: set,
+                        type: exercise.exerciseType
+                    ) {
+                        result[slug] = updated
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /// Scan strength sessions for a slug, compute per-session PR flags chronologically,
+    /// and return the history in reverse chronological order with a computed PR snapshot.
+    func exerciseHistory(slug: String) -> ExerciseHistory {
+        let matching: [(StrengthSession, Exercise)] = strength.flatMap { session in
+            session.exercises
+                .filter { $0.name.slugified == slug }
+                .map { exercise in (session, exercise) }
+        }
+
+        let chrono = matching.sorted { $0.0.date < $1.0.date }
+        var runningPR: PersonalRecord? = nil
+        var prBySessionId: [String: Bool] = [:]
+
+        for (session, exercise) in chrono {
+            var hit = false
+            for set in exercise.sets where set.completed {
+                if let updated = computeExercisePR(
+                    existing: runningPR,
+                    name: exercise.name,
+                    set: set,
+                    type: exercise.exerciseType
+                ) {
+                    hit = true
+                    runningPR = updated
+                }
+            }
+            prBySessionId[session.id, default: false] = prBySessionId[session.id, default: false] || hit
+        }
+
+        let displayOrder = matching.sorted { $0.0.date > $1.0.date }
+        let entries = displayOrder.map { session, exercise in
+            ExerciseHistoryEntry(
+                session: session,
+                slug: slug,
+                displayName: exercise.name,
+                exerciseType: exercise.exerciseType,
+                sets: exercise.sets,
+                wasPR: prBySessionId[session.id] ?? false
+            )
+        }
+
+        return ExerciseHistory(
+            slug: slug,
+            entries: entries,
+            personalRecord: runningPR ?? prs[slug]
+        )
+    }
+
+    /// Insert a new custom exercise. Rejects duplicates against catalog or existing customs.
+    func addCustomExercise(
+        name: String,
+        bodyPart: String?,
+        category: String?,
+        type: ExerciseType
+    ) async throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw CustomExerciseError.invalidName }
+        let slug = trimmed.slugified
+        guard !slug.isEmpty else { throw CustomExerciseError.invalidName }
+
+        if catalogExercises.contains(where: { $0.slug == slug }) ||
+            customExercises.contains(where: { $0.slug == slug }) {
+            throw CustomExerciseError.duplicateSlug
+        }
+
+        let payload = CustomExerciseInsert(
+            name: trimmed,
+            slug: slug,
+            bodyPart: bodyPart,
+            category: category,
+            exerciseType: type.rawValue
+        )
+        let inserted: CustomExercise = try await client
+            .from("custom_exercises")
+            .insert(payload)
+            .select()
+            .single()
+            .execute()
+            .value
+        customExercises.append(inserted)
+    }
+
+    func deleteCustomExercise(id: Int) async throws {
+        customExercises.removeAll { $0.id == id }
+        try await client.from("custom_exercises").delete().eq("id", value: id).execute()
+    }
+}
+
+// MARK: - Insert Payload
+
+/// Dedicated insert payload for custom_exercises that omits `id` (SERIAL, server-assigned)
+/// and `user_id` (filled by `auth.uid()` default from migration 002). Using the read model
+/// for insert would send `"id": null` and fail the NOT NULL SERIAL constraint.
+private struct CustomExerciseInsert: Encodable {
+    let name: String
+    let slug: String
+    let bodyPart: String?
+    let category: String?
+    let exerciseType: String
+
+    enum CodingKeys: String, CodingKey {
+        case name, slug, category
+        case bodyPart = "body_part"
+        case exerciseType = "exercise_type"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        try c.encode(slug, forKey: .slug)
+        try c.encodeIfPresent(bodyPart, forKey: .bodyPart)
+        try c.encodeIfPresent(category, forKey: .category)
+        try c.encode(exerciseType, forKey: .exerciseType)
     }
 }

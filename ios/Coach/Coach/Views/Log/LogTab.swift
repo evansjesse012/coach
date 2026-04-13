@@ -9,6 +9,32 @@ struct LogTab: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    NavigationLink {
+                        ExerciseLibraryView()
+                    } label: {
+                        CoachCard {
+                            HStack(spacing: 12) {
+                                Image(systemName: "dumbbell.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(CoachColors.accent)
+                                    .frame(width: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Exercise Library")
+                                        .font(CoachFonts.ui(14, weight: .semibold))
+                                    Text("Browse lifts, PRs, and full history")
+                                        .font(CoachFonts.ui(11))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .buttonStyle(.plain)
+
                     // Toggle: Workouts / Strength
                     Picker("View", selection: $showCardio) {
                         Text("Workouts").tag(true)
