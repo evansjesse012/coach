@@ -6,9 +6,60 @@ struct WeatherData: Codable {
     var temperatureHigh: Double?
     var temperatureLow: Double?
     var windSpeed: Double?
-    var precipitation: Double?
+    var precipitation: Double?        // total daily precip in inches
+    var precipitationProbability: Double?  // peak daily precip probability %
     var weatherDescription: String?
+    var weatherCode: Int?             // WMO code for icon mapping
     var isClimateEstimate: Bool
+    var hourly: [HourlyWeatherPoint]?
+    var impact: WeatherImpact?
+    var fetchedAt: Double?            // unix seconds
+
+    enum CodingKeys: String, CodingKey {
+        case temperatureHigh = "temperature_high"
+        case temperatureLow = "temperature_low"
+        case windSpeed = "wind_speed"
+        case precipitation
+        case precipitationProbability = "precipitation_probability"
+        case weatherDescription = "weather_description"
+        case weatherCode = "weather_code"
+        case isClimateEstimate = "is_climate_estimate"
+        case hourly
+        case impact
+        case fetchedAt = "fetched_at"
+    }
+}
+
+/// One hour of forecast data, used for the race-morning strip.
+struct HourlyWeatherPoint: Codable, Hashable {
+    var hour: Int              // 0-23
+    var tempF: Double
+    var apparentTempF: Double?
+    var windMph: Double?
+    var precipProb: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case hour
+        case tempF = "temp_f"
+        case apparentTempF = "apparent_temp_f"
+        case windMph = "wind_mph"
+        case precipProb = "precip_prob"
+    }
+}
+
+/// AI-generated race-day impact assessment, cached alongside the weather
+/// so we only regenerate when the underlying forecast changes.
+struct WeatherImpact: Codable, Hashable {
+    var rating: String         // "good" | "moderate" | "challenging"
+    var assessment: String
+    var generatedAt: Double    // unix seconds
+    var weatherFetchedAt: Double  // links to WeatherData.fetchedAt at generation time
+
+    enum CodingKeys: String, CodingKey {
+        case rating, assessment
+        case generatedAt = "generated_at"
+        case weatherFetchedAt = "weather_fetched_at"
+    }
 }
 
 actor WeatherService {
@@ -54,7 +105,8 @@ actor WeatherService {
         components.queryItems = [
             URLQueryItem(name: "latitude", value: String(lat)),
             URLQueryItem(name: "longitude", value: String(lon)),
-            URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_sum,weather_code"),
+            URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_sum,precipitation_probability_max,weather_code"),
+            URLQueryItem(name: "hourly", value: "temperature_2m,windspeed_10m,apparent_temperature,precipitation_probability,weather_code"),
             URLQueryItem(name: "temperature_unit", value: "fahrenheit"),
             URLQueryItem(name: "wind_speed_unit", value: "mph"),
             URLQueryItem(name: "forecast_days", value: "16"),
@@ -62,18 +114,63 @@ actor WeatherService {
         let (data, _) = try await URLSession.shared.data(from: components.url!)
         let forecast = try JSONDecoder().decode(ForecastResponse.self, from: data)
 
-        guard let idx = forecast.daily.time.firstIndex(of: date) else {
+        guard let dayIdx = forecast.daily.time.firstIndex(of: date) else {
             return WeatherData(isClimateEstimate: false)
         }
 
+        // Build race-morning hourly series (6 AM through 10 AM, 5 hours)
+        let hourly = buildHourlyWindow(for: date, in: forecast.hourly, startHour: 6, hours: 5)
+
+        let wCode = forecast.daily.weatherCode.indices.contains(dayIdx) ? forecast.daily.weatherCode[dayIdx] : nil
+
         return WeatherData(
-            temperatureHigh: forecast.daily.temperature_2m_max[idx],
-            temperatureLow: forecast.daily.temperature_2m_min[idx],
-            windSpeed: forecast.daily.windSpeedMax.indices.contains(idx) ? forecast.daily.windSpeedMax[idx] : nil,
-            precipitation: forecast.daily.precipitationSum.indices.contains(idx) ? forecast.daily.precipitationSum[idx] : nil,
-            weatherDescription: forecast.daily.weatherCode.indices.contains(idx) ? weatherCodeToDescription(forecast.daily.weatherCode[idx]) : nil,
-            isClimateEstimate: false
+            temperatureHigh: forecast.daily.temperature_2m_max[dayIdx],
+            temperatureLow: forecast.daily.temperature_2m_min[dayIdx],
+            windSpeed: forecast.daily.windSpeedMax.indices.contains(dayIdx) ? forecast.daily.windSpeedMax[dayIdx] : nil,
+            precipitation: forecast.daily.precipitationSum.indices.contains(dayIdx) ? forecast.daily.precipitationSum[dayIdx] : nil,
+            precipitationProbability: forecast.daily.precipProbMax?.indices.contains(dayIdx) == true ? forecast.daily.precipProbMax?[dayIdx] : nil,
+            weatherDescription: wCode.map(weatherCodeToDescription),
+            weatherCode: wCode,
+            isClimateEstimate: false,
+            hourly: hourly,
+            impact: nil,
+            fetchedAt: Date().timeIntervalSince1970
         )
+    }
+
+    /// Extracts a window of hourly forecast points for the given race date.
+    /// `startHour` is the first hour-of-day to include (default 6 AM) and
+    /// `hours` is how many consecutive hours to return.
+    private func buildHourlyWindow(
+        for date: String,
+        in hourly: HourlyData?,
+        startHour: Int,
+        hours: Int
+    ) -> [HourlyWeatherPoint]? {
+        guard let hourly else { return nil }
+        // Open-Meteo hourly.time is "yyyy-MM-ddTHH:mm" (ISO local, no tz).
+        var result: [HourlyWeatherPoint] = []
+        for h in startHour..<(startHour + hours) {
+            let prefix = "\(date)T\(String(format: "%02d", h)):00"
+            guard let idx = hourly.time.firstIndex(where: { $0.hasPrefix(prefix) }) else { continue }
+            let temp = hourly.temperature_2m.indices.contains(idx) ? hourly.temperature_2m[idx] : 0
+            let wind: Double? = (hourly.windspeed_10m?.indices.contains(idx) == true) ? hourly.windspeed_10m?[idx] : nil
+            let feels: Double? = (hourly.apparent_temperature?.indices.contains(idx) == true) ? hourly.apparent_temperature?[idx] : nil
+            var prob: Double? = nil
+            if let probArr = hourly.precipitation_probability, probArr.indices.contains(idx) {
+                prob = Double(probArr[idx])
+            }
+            result.append(
+                HourlyWeatherPoint(
+                    hour: h,
+                    tempF: temp,
+                    apparentTempF: feels,
+                    windMph: wind,
+                    precipProb: prob
+                )
+            )
+        }
+        return result.isEmpty ? nil : result
     }
 
     // MARK: - Climate estimate (5-year average +-7 days)
@@ -108,7 +205,8 @@ actor WeatherService {
         let avgHigh = temps.isEmpty ? nil : temps.reduce(0, +) / Double(temps.count)
         return WeatherData(
             temperatureHigh: avgHigh,
-            isClimateEstimate: true
+            isClimateEstimate: true,
+            fetchedAt: Date().timeIntervalSince1970
         )
     }
 
@@ -158,6 +256,7 @@ private struct GeocodeResult: Codable {
 
 private struct ForecastResponse: Codable {
     var daily: DailyData
+    var hourly: HourlyData?
 }
 
 private struct DailyData: Codable {
@@ -166,10 +265,19 @@ private struct DailyData: Codable {
     var temperature_2m_min: [Double]
     var wind_speed_10m_max: [Double]?
     var precipitation_sum: [Double]?
+    var precipitation_probability_max: [Double]?
     var weather_code: [Int]?
 
-    // Provide defaults for optional arrays
     var windSpeedMax: [Double] { wind_speed_10m_max ?? [] }
     var precipitationSum: [Double] { precipitation_sum ?? [] }
+    var precipProbMax: [Double]? { precipitation_probability_max }
     var weatherCode: [Int] { weather_code ?? [] }
+}
+
+private struct HourlyData: Codable {
+    var time: [String]
+    var temperature_2m: [Double]
+    var windspeed_10m: [Double]?
+    var apparent_temperature: [Double]?
+    var precipitation_probability: [Int]?
 }

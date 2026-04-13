@@ -36,13 +36,29 @@ enum RaceConditionsGenerator {
 
         Return ONLY a JSON object with these fields, no markdown fences, no commentary, no text outside the JSON:
         {
-          "summary": "2-3 sentences for the athlete preparing for this race — what makes it distinctive, what to expect on the day",
-          "terrain": "1 sentence on the course terrain (flat/hilly/trail/road, surface, technical sections)",
-          "elevation": "1 sentence on total elevation gain and notable climbs",
-          "climate": "1 sentence on typical weather for this race date and location",
-          "tips": ["5-8 specific, actionable things an expert coach would tell their athlete about this exact race — pacing strategy, nutrition timing, gear choices, mental cues, terrain-specific advice"],\(urlSection)
+          "summary": "2 sentences max, ~40 words total. What makes this race distinctive and what to expect on the day — no fluff.",
+          "terrain": {
+            "short": "3-8 words, e.g. 'Paved, rolling hills'",
+            "detail": "1 sentence expanding on surface, technical sections, notable features"
+          },
+          "elevation": {
+            "short": "3-8 words, e.g. '~1,000 ft gain'",
+            "detail": "1 sentence on total gain and notable climbs"
+          },
+          "climate": {
+            "short": "3-8 words, e.g. '50-65°F, fog likely'",
+            "detail": "1 sentence on typical weather for this date and location"
+          },
+          "tips": [
+            {
+              "headline": "2-4 words capturing the core takeaway, e.g. 'Start conservative'",
+              "detail": "1 sentence with the specific actionable explanation"
+            }
+          ],\(urlSection)
         }
 
+        Return 5-8 tips total. Order them by priority — the first 3 should be the most important things this athlete needs to know.
+        Each tip should be something an expert coach would actually say: pacing strategy, nutrition timing, gear choices, mental cues, terrain-specific advice.
         If you don't know the specific race, infer reasonable conditions from the race name, location, and date.
         """
 
