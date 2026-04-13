@@ -90,7 +90,7 @@ enum RaceConditionsGenerator {
             guard 200..<300 ~= response.statusCode else {
                 let preview = String(data: data, encoding: .utf8) ?? ""
                 NSLog("[race-conditions] HTTP \(response.statusCode): \(preview)")
-                throw FunctionsError.httpError(code: response.statusCode, data: data)
+                throw friendlyError(for: response.statusCode)
             }
             return try JSONDecoder().decode(ChatResponse.self, from: data)
         }
@@ -124,6 +124,32 @@ enum RaceConditionsGenerator {
         }
 
         return RaceOverviewResult(conditions: conditions, officialURL: url)
+    }
+
+    /// Maps HTTP status codes from the chat edge function into errors with
+    /// user-readable messages. The edge function already retries 429/529 up to
+    /// 3 times — if we still see one here, the upstream is genuinely stuck.
+    private static func friendlyError(for status: Int) -> NSError {
+        let message: String
+        switch status {
+        case 529:
+            message = "The AI service is overloaded right now. Please try again in a moment."
+        case 503, 504:
+            message = "The AI service is temporarily unavailable. Please try again in a moment."
+        case 429:
+            message = "Too many requests in a short window. Please wait a moment and try again."
+        case 401, 403:
+            message = "You're not signed in. Please sign in again and retry."
+        case 500...599:
+            message = "The AI service hit an error (HTTP \(status)). Please try again."
+        default:
+            message = "Couldn't reach the AI service (HTTP \(status)). Please try again."
+        }
+        return NSError(
+            domain: "RaceConditionsGenerator",
+            code: status,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
     }
 
     /// Strips markdown fences and grabs the first {...} block from a model response.

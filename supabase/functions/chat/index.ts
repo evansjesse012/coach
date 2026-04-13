@@ -31,8 +31,10 @@ async function callAnthropic(body: Record<string, unknown>, attempt = 1): Promis
     }),
   });
 
-  // Retry on rate limit (429) with exponential backoff, max 3 attempts
-  if (res.status === 429 && attempt < 3) {
+  // Retry on rate limit (429) and overload (529) with exponential backoff,
+  // max 3 attempts. 529 = Anthropic's API is temporarily saturated; their
+  // docs explicitly recommend retrying.
+  if ((res.status === 429 || res.status === 529) && attempt < 3) {
     const delay = Math.pow(2, attempt) * 1000;
     await new Promise((r) => setTimeout(r, delay));
     return callAnthropic(body, attempt + 1);
