@@ -176,11 +176,11 @@ struct RaceDetailView: View {
                                 .font(CoachFonts.ui(10, weight: .semibold))
                                 .tracking(0.5)
                                 .foregroundStyle(.secondary)
-                            ForEach(tips, id: \.self) { tip in
+                            ForEach(Array(tips.enumerated()), id: \.offset) { _, tip in
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                                     Text("•")
                                         .foregroundStyle(CoachColors.accent)
-                                    Text(tip)
+                                    Text(tip.detail)
                                         .font(CoachFonts.ui(13))
                                         .fixedSize(horizontal: false, vertical: true)
                                 }

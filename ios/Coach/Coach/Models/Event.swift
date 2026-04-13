@@ -17,12 +17,64 @@ struct RacePlanSections: Codable {
     var mentalPlan: String?
 }
 
+/// A single coach tip. Stored either as a plain string (legacy) or as
+/// a structured `{headline, detail}` object going forward. The custom
+/// Codable implementation decodes both forms transparently.
+struct CoachTip: Codable, Equatable, Hashable {
+    var headline: String?
+    var detail: String
+
+    init(headline: String? = nil, detail: String) {
+        self.headline = headline
+        self.detail = detail
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case headline, detail
+    }
+
+    init(from decoder: Decoder) throws {
+        // Legacy form: a plain string.
+        if let single = try? decoder.singleValueContainer(),
+           let raw = try? single.decode(String.self) {
+            self.headline = nil
+            self.detail = raw
+            return
+        }
+        // New form: { headline, detail }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.headline = try container.decodeIfPresent(String.self, forKey: .headline)
+        self.detail = try container.decodeIfPresent(String.self, forKey: .detail) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(headline, forKey: .headline)
+        try container.encode(detail, forKey: .detail)
+    }
+}
+
 struct AIConditions: Codable {
     var summary: String?
     var terrain: String?
     var elevation: String?
     var climate: String?
-    var tips: [String]?
+
+    // Short, one-line display values (5-8 words). When missing, the UI
+    // falls back to truncating the longer detail fields above.
+    var terrainShort: String?
+    var elevationShort: String?
+    var climateShort: String?
+
+    var tips: [CoachTip]?
+
+    enum CodingKeys: String, CodingKey {
+        case summary, terrain, elevation, climate
+        case terrainShort = "terrain_short"
+        case elevationShort = "elevation_short"
+        case climateShort = "climate_short"
+        case tips
+    }
 }
 
 struct Event: Codable, Identifiable {
