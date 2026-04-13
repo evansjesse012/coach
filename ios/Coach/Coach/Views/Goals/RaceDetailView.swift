@@ -17,6 +17,10 @@ struct RaceDetailView: View {
 
     @State private var newNote: String = ""
 
+    @State private var safariURL: IdentifiedURL?
+    @State private var editingURL = false
+    @State private var urlDraft = ""
+
     var body: some View {
         ScrollView {
             if let event = currentEvent {
@@ -45,6 +49,13 @@ struct RaceDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: eventId) {
             await loadWeather()
+        }
+        .sheet(item: $safariURL) { wrapped in
+            SafariSheet(url: wrapped.url)
+                .ignoresSafeArea()
+        }
+        .sheet(isPresented: $editingURL) {
+            editURLSheet
         }
     }
 
@@ -97,6 +108,7 @@ struct RaceDetailView: View {
                         .font(CoachFonts.ui(13))
                         .foregroundStyle(.secondary)
                 }
+                officialSiteRow(event: event)
             }
 
             if event.goal != nil || event.stretchGoal != nil {
@@ -239,6 +251,73 @@ struct RaceDetailView: View {
         .padding(10)
         .background(colorScheme == .dark ? CoachColors.darkElevated : CoachColors.lightElevated)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func officialSiteRow(event: Event) -> some View {
+        if let urlString = event.url, let url = URL(string: urlString) {
+            HStack(spacing: 6) {
+                Button {
+                    safariURL = IdentifiedURL(url: url)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "globe")
+                        Text("Official site")
+                            .underline()
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 10))
+                    }
+                    .font(CoachFonts.ui(13, weight: .medium))
+                    .foregroundStyle(CoachColors.accent)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    urlDraft = urlString
+                    editingURL = true
+                } label: {
+                    Image(systemName: "pencil.circle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        } else if event.mode == .race {
+            Button {
+                urlDraft = ""
+                editingURL = true
+            } label: {
+                Label("Add official site", systemImage: "globe.badge.chevron.backward")
+                    .font(CoachFonts.ui(12))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var editURLSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Official race website") {
+                    TextField("https://...", text: $urlDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+            }
+            .navigationTitle("Edit URL")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { editingURL = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await saveURL() }
+                    }
+                }
+            }
+        }
     }
 
     private func hasOverviewContent(_ c: AIConditions) -> Bool {
@@ -506,13 +585,29 @@ struct RaceDetailView: View {
         generatingOverview = true
         overviewError = nil
         do {
-            let conditions = try await RaceConditionsGenerator.generate(for: event)
+            let result = try await RaceConditionsGenerator.generate(for: event)
             var updated = event
-            updated.aiConditions = conditions
+            updated.aiConditions = result.conditions
+            if let url = result.officialURL, !url.isEmpty {
+                updated.url = url
+            }
             try await data.updateEvent(updated)
         } catch {
             overviewError = error.localizedDescription
         }
         generatingOverview = false
     }
+
+    private func saveURL() async {
+        guard var event = currentEvent else { return }
+        let trimmed = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        event.url = trimmed.isEmpty ? nil : trimmed
+        try? await data.updateEvent(event)
+        editingURL = false
+    }
+}
+
+private struct IdentifiedURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }
