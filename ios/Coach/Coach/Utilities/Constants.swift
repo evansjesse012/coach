@@ -39,6 +39,19 @@ enum CoachColors {
 
 // MARK: - Effort Category Colors
 
+// MARK: - Phase Identity Color
+
+extension TrainingPhase {
+    var accentColor: Color {
+        switch number {
+        case 1: return CoachColors.green
+        case 2: return CoachColors.accent
+        case 3: return CoachColors.purple
+        default: return CoachColors.cyan
+        }
+    }
+}
+
 extension EffortCategory {
     var color: Color {
         switch self {

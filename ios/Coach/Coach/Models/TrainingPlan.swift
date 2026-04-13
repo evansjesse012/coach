@@ -212,4 +212,66 @@ struct TrainingPlan: Codable, Identifiable {
             weeklyPlans: [:]
         )
     }
+
+    // MARK: - Phase navigation helpers
+
+    var current: TrainingPhase? {
+        phases.first { $0.number == currentPhase }
+    }
+
+    func startWeek(for phase: TrainingPhase) -> Int {
+        var sum = 1
+        for p in phases.sorted(by: { $0.number < $1.number }) where p.number < phase.number {
+            sum += p.weeks
+        }
+        return sum
+    }
+
+    func endWeek(for phase: TrainingPhase) -> Int {
+        startWeek(for: phase) + phase.weeks - 1
+    }
+
+    /// 1-based position in the phase ("week 3 of 6").
+    func weekIndexInPhase(_ phase: TrainingPhase) -> Int {
+        max(1, currentWeek - startWeek(for: phase) + 1)
+    }
+
+    /// Days remaining until the phase's endDate, or nil if unknown.
+    func daysRemainingInPhase(_ phase: TrainingPhase) -> Int? {
+        guard let endStr = phase.endDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let endDate = formatter.date(from: endStr) else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: Date(), to: endDate).day ?? 0
+        return max(0, days)
+    }
+
+    /// Weeks until race day from today, or nil if no raceDate.
+    func weeksUntilRace() -> Int? {
+        guard let raceStr = raceDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let raceDate = formatter.date(from: raceStr) else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: Date(), to: raceDate).day ?? 0
+        return max(0, Int((Double(days) / 7.0).rounded()))
+    }
+
+    /// Returns each phase paired with its proportional fraction of the total plan length.
+    func phaseSegmentFractions() -> [(phase: TrainingPhase, fraction: Double)] {
+        let total = phases.reduce(0) { $0 + $1.weeks }
+        guard total > 0 else { return [] }
+        return phases.sorted(by: { $0.number < $1.number }).map {
+            ($0, Double($0.weeks) / Double(total))
+        }
+    }
+
+    /// Counts weeks in a phase that have at least one explicitly-completed session.
+    func completedWeeks(in phase: TrainingPhase) -> Int {
+        let start = startWeek(for: phase)
+        let end = endWeek(for: phase)
+        return (start...end).filter { weekNum in
+            guard let wp = weeklyPlans[String(weekNum)] else { return false }
+            return wp.sessions.flatMap(\.sessions).contains(where: { $0.completed == true })
+        }.count
+    }
 }
