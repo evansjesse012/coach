@@ -64,7 +64,18 @@ struct SettingsView: View {
                     NavigationLink {
                         AthleteMemoryView()
                     } label: {
-                        Label("Athlete Memory", systemImage: "person.text.rectangle")
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.text.rectangle")
+                                .foregroundStyle(CoachColors.accent)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("View Athlete Profile")
+                                    .font(CoachFonts.ui(15, weight: .medium))
+                                Text("See what your coach knows about you")
+                                    .font(CoachFonts.ui(12))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
 
