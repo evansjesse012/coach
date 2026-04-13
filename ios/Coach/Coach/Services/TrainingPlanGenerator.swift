@@ -194,7 +194,7 @@ enum TrainingPlanGenerator {
                 ["role": "user", "content": userPrompt]
             ],
             "max_tokens": 16000,
-            "model": "claude-sonnet-4-5-20250929",
+            "model": "claude-sonnet-4-6",
         ]
 
         let bodyData = try JSONSerialization.data(withJSONObject: body)

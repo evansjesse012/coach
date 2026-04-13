@@ -159,8 +159,9 @@ struct ChatTab: View {
                 )
             }
         } catch {
+            NSLog("[chat] sendMessage failed: \(error)")
             let errorMsg = ChatMessage.assistant(
-                "Sorry, I ran into an error. Please try again.",
+                "Sorry, I ran into an error. Please try again.\n\n\(error.localizedDescription)",
                 metadata: ChatMessageMetadata(isError: true)
             )
             try? await data.addMessage(errorMsg)
