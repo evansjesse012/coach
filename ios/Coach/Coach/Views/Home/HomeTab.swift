@@ -23,6 +23,18 @@ struct HomeTab: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        Task { await data.syncHealthKitWorkouts() }
+                    } label: {
+                        if data.isHealthKitSyncing {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(data.isHealthKitSyncing)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
                         showSettings = true
                     } label: {
                         Image(systemName: "gearshape")
@@ -262,6 +274,9 @@ private struct TodaysFocusSection: View {
                     .tracking(0.6)
                     .foregroundStyle(.secondary)
             }
+            ForEach(data.pendingHealthKitImports, id: \.id) { workout in
+                UnmatchedImportCard(workout: workout)
+            }
             content
         }
     }
@@ -380,6 +395,79 @@ private struct HomeRestDayCard: View {
     }
 }
 
+// MARK: - Unmatched Import Card
+
+/// Shown in Today's Focus for HealthKit-imported workouts the matcher
+/// couldn't pair to any prescribed session. Phase 2: read-only card with
+/// a single "Dismiss" action that removes it from pending (the workout
+/// itself is already in the cardio log — it just doesn't count against
+/// any prescribed session).
+private struct UnmatchedImportCard: View {
+    let workout: CardioWorkout
+
+    @Environment(DataService.self) var data
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(CoachColors.cyan.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                Image(systemName: workout.sport.sfSymbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(CoachColors.cyan)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("NEW WORKOUT DETECTED")
+                    .font(CoachFonts.ui(9, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(.secondary)
+                Text(headline)
+                    .font(CoachFonts.ui(14, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(subline)
+                    .font(CoachFonts.mono(11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                data.removePendingHealthKitImport(id: workout.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                    .background(Circle().fill(Color.gray.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(CoachColors.cyan.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+    }
+
+    private var headline: String {
+        "\(workout.sport.label) · \(workout.duration) min"
+    }
+
+    private var subline: String {
+        var parts: [String] = []
+        if let dist = workout.distance, !dist.isEmpty { parts.append(dist) }
+        parts.append("via Apple Watch")
+        return parts.joined(separator: " · ")
+    }
+}
+
 // MARK: - Empty Focus Card
 
 private struct EmptyFocusCard: View {
@@ -396,7 +484,7 @@ private struct EmptyFocusCard: View {
 // MARK: - Today Session Card (hero)
 
 private enum SessionCardState {
-    case upcoming, completed, modified, swapped, skipped, awaitingInput
+    case upcoming, completed, needsReview, modified, swapped, skipped, awaitingInput
 }
 
 private enum ActiveCompletionSheet: Identifiable {
@@ -418,6 +506,12 @@ private struct TodaySessionCard: View {
 
     private var cardState: SessionCardState {
         if let status = session.completionStatus {
+            // Medium-confidence HealthKit auto-matches land on .completed
+            // with needsReview flipped; surface them as a distinct state
+            // so the athlete can see "this was auto-paired, confirm?".
+            if status == .completed && session.completionNeedsReview == true {
+                return .needsReview
+            }
             switch status {
             case .completed: return .completed
             case .modified:  return .modified
@@ -545,7 +639,7 @@ private struct TodaySessionCard: View {
                 .frame(width: 6)
         case .completed:
             Rectangle().fill(CoachColors.green).frame(width: 6)
-        case .modified:
+        case .needsReview, .modified:
             Rectangle().fill(CoachColors.yellow).frame(width: 6)
         case .swapped:
             Rectangle().fill(CoachColors.blue).frame(width: 6)
@@ -564,6 +658,9 @@ private struct TodaySessionCard: View {
             }
             if session.priority == .red && cardState != .skipped {
                 CoachPill(text: "KEY", color: CoachColors.accent)
+            }
+            if cardState == .needsReview {
+                CoachPill(text: "REVIEW", color: CoachColors.yellow)
             }
             if cardState == .modified {
                 CoachPill(text: "MODIFIED", color: CoachColors.yellow)
@@ -629,7 +726,7 @@ private struct TodaySessionCard: View {
     @ViewBuilder
     private var completionDetailRow: some View {
         switch cardState {
-        case .completed, .modified, .swapped:
+        case .completed, .needsReview, .modified, .swapped:
             HStack(spacing: 8) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .bold))
@@ -646,6 +743,12 @@ private struct TodaySessionCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if cardState == .needsReview {
+                Text("Tap to review →")
+                    .font(CoachFonts.ui(11, weight: .semibold))
+                    .foregroundStyle(CoachColors.yellow)
+                    .padding(.top, 2)
             }
         case .skipped:
             if let reason = session.skipReason {
@@ -763,6 +866,17 @@ private struct TodaySessionCard: View {
             .buttonStyle(.plain)
             .padding(.trailing, 14)
 
+        case .needsReview:
+            Button {
+                Task { await resetCompletion() }
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(CoachColors.yellow)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 14)
+
         case .modified:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 26))
@@ -858,7 +972,7 @@ private struct TodaySessionCard: View {
         switch cardState {
         case .upcoming, .awaitingInput: return CoachColors.accent
         case .completed: return CoachColors.green
-        case .modified:  return CoachColors.yellow
+        case .needsReview, .modified:  return CoachColors.yellow
         case .swapped:   return CoachColors.blue
         case .skipped:   return Color.gray
         }
@@ -871,7 +985,7 @@ private struct TodaySessionCard: View {
             return base
         case .completed:
             return CoachColors.green.opacity(0.06)
-        case .modified:
+        case .needsReview, .modified:
             return CoachColors.yellow.opacity(0.06)
         case .swapped:
             return CoachColors.blue.opacity(0.06)
@@ -884,6 +998,7 @@ private struct TodaySessionCard: View {
         case .upcoming, .skipped: return base
         case .awaitingInput:      return (session.effortCategory ?? .easy).color.opacity(0.5)
         case .completed:          return CoachColors.green.opacity(0.35)
+        case .needsReview:        return CoachColors.yellow.opacity(0.6)
         case .modified:           return CoachColors.yellow.opacity(0.35)
         case .swapped:            return CoachColors.blue.opacity(0.35)
         }

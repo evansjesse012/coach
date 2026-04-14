@@ -151,7 +151,9 @@ struct PrescribedSession: Codable, Identifiable {
     var legs: [PrescribedBrickLeg]?
     var templateId: String?
 
-    // Completion record (Phase 1 of the completion system — manual marking only).
+    // Completion record. Phase 1 added manual marking; Phase 2 adds
+    // HealthKit-driven auto-matching which can mark a session as completed
+    // with a needsReview flag for medium-confidence matches.
     var completionStatus: CompletionStatus?
     var actualDuration: Int?
     var actualDistance: Double?
@@ -159,6 +161,7 @@ struct PrescribedSession: Codable, Identifiable {
     var skipReason: SkipReason?
     var completionNote: String?
     var completionResolvedAt: String?  // ISO timestamp when marked
+    var completionNeedsReview: Bool?   // true for medium-confidence HK auto-matches
 
     // Legacy keys stay in camelCase for backward compat with existing JSONB.
     enum CodingKeys: String, CodingKey {
@@ -180,6 +183,7 @@ struct PrescribedSession: Codable, Identifiable {
         case skipReason = "skip_reason"
         case completionNote = "completion_note"
         case completionResolvedAt = "completion_resolved_at"
+        case completionNeedsReview = "completion_needs_review"
     }
 }
 

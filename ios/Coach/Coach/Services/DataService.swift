@@ -22,6 +22,17 @@ final class DataService {
     var customExercises: [CustomExercise] = []
     var catalogExercises: [CatalogExercise] = []
 
+    /// HealthKit-imported workouts that the WorkoutMatcher couldn't pair to
+    /// any prescribed session. In-memory only — repopulated on each sync.
+    /// The UI shows these as "New workout detected" cards in Today's Focus.
+    var pendingHealthKitImports: [CardioWorkout] = []
+
+    /// True while a HealthKit sync is running, so the UI can show a spinner.
+    var isHealthKitSyncing: Bool = false
+
+    /// Last HealthKit sync error, or nil. Cleared on the next successful sync.
+    var healthKitSyncError: String?
+
     var isLoading = false
     var error: String?
 
@@ -100,6 +111,165 @@ final class DataService {
     func deleteCardio(_ id: String) async throws {
         cardio.removeAll { $0.id == id }
         try await client.from("cardio_workouts").delete().eq("id", value: id).execute()
+    }
+
+    // MARK: - HealthKit Sync + Match
+
+    /// Pulls recent workouts from HealthKit, dedupes, runs each new one
+    /// through WorkoutMatcher, applies auto-completions for high/medium
+    /// confidence matches, and surfaces the rest as pendingHealthKitImports.
+    /// Requests HealthKit authorization on first run.
+    func syncHealthKitWorkouts(days: Int = 3) async {
+        isHealthKitSyncing = true
+        healthKitSyncError = nil
+        defer { isHealthKitSyncing = false }
+
+        let service = HealthKitService.shared
+        guard await service.isAvailable else {
+            healthKitSyncError = "HealthKit isn't available on this device."
+            return
+        }
+
+        do {
+            try await service.requestAuthorization()
+        } catch {
+            healthKitSyncError = "HealthKit authorization failed: \(error.localizedDescription)"
+            return
+        }
+
+        let fetched: [CardioWorkout]
+        do {
+            fetched = try await service.fetchWorkouts(days: days)
+        } catch {
+            healthKitSyncError = "Couldn't fetch HealthKit workouts: \(error.localizedDescription)"
+            return
+        }
+
+        // Dedupe: skip workouts we've already imported (by id) or already
+        // flagged as pending.
+        let existingCardioIds = Set(cardio.map(\.id))
+        let pendingIds = Set(pendingHealthKitImports.map(\.id))
+        let newWorkouts = fetched.filter {
+            !existingCardioIds.contains($0.id) && !pendingIds.contains($0.id)
+        }
+
+        guard !newWorkouts.isEmpty else { return }
+
+        // Clear stale pending on a fresh sync; we'll rebuild from this pass.
+        pendingHealthKitImports.removeAll()
+
+        for workout in newWorkouts {
+            await processIncomingHealthKitWorkout(workout)
+        }
+    }
+
+    /// Runs the matcher on a single workout and applies the result. Shared
+    /// between the live HealthKit path and the dev inject helper.
+    private func processIncomingHealthKitWorkout(_ workout: CardioWorkout) async {
+        // Persist the workout itself first so it appears in the Log tab and
+        // history regardless of whether it matches a prescribed session.
+        do {
+            try await addCardio(workout)
+        } catch {
+            // Keep going even if persistence fails — the match pipeline
+            // still operates on the in-memory workout.
+            NSLog("[healthkit-sync] addCardio failed: \(error)")
+        }
+
+        guard let plan = trainingPlan else {
+            pendingHealthKitImports.append(workout)
+            return
+        }
+
+        let candidates = matchCandidatesForToday(plan: plan)
+        let result = WorkoutMatcher.match(workout: workout, against: candidates)
+
+        switch result.confidence {
+        case .high:
+            await applyAutoMatch(workout: workout, at: result.session, needsReview: false)
+        case .medium:
+            await applyAutoMatch(workout: workout, at: result.session, needsReview: true)
+        case .low, .none:
+            pendingHealthKitImports.append(workout)
+        }
+    }
+
+    /// Injects a fake HealthKit workout into the same pipeline the real
+    /// sync uses. For development testing without an Apple Watch.
+    func injectMockHealthKitWorkout(_ workout: CardioWorkout) async {
+        let existingCardioIds = Set(cardio.map(\.id))
+        let pendingIds = Set(pendingHealthKitImports.map(\.id))
+        guard !existingCardioIds.contains(workout.id), !pendingIds.contains(workout.id) else {
+            return
+        }
+        await processIncomingHealthKitWorkout(workout)
+    }
+
+    /// Collects every unresolved prescribed session for today from the plan,
+    /// with coordinates so the matcher result can be written back.
+    private func matchCandidatesForToday(plan: TrainingPlan) -> [MatchCandidate] {
+        let currentWeek = plan.currentWeek
+        guard let wp = plan.weeklyPlans[String(currentWeek)] else { return [] }
+
+        // Monday-indexed day: 0 = Monday .. 6 = Sunday.
+        let dayIdx = (Calendar.current.component(.weekday, from: Date()) + 5) % 7
+        guard dayIdx < wp.sessions.count else { return [] }
+
+        let dayPlan = wp.sessions[dayIdx]
+        if dayPlan.isRest == true { return [] }
+
+        var candidates: [MatchCandidate] = []
+        for (idx, session) in dayPlan.sessions.enumerated() {
+            // Skip already-resolved sessions.
+            if session.completionStatus != nil || session.completed == true { continue }
+            candidates.append(MatchCandidate(
+                session: session,
+                coords: SessionCoordinates(
+                    weekNum: currentWeek,
+                    dayIdx: dayIdx,
+                    sessionIdx: idx
+                )
+            ))
+        }
+        return candidates
+    }
+
+    /// Writes a completion record back onto the prescribed session at the
+    /// matcher-chosen coordinates. Populates actual fields from the imported
+    /// workout and sets needsReview for medium-confidence matches.
+    private func applyAutoMatch(
+        workout: CardioWorkout,
+        at coords: SessionCoordinates?,
+        needsReview: Bool
+    ) async {
+        guard let coords else { return }
+        try? await updateSessionCompletion(
+            weekNum: coords.weekNum,
+            dayIdx: coords.dayIdx,
+            sessionIdx: coords.sessionIdx
+        ) { session in
+            session.completionStatus = .completed
+            session.completed = true
+            session.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+            session.actualDuration = workout.duration
+            if let distanceStr = workout.distance, let miles = parseMiles(distanceStr) {
+                session.actualDistance = miles
+            }
+            session.completionNeedsReview = needsReview
+            // Small note so Coach chat context can see provenance.
+            session.completionNote = "Auto-matched from Apple Watch"
+        }
+    }
+
+    /// Removes an unmatched pending import (after the user resolves it).
+    func removePendingHealthKitImport(id: String) {
+        pendingHealthKitImports.removeAll { $0.id == id }
+    }
+
+    private func parseMiles(_ s: String) -> Double? {
+        // Accepts "4.80 mi" or "4.8mi" or "4.8".
+        let trimmed = s.replacingOccurrences(of: "mi", with: "").trimmingCharacters(in: .whitespaces)
+        return Double(trimmed)
     }
 
     // MARK: - Strength CRUD
