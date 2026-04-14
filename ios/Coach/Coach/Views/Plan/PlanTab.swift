@@ -8,27 +8,7 @@ struct PlanTab: View {
         NavigationStack {
             ScrollView {
                 if let plan = data.trainingPlan {
-                    VStack(alignment: .leading, spacing: 20) {
-                        GoalHeader(plan: plan)
-
-                        PlanOverviewCard(plan: plan)
-
-                        modifyWithCoachButton
-
-                        if let current = plan.current {
-                            CurrentPhaseCard(plan: plan, phase: current)
-                        }
-
-                        ForEach(allWeeks(plan: plan), id: \.weekNumber) { wp in
-                            NavigationLink {
-                                WeekDetailView(initialWeekNum: wp.weekNumber)
-                            } label: {
-                                WeekCard(plan: plan, weeklyPlan: wp)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
+                    content(plan: plan)
                 } else {
                     emptyState
                 }
@@ -38,6 +18,49 @@ struct PlanTab: View {
                 GoalPickerSheet(isPresented: $showGoalPicker) { event in
                     routeToCoach(for: event, modify: false)
                 }
+            }
+        }
+    }
+
+    private func content(plan: TrainingPlan) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            CompactGoalHeader(plan: plan)
+            FullPlanTimeline(plan: plan)
+            phaseStack(plan: plan)
+            thisWeekSection(plan: plan)
+            modifyWithCoachButton
+        }
+        .padding()
+    }
+
+    private func phaseStack(plan: TrainingPlan) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(plan.phases.sorted(by: { $0.number < $1.number }), id: \.number) { phase in
+                PhaseCard(plan: plan, phase: phase, status: cardStatus(for: phase, plan: plan))
+            }
+        }
+    }
+
+    private func cardStatus(for phase: TrainingPhase, plan: TrainingPlan) -> PhaseCardStatus {
+        if phase.number < plan.currentPhase { return .completed }
+        if phase.number == plan.currentPhase { return .current }
+        return .upcoming
+    }
+
+    @ViewBuilder
+    private func thisWeekSection(plan: TrainingPlan) -> some View {
+        if let wp = plan.weeklyPlans[String(plan.currentWeek)] {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("THIS WEEK")
+                    .font(CoachFonts.ui(11, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                NavigationLink {
+                    WeekDetailView(initialWeekNum: plan.currentWeek)
+                } label: {
+                    WeekCard(plan: plan, weeklyPlan: wp)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -71,19 +94,18 @@ struct PlanTab: View {
             guard let plan = data.trainingPlan else { return }
             routeToCoachForModify(plan: plan)
         } label: {
-            Label("Modify plan with your coach", systemImage: "bubble.left.and.bubble.right")
-                .font(CoachFonts.ui(13, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(CoachColors.accent.opacity(0.12))
-                .foregroundStyle(CoachColors.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(CoachColors.accent.opacity(0.4), lineWidth: 1)
-                )
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Modify plan with your coach")
+                    .font(CoachFonts.ui(12, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
+        .padding(.top, 8)
     }
 
     private func routeToCoach(for event: Event, modify: Bool) {
@@ -105,15 +127,11 @@ struct PlanTab: View {
         data.pendingChatPrompt = "I want to modify my current training plan for \(race). I'm in week \(plan.currentWeek) of \(plan.totalWeeks). What would you like to change?"
         data.selectedTab = "coach"
     }
-
-    private func allWeeks(plan: TrainingPlan) -> [WeeklyPlan] {
-        plan.weeklyPlans.values.sorted { $0.weekNumber < $1.weekNumber }
-    }
 }
 
-// MARK: - Goal Header
+// MARK: - Compact Goal Header
 
-private struct GoalHeader: View {
+private struct CompactGoalHeader: View {
     let plan: TrainingPlan
     @Environment(DataService.self) var data
 
@@ -135,53 +153,132 @@ private struct GoalHeader: View {
         return data.events.first { $0.id == goalId }
     }
 
-    @ViewBuilder
     private func content(showChevron: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("YOUR GOAL")
-                    .font(CoachFonts.ui(11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.8)
-                Spacer()
-                if showChevron {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(plan.raceName ?? "Training Plan")
+                    .font(CoachFonts.display(18, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                if let raceDate = plan.raceDate {
+                    Text(formatDateLong(raceDate))
+                        .font(CoachFonts.ui(12, weight: .medium))
+                        .foregroundStyle(CoachColors.accent)
                 }
+                Text(statusLine)
+                    .font(CoachFonts.ui(11))
+                    .foregroundStyle(.secondary)
             }
-            Text(plan.raceName ?? "Training Plan")
-                .font(CoachFonts.display(24, weight: .bold))
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-            if let raceDate = plan.raceDate {
-                Text(formatDateLong(raceDate))
-                    .font(CoachFonts.ui(15, weight: .medium))
-                    .foregroundStyle(CoachColors.accent)
+            Spacer()
+            if showChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.tertiary)
             }
         }
-        .padding(18)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             LinearGradient(
-                colors: [CoachColors.accent.opacity(0.15), CoachColors.accent.opacity(0.04)],
+                colors: [CoachColors.accent.opacity(0.10), CoachColors.accent.opacity(0.02)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(CoachColors.accent.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(CoachColors.accent.opacity(0.2), lineWidth: 1)
         )
+    }
+
+    private var statusLine: String {
+        var parts = ["Week \(plan.currentWeek) of \(plan.totalWeeks)"]
+        if let weeks = plan.weeksUntilRace() {
+            parts.append("\(weeks) weeks until race day")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
-// MARK: - Current Phase Card
+// MARK: - Full Plan Timeline
 
-private struct CurrentPhaseCard: View {
+private struct FullPlanTimeline: View {
+    let plan: TrainingPlan
+
+    var body: some View {
+        GeometryReader { geo in
+            timelineContent(totalWidth: geo.size.width)
+        }
+        .frame(height: 24)
+    }
+
+    private func timelineContent(totalWidth: CGFloat) -> some View {
+        let segments = plan.phaseSegmentFractions()
+        let totalWeeks = max(1, plan.totalWeeks)
+        // Put marker mid-column so week 1 isn't clipped and week N sits inside its own segment.
+        let markerFraction = (CGFloat(plan.currentWeek) - 0.5) / CGFloat(totalWeeks)
+        let rawMarkerX = totalWidth * markerFraction
+        let markerX = max(8, min(totalWidth - 8, rawMarkerX))
+
+        return ZStack(alignment: .topLeading) {
+            HStack(spacing: 0) {
+                ForEach(segments, id: \.phase.number) { entry in
+                    Rectangle()
+                        .fill(segmentFill(phase: entry.phase))
+                        .frame(width: totalWidth * CGFloat(entry.fraction), height: 14)
+                }
+            }
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(
+                        (colorSchemeBorder),
+                        lineWidth: 0.5
+                    )
+            )
+            .frame(height: 14)
+            .offset(y: 5)
+
+            Circle()
+                .fill(Color.white)
+                .overlay(
+                    Circle()
+                        .stroke(CoachColors.accent, lineWidth: 2.5)
+                )
+                .frame(width: 16, height: 16)
+                .shadow(color: Color.black.opacity(0.15), radius: 1.5, x: 0, y: 1)
+                .position(x: markerX, y: 12)
+        }
+    }
+
+    @Environment(\.colorScheme) private var colorScheme
+    private var colorSchemeBorder: Color {
+        colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder
+    }
+
+    private func segmentFill(phase: TrainingPhase) -> Color {
+        let isCurrent = phase.number == plan.currentPhase
+        let isCompleted = phase.number < plan.currentPhase
+        if isCurrent { return phase.accentColor.opacity(0.6) }
+        if isCompleted { return phase.accentColor.opacity(0.35) }
+        return phase.accentColor.opacity(0.18)
+    }
+}
+
+// MARK: - Phase Card
+
+private enum PhaseCardStatus {
+    case completed
+    case current
+    case upcoming
+}
+
+private struct PhaseCard: View {
     let plan: TrainingPlan
     let phase: TrainingPhase
+    let status: PhaseCardStatus
 
     @Environment(\.colorScheme) var colorScheme
 
@@ -189,73 +286,206 @@ private struct CurrentPhaseCard: View {
         NavigationLink {
             PhaseDetailView(plan: plan, phase: phase)
         } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Text("PHASE \(phase.number) OF \(plan.phases.count)")
-                        .font(CoachFonts.ui(11, weight: .semibold))
-                        .tracking(0.8)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(phase.accentColor.opacity(0.2))
-                        .foregroundStyle(phase.accentColor)
-                        .clipShape(Capsule())
-                    Spacer()
-                    if let days = plan.daysRemainingInPhase(phase) {
-                        Text("\(days) days left")
-                            .font(CoachFonts.mono(12))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Text(phase.name)
-                    .font(CoachFonts.display(22, weight: .bold))
-                    .foregroundStyle(.primary)
-
-                Text("Week \(plan.weekIndexInPhase(phase)) of \(phase.weeks) in this phase")
-                    .font(CoachFonts.ui(12, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                if let philosophy = phase.philosophy {
-                    Text(philosophy)
-                        .font(CoachFonts.ui(13))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                statsRow
-
-                phaseProgress
-
-                if let dist = phase.intensityDistribution {
-                    IntensityBar(distribution: dist, size: .mini)
-                }
-
-                HStack {
-                    Spacer()
-                    Text("View phase details →")
-                        .font(CoachFonts.ui(12, weight: .semibold))
-                        .foregroundStyle(phase.accentColor)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                LinearGradient(
-                    colors: [phase.accentColor.opacity(0.10), phase.accentColor.opacity(0.02)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(phase.accentColor.opacity(0.5), lineWidth: 1.5)
-            )
+            variant
         }
         .buttonStyle(.plain)
     }
 
+    @ViewBuilder
+    private var variant: some View {
+        switch status {
+        case .completed: completedCard
+        case .current:   currentCard
+        case .upcoming:  upcomingCard
+        }
+    }
+
+    // MARK: Completed — small, muted row
+
+    private var completedCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("PHASE \(phase.number)")
+                        .font(CoachFonts.ui(10, weight: .semibold))
+                        .tracking(0.6)
+                        .foregroundStyle(.secondary)
+                    Text(phase.name)
+                        .font(CoachFonts.ui(14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 6) {
+                    Text(weekRangeLine)
+                        .font(CoachFonts.ui(11))
+                        .foregroundStyle(.tertiary)
+                    if let stats = volumeSessionsLine {
+                        Text("·")
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.tertiary)
+                        Text(stats)
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colorScheme == .dark ? CoachColors.darkCard.opacity(0.6) : CoachColors.lightCard.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke((colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder).opacity(0.6), lineWidth: 1)
+        )
+    }
+
+    // MARK: Current — hero card
+
+    private var currentCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("PHASE \(phase.number) OF \(plan.phases.count)")
+                    .font(CoachFonts.ui(11, weight: .semibold))
+                    .tracking(0.8)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(phase.accentColor.opacity(0.2))
+                    .foregroundStyle(phase.accentColor)
+                    .clipShape(Capsule())
+                Text("CURRENT")
+                    .font(CoachFonts.ui(10, weight: .semibold))
+                    .tracking(0.8)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(phase.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+                Spacer()
+                if let days = plan.daysRemainingInPhase(phase) {
+                    Text("\(days) days left")
+                        .font(CoachFonts.mono(12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(phase.name)
+                .font(CoachFonts.display(22, weight: .bold))
+                .foregroundStyle(.primary)
+
+            Text("Week \(plan.weekIndexInPhase(phase)) of \(phase.weeks) in this phase")
+                .font(CoachFonts.ui(12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            if let philosophy = phase.philosophy {
+                Text(philosophy)
+                    .font(CoachFonts.ui(13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+
+            statsRow
+
+            phaseProgressBar
+
+            if let dist = phase.intensityDistribution {
+                IntensityBar(distribution: dist, size: .mini)
+            }
+
+            if let keyWorkouts = phase.keyWorkouts, !keyWorkouts.isEmpty {
+                keyWorkoutsPreview(keyWorkouts)
+            }
+
+            HStack {
+                Spacer()
+                Text("View phase details →")
+                    .font(CoachFonts.ui(12, weight: .semibold))
+                    .foregroundStyle(phase.accentColor)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [phase.accentColor.opacity(0.12), phase.accentColor.opacity(0.03)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(phase.accentColor.opacity(0.6), lineWidth: 2)
+        )
+    }
+
+    // MARK: Upcoming — outlined preview
+
+    private var upcomingCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("PHASE \(phase.number)")
+                    .font(CoachFonts.ui(10, weight: .semibold))
+                    .tracking(0.6)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(phase.accentColor.opacity(0.15))
+                    .foregroundStyle(phase.accentColor)
+                    .clipShape(Capsule())
+                Text(phase.name)
+                    .font(CoachFonts.ui(15, weight: .bold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            Text(weekRangeLine)
+                .font(CoachFonts.ui(11, weight: .medium))
+                .foregroundStyle(.secondary)
+            statsRow
+            if let dist = phase.intensityDistribution {
+                IntensityBar(distribution: dist, size: .mini)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(phase.accentColor.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    // MARK: Shared helpers
+
+    private var weekRangeLine: String {
+        let start = plan.startWeek(for: phase)
+        let end = plan.endWeek(for: phase)
+        return "Weeks \(start)–\(end)"
+    }
+
+    private var volumeSessionsLine: String? {
+        var parts: [String] = []
+        if let v = phase.weeklyVolumeRange {
+            parts.append("\(formatVol(v.min))–\(formatVol(v.max)) \(v.unit)")
+        }
+        if let s = phase.sessionsPerWeek {
+            parts.append("\(s)/wk")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
     private var statsRow: some View {
         HStack(spacing: 18) {
             if let v = phase.weeklyVolumeRange {
@@ -264,7 +494,7 @@ private struct CurrentPhaseCard: View {
             if let s = phase.sessionsPerWeek {
                 miniStat(label: "Sessions", value: "\(s)/wk")
             }
-            if let n = phase.keyWorkouts?.count {
+            if let n = phase.keyWorkouts?.count, n > 0 {
                 miniStat(label: "Key workouts", value: "\(n)")
             }
         }
@@ -278,6 +508,7 @@ private struct CurrentPhaseCard: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(CoachFonts.ui(13, weight: .semibold))
+                .foregroundStyle(.primary)
         }
     }
 
@@ -285,7 +516,7 @@ private struct CurrentPhaseCard: View {
         v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", v)
     }
 
-    private var phaseProgress: some View {
+    private var phaseProgressBar: some View {
         let completed = plan.completedWeeks(in: phase)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
@@ -301,116 +532,30 @@ private struct CurrentPhaseCard: View {
         }
     }
 
-}
-
-// MARK: - Plan Overview Card
-
-private struct PlanOverviewCard: View {
-    let plan: TrainingPlan
-
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        NavigationLink {
-            PlanReviewView(plan: plan)
-        } label: {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("PLAN OVERVIEW")
-                        .font(CoachFonts.ui(11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .tracking(0.8)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(plan.totalWeeks)-Week Plan")
-                        .font(CoachFonts.display(22, weight: .bold))
-                    Text(positionLine)
-                        .font(CoachFonts.ui(12))
-                        .foregroundStyle(.secondary)
-                }
-
-                if !phasePillRow.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(phasePillRow, id: \.0) { name, color in
-                            Text(name)
-                                .font(CoachFonts.ui(10, weight: .semibold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(color.opacity(0.15))
-                                .foregroundStyle(color)
-                                .clipShape(Capsule())
-                        }
+    private func keyWorkoutsPreview(_ workouts: [KeyWorkout]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("KEY WORKOUTS")
+                .font(CoachFonts.ui(9, weight: .semibold))
+                .tracking(0.5)
+                .foregroundStyle(.secondary)
+            ForEach(Array(workouts.prefix(3)), id: \.name) { w in
+                HStack(alignment: .top, spacing: 6) {
+                    Circle()
+                        .fill(phase.accentColor.opacity(0.5))
+                        .frame(width: 4, height: 4)
+                        .padding(.top, 6)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(w.name)
+                            .font(CoachFonts.ui(12, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(w.description)
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
-
-                timeline
-
-                HStack {
-                    Spacer()
-                    Text("View full plan →")
-                        .font(CoachFonts.ui(12, weight: .semibold))
-                        .foregroundStyle(CoachColors.accent)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var positionLine: String {
-        var parts = ["Week \(plan.currentWeek) of \(plan.totalWeeks)"]
-        if let weeks = plan.weeksUntilRace() {
-            parts.append("\(weeks) weeks until race day")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private var phasePillRow: [(String, Color)] {
-        plan.phases.sorted(by: { $0.number < $1.number }).map { ($0.name, $0.accentColor) }
-    }
-
-    private var timeline: some View {
-        HStack(spacing: 3) {
-            ForEach(plan.phaseSegmentFractions(), id: \.phase.number) { entry in
-                let isCurrent = entry.phase.number == plan.currentPhase
-                timelineSegment(phase: entry.phase, isCurrent: isCurrent)
-                    .layoutPriority(entry.fraction)
             }
         }
-        .frame(height: 32)
-    }
-
-    @ViewBuilder
-    private func timelineSegment(phase: TrainingPhase, isCurrent: Bool) -> some View {
-        let completed = plan.completedWeeks(in: phase)
-        ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(phase.accentColor.opacity(isCurrent ? 0.30 : 0.12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(phase.accentColor.opacity(isCurrent ? 1.0 : 0.4), lineWidth: isCurrent ? 1.5 : 1)
-                )
-            HStack(spacing: 2) {
-                ForEach(0..<phase.weeks, id: \.self) { idx in
-                    Circle()
-                        .fill(idx < completed ? phase.accentColor : phase.accentColor.opacity(0.3))
-                        .frame(width: 5, height: 5)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 
