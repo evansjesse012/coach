@@ -440,6 +440,10 @@ private struct TodaySessionCard: View {
 
     // MARK: - Body
 
+    private var isUnresolved: Bool {
+        cardState == .upcoming || cardState == .awaitingInput
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
@@ -450,10 +454,12 @@ private struct TodaySessionCard: View {
                 }
                 .buttonStyle(.plain)
 
-                rightSideIcon
+                if !isUnresolved {
+                    resolvedStateIcon
+                }
             }
 
-            if cardState == .awaitingInput {
+            if isUnresolved {
                 actionBar
             }
         }
@@ -741,22 +747,11 @@ private struct TodaySessionCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    // MARK: - Right-side icon
+    // MARK: - Right-side icon (resolved states only)
 
     @ViewBuilder
-    private var rightSideIcon: some View {
+    private var resolvedStateIcon: some View {
         switch cardState {
-        case .upcoming:
-            Button {
-                Task { await markDidIt() }
-            } label: {
-                Image(systemName: "circle")
-                    .font(.system(size: 26))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 14)
-
         case .completed:
             Button {
                 Task { await resetCompletion() }
@@ -791,11 +786,8 @@ private struct TodaySessionCard: View {
             .buttonStyle(.plain)
             .padding(.trailing, 14)
 
-        case .awaitingInput:
-            Image(systemName: "circle.dashed")
-                .font(.system(size: 26))
-                .foregroundStyle(.secondary)
-                .padding(.trailing, 14)
+        case .upcoming, .awaitingInput:
+            EmptyView()
         }
     }
 
@@ -845,17 +837,17 @@ private struct TodaySessionCard: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            HStack(spacing: 4) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                 Text(label)
                     .font(CoachFonts.ui(10, weight: .semibold))
             }
             .foregroundStyle(prominent ? .white : color)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .padding(.vertical, 7)
             .background(prominent ? color : color.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }
