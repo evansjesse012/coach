@@ -66,18 +66,14 @@ struct CoachApp: App {
         do {
             let client = SupabaseService.shared.client
 
-            // Reuse a cached session only if it's still valid. The SDK's
-            // `Session.isExpired` includes a 30-second buffer, so we won't
-            // fire requests against a token that's about to die. If the
-            // cached session is missing or expired, fall through and mint
-            // a fresh one via signIn below.
-            if let session = try? await client.auth.session, !session.isExpired {
-                isAuthenticated = true
-                await dataService.loadAll()
-                isLoading = false
-                return
-            }
-
+            // Always burn the cached session and mint a fresh one on launch.
+            // The SDK's `Session.isExpired` check catches time-based expiry,
+            // but not server-side revocation (JWT secret rotation, project
+            // changes, etc.) — and those produce the same "Invalid JWT" 401
+            // from Supabase's API gateway. For a single-user dev app, one
+            // extra auth round-trip per launch is a trivial cost vs. ever
+            // getting stuck on a stale keychain session again.
+            try? await client.auth.signOut()
             try await client.auth.signIn(email: DEV_USER_EMAIL, password: DEV_USER_PASSWORD)
             isAuthenticated = true
             await dataService.loadAll()
