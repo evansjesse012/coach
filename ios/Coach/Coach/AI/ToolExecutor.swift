@@ -399,7 +399,139 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
     case "app_action":
         let action = input["action"] as? String ?? ""
         let target = input["target"] as? String ?? ""
-        return ToolResult(summary: jsonString(["success": true, "action": action, "target": target, "data": input["data"] ?? [:]]))
+        let data = input["data"] as? [String: Any] ?? [:]
+
+        switch (action, target) {
+
+        case ("create", "goal"):
+            guard let name = (data["name"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else {
+                return ToolResult(summary: jsonString(["error": "Create goal requires data.name"]))
+            }
+            let validPresetIds = Set(EventPreset.all.map(\.id))
+            let rawPresetId = data["presetId"] as? String ?? "custom"
+            let presetId = validPresetIds.contains(rawPresetId) ? rawPresetId : "custom"
+            let preset = EventPreset.all.first(where: { $0.id == presetId })
+            let modeString = data["mode"] as? String
+            let mode: EventMode = modeString.flatMap(EventMode.init(rawValue:)) ?? preset?.defaultMode ?? .goal
+
+            var event = Event.create(presetId: presetId, name: name, mode: mode)
+
+            if let date = (data["date"] as? String) ?? (data["raceDate"] as? String), !date.isEmpty {
+                event.date = date
+            }
+            if let location = data["location"] as? String, !location.isEmpty {
+                event.location = location
+            }
+            if let distance = data["distance"] as? String, !distance.isEmpty {
+                event.distance = distance
+            }
+            if let goal = data["goal"] as? String, !goal.isEmpty {
+                event.goal = goal
+            }
+            if let stretch = (data["stretchGoal"] as? String) ?? (data["stretch_goal"] as? String),
+               !stretch.isEmpty {
+                event.stretchGoal = stretch
+            }
+            if let baseline = data["baseline"] as? String, !baseline.isEmpty {
+                event.baseline = baseline
+            }
+            if let url = (data["url"] as? String) ?? (data["officialUrl"] as? String), !url.isEmpty {
+                event.url = url
+            }
+            if let bib = data["bibNumber"] as? String, !bib.isEmpty {
+                event.bibNumber = bib
+            }
+
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "event": [
+                        "id": event.id,
+                        "name": event.name,
+                        "date": event.date ?? "",
+                    ],
+                ]),
+                effects: [.eventCreated(event)]
+            )
+
+        case ("update", "goal"):
+            guard let id = input["id"] as? String, !id.isEmpty else {
+                return ToolResult(summary: jsonString(["error": "Update goal requires id"]))
+            }
+            guard var event = dataService.events.first(where: { $0.id == id }) else {
+                return ToolResult(summary: jsonString(["error": "Goal with id \(id) not found. Call get_goals first."]))
+            }
+
+            if let name = data["name"] as? String, !name.isEmpty {
+                event.name = name
+            }
+            if let rawPresetId = data["presetId"] as? String, !rawPresetId.isEmpty {
+                let validPresetIds = Set(EventPreset.all.map(\.id))
+                if validPresetIds.contains(rawPresetId) {
+                    event.presetId = rawPresetId
+                }
+                // Silently ignore invalid presetId on update — don't destroy existing value.
+            }
+            if let modeStr = data["mode"] as? String, let mode = EventMode(rawValue: modeStr) {
+                event.mode = mode
+            }
+            if let date = (data["date"] as? String) ?? (data["raceDate"] as? String) {
+                event.date = date.isEmpty ? nil : date
+            }
+            if let location = data["location"] as? String {
+                event.location = location.isEmpty ? nil : location
+            }
+            if let distance = data["distance"] as? String {
+                event.distance = distance.isEmpty ? nil : distance
+            }
+            if let goal = data["goal"] as? String {
+                event.goal = goal.isEmpty ? nil : goal
+            }
+            if let stretch = (data["stretchGoal"] as? String) ?? (data["stretch_goal"] as? String) {
+                event.stretchGoal = stretch.isEmpty ? nil : stretch
+            }
+            if let baseline = data["baseline"] as? String {
+                event.baseline = baseline.isEmpty ? nil : baseline
+            }
+            if let url = (data["url"] as? String) ?? (data["officialUrl"] as? String) {
+                event.url = url.isEmpty ? nil : url
+            }
+            if let bib = data["bibNumber"] as? String {
+                event.bibNumber = bib.isEmpty ? nil : bib
+            }
+
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "event": [
+                        "id": event.id,
+                        "name": event.name,
+                        "date": event.date ?? "",
+                    ],
+                ]),
+                effects: [.eventUpdated(event)]
+            )
+
+        case ("delete", "goal"):
+            guard let id = input["id"] as? String, !id.isEmpty else {
+                return ToolResult(summary: jsonString(["error": "Delete goal requires id"]))
+            }
+            guard let event = dataService.events.first(where: { $0.id == id }) else {
+                return ToolResult(summary: jsonString(["error": "Goal with id \(id) not found. Call get_goals first."]))
+            }
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "deleted": ["id": event.id, "name": event.name],
+                ]),
+                effects: [.eventDeleted(id: event.id)]
+            )
+
+        default:
+            return ToolResult(summary: jsonString([
+                "error": "Not yet implemented: \(action) \(target). Only goal create/update/delete are wired right now.",
+            ]))
+        }
 
     default:
         return ToolResult(summary: #"{"error":"Unknown tool: \#(name)"}"#)
