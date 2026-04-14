@@ -2,7 +2,10 @@ import SwiftUI
 
 struct StrengthDetailView: View {
     let session: StrengthSession
+    @Environment(DataService.self) private var data
     @Environment(\.colorScheme) var colorScheme
+    @State private var showWorkoutLogger = false
+    @State private var showRepeatConfirm = false
 
     var body: some View {
         ScrollView {
@@ -17,11 +20,15 @@ struct StrengthDetailView: View {
                             if let dur = session.duration {
                                 Label(formatDuration(dur), systemImage: "clock")
                             }
+                            let setCount = session.exercises.reduce(0) { $0 + $1.sets.filter(\.completed).count }
+                            Label("\(setCount) sets", systemImage: "checkmark.circle.fill")
                         }
                         .font(CoachFonts.ui(12))
                         .foregroundStyle(.secondary)
                     }
                 }
+
+                repeatWorkoutButton
 
                 ForEach(session.exercises) { exercise in
                     exerciseCard(exercise)
@@ -32,6 +39,59 @@ struct StrengthDetailView: View {
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle("Strength")
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $showWorkoutLogger) {
+            NavigationStack {
+                WorkoutLoggingView()
+            }
+        }
+        .confirmationDialog(
+            "Workout already in progress",
+            isPresented: $showRepeatConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Resume current workout") {
+                showWorkoutLogger = true
+            }
+            Button("Discard and repeat this", role: .destructive) {
+                data.cancelActiveWorkout()
+                data.startStrengthWorkout(session.cloneForRepeat())
+                showWorkoutLogger = true
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var repeatWorkoutButton: some View {
+        Button {
+            if data.activeStrengthSession != nil {
+                showRepeatConfirm = true
+            } else {
+                data.startStrengthWorkout(session.cloneForRepeat())
+                showWorkoutLogger = true
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.clockwise.circle.fill")
+                    .font(.system(size: 16, weight: .bold))
+                Text("Repeat Workout")
+                    .font(CoachFonts.ui(14, weight: .bold))
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 12, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                LinearGradient(
+                    colors: [CoachColors.accent, CoachColors.accent.opacity(0.85)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     private func exerciseCard(_ exercise: Exercise) -> some View {
