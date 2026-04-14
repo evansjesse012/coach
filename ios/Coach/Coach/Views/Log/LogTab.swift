@@ -143,7 +143,7 @@ struct LogTab: View {
                 }
                 .padding(.vertical)
             }
-            .navigationTitle("Log")
+            .navigationTitle("Activities")
         }
     }
 }

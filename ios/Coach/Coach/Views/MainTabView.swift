@@ -31,7 +31,7 @@ struct MainTabView: View {
 
             LogTab()
                 .tabItem {
-                    Label("Log", systemImage: "list.clipboard.fill")
+                    Label("Activities", systemImage: "list.clipboard.fill")
                 }
                 .tag("log")
 
