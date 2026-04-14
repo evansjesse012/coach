@@ -17,6 +17,8 @@ enum SeedData {
 
         try await client.from("cardio_workouts").delete().eq("user_id", value: uid).execute()
         try await client.from("strength_sessions").delete().eq("user_id", value: uid).execute()
+        try await client.from("personal_records").delete().eq("user_id", value: uid).execute()
+        try await client.from("templates").delete().eq("user_id", value: uid).execute()
         try await client.from("events").delete().eq("user_id", value: uid).execute()
         try await client.from("training_plans").delete().eq("user_id", value: uid).execute()
         try await client.from("coaching_memory").delete().eq("user_id", value: uid).execute()
@@ -92,46 +94,128 @@ enum SeedData {
         ]
         for c in cardios { try await data.addCardio(c) }
 
-        // 3. Strength session
-        let strength = StrengthSession(
-            id: UUID().uuidString,
-            name: "Lower Body — Pull",
-            date: day(-2),
-            duration: 55,
-            exercises: [
-                Exercise(
-                    name: "Trap Bar Deadlift",
-                    exerciseType: .weighted,
-                    sets: [
-                        ExerciseSet(setNum: 1, completed: true, weight: 135, reps: 8),
-                        ExerciseSet(setNum: 2, completed: true, weight: 155, reps: 6),
-                        ExerciseSet(setNum: 3, completed: true, weight: 175, reps: 5),
-                    ],
-                    rest: 120, notes: nil
-                ),
-                Exercise(
-                    name: "Bulgarian Split Squat",
-                    exerciseType: .weighted,
-                    sets: [
-                        ExerciseSet(setNum: 1, completed: true, weight: 35, reps: 10),
-                        ExerciseSet(setNum: 2, completed: true, weight: 35, reps: 10),
-                        ExerciseSet(setNum: 3, completed: true, weight: 35, reps: 10),
-                    ],
-                    rest: 90, notes: nil
-                ),
-                Exercise(
-                    name: "Single Leg RDL",
-                    exerciseType: .weighted,
-                    sets: [
-                        ExerciseSet(setNum: 1, completed: true, weight: 30, reps: 12),
-                        ExerciseSet(setNum: 2, completed: true, weight: 30, reps: 12),
-                    ],
-                    rest: 60, notes: nil
-                ),
-            ],
-            templateId: nil
-        )
-        try await data.addStrength(strength)
+        // 3. Strength history — 2 weeks of lifting with all exercise types
+        // represented (weighted / bodyweight / banded / timed) so the Library,
+        // PRs, and live workout tracker all have something to render.
+        let strengthHistory: [StrengthSession] = [
+            // Full Body A — ~12 days ago. Weighted compound lifts.
+            StrengthSession(
+                id: UUID().uuidString,
+                name: "Full Body A",
+                date: day(-12),
+                duration: 52,
+                exercises: [
+                    ex("Back Squat", .weighted, rest: 150, sets: [
+                        set(1, weight: 135, reps: 5),
+                        set(2, weight: 185, reps: 5),
+                        set(3, weight: 205, reps: 5),
+                        set(4, weight: 205, reps: 5),
+                    ]),
+                    ex("Bench Press", .weighted, rest: 120, sets: [
+                        set(1, weight: 115, reps: 5),
+                        set(2, weight: 145, reps: 5),
+                        set(3, weight: 165, reps: 5),
+                    ]),
+                    ex("Barbell Row", .weighted, rest: 90, sets: [
+                        set(1, weight: 115, reps: 8),
+                        set(2, weight: 125, reps: 8),
+                        set(3, weight: 135, reps: 6),
+                    ]),
+                ],
+                templateId: nil
+            ),
+            // Upper Body Push — ~9 days ago. Weighted + banded accessories.
+            StrengthSession(
+                id: UUID().uuidString,
+                name: "Upper Body Push",
+                date: day(-9),
+                duration: 45,
+                exercises: [
+                    ex("Overhead Press", .weighted, rest: 120, sets: [
+                        set(1, weight: 75, reps: 5),
+                        set(2, weight: 85, reps: 5),
+                        set(3, weight: 95, reps: 5),
+                    ]),
+                    ex("Incline DB Press", .weighted, rest: 75, sets: [
+                        set(1, weight: 40, reps: 10),
+                        set(2, weight: 45, reps: 10),
+                        set(3, weight: 45, reps: 8),
+                    ]),
+                    ex("Band Pull-Apart", .banded, rest: 30, notes: "Scap retraction — superset with press", sets: [
+                        set(1, reps: 15, band: "medium"),
+                        set(2, reps: 15, band: "medium"),
+                        set(3, reps: 15, band: "medium"),
+                    ]),
+                    ex("Triceps Pushdown", .banded, rest: 45, sets: [
+                        set(1, reps: 12, band: "light"),
+                        set(2, reps: 12, band: "light"),
+                        set(3, reps: 10, band: "light"),
+                    ]),
+                ],
+                templateId: nil
+            ),
+            // Lower Body Strength — ~5 days ago. Matches the prescribed
+            // session in the plan so the user can see the template flow.
+            StrengthSession(
+                id: UUID().uuidString,
+                name: "Lower Body Strength",
+                date: day(-5),
+                duration: 55,
+                exercises: [
+                    ex("Trap Bar Deadlift", .weighted, rest: 120, notes: "Top set felt solid", sets: [
+                        set(1, weight: 135, reps: 5),
+                        set(2, weight: 165, reps: 5),
+                        set(3, weight: 185, reps: 5),
+                        set(4, weight: 185, reps: 5),
+                    ]),
+                    ex("Bulgarian Split Squat", .weighted, rest: 90, sets: [
+                        set(1, weight: 35, reps: 8),
+                        set(2, weight: 35, reps: 8),
+                        set(3, weight: 35, reps: 8),
+                    ]),
+                    ex("Single Leg RDL", .weighted, rest: 60, sets: [
+                        set(1, weight: 30, reps: 10),
+                        set(2, weight: 30, reps: 10),
+                        set(3, weight: 30, reps: 10),
+                    ]),
+                    ex("Plank", .timed, rest: 30, sets: [
+                        set(1, duration: 45),
+                        set(2, duration: 45),
+                        set(3, duration: 60),
+                    ]),
+                ],
+                templateId: nil
+            ),
+            // Core & Mobility — ~2 days ago. Bodyweight + timed holds.
+            StrengthSession(
+                id: UUID().uuidString,
+                name: "Core & Mobility",
+                date: day(-2),
+                duration: 28,
+                exercises: [
+                    ex("Push-Up", .bodyweight, rest: 60, sets: [
+                        set(1, reps: 15),
+                        set(2, reps: 15),
+                        set(3, reps: 12),
+                    ]),
+                    ex("Hollow Hold", .timed, rest: 30, sets: [
+                        set(1, duration: 30),
+                        set(2, duration: 30),
+                        set(3, duration: 30),
+                    ]),
+                    ex("Side Plank", .timed, rest: 30, notes: "Each side", sets: [
+                        set(1, duration: 30),
+                        set(2, duration: 30),
+                    ]),
+                    ex("Bird Dog", .bodyweight, rest: 30, sets: [
+                        set(1, reps: 10),
+                        set(2, reps: 10),
+                    ]),
+                ],
+                templateId: nil
+            ),
+        ]
+        for s in strengthHistory { try await data.addStrength(s) }
 
         // 4. Events — upcoming race + completed PR
         var marathon = Event.create(presetId: "marathon", name: "Big Sur Marathon", mode: .race)
@@ -150,6 +234,165 @@ enum SeedData {
         ten_k.result = "43:21"
         ten_k.completed = true
         try await data.addEvent(ten_k)
+
+        // 4b. Strength templates — quick-start workouts the athlete can
+        // launch from LogTab's "Start Workout" banner.
+        let templates: [Template] = [
+            Template(
+                id: UUID().uuidString,
+                name: "Upper Body Push",
+                exercises: [
+                    ex("Bench Press", .weighted, rest: 120, sets: [
+                        set(1, weight: 115, reps: 5, done: false),
+                        set(2, weight: 145, reps: 5, done: false),
+                        set(3, weight: 165, reps: 5, done: false),
+                    ]),
+                    ex("Overhead Press", .weighted, rest: 120, sets: [
+                        set(1, weight: 75, reps: 5, done: false),
+                        set(2, weight: 85, reps: 5, done: false),
+                        set(3, weight: 95, reps: 5, done: false),
+                    ]),
+                    ex("Incline DB Press", .weighted, rest: 75, sets: [
+                        set(1, weight: 45, reps: 10, done: false),
+                        set(2, weight: 45, reps: 10, done: false),
+                        set(3, weight: 45, reps: 10, done: false),
+                    ]),
+                    ex("Triceps Pushdown", .banded, rest: 45, sets: [
+                        set(1, reps: 12, band: "light", done: false),
+                        set(2, reps: 12, band: "light", done: false),
+                        set(3, reps: 12, band: "light", done: false),
+                    ]),
+                    ex("Band Pull-Apart", .banded, rest: 30, sets: [
+                        set(1, reps: 15, band: "medium", done: false),
+                        set(2, reps: 15, band: "medium", done: false),
+                        set(3, reps: 15, band: "medium", done: false),
+                    ]),
+                ],
+                lastUsed: day(-9)
+            ),
+            Template(
+                id: UUID().uuidString,
+                name: "Lower Body Strength",
+                exercises: [
+                    ex("Trap Bar Deadlift", .weighted, rest: 120, sets: [
+                        set(1, weight: 135, reps: 5, done: false),
+                        set(2, weight: 165, reps: 5, done: false),
+                        set(3, weight: 185, reps: 5, done: false),
+                        set(4, weight: 185, reps: 5, done: false),
+                    ]),
+                    ex("Bulgarian Split Squat", .weighted, rest: 90, sets: [
+                        set(1, weight: 35, reps: 8, done: false),
+                        set(2, weight: 35, reps: 8, done: false),
+                        set(3, weight: 35, reps: 8, done: false),
+                    ]),
+                    ex("Single Leg RDL", .weighted, rest: 60, sets: [
+                        set(1, weight: 30, reps: 10, done: false),
+                        set(2, weight: 30, reps: 10, done: false),
+                        set(3, weight: 30, reps: 10, done: false),
+                    ]),
+                    ex("Plank", .timed, rest: 30, sets: [
+                        set(1, duration: 45, done: false),
+                        set(2, duration: 45, done: false),
+                        set(3, duration: 60, done: false),
+                    ]),
+                ],
+                lastUsed: day(-5)
+            ),
+            Template(
+                id: UUID().uuidString,
+                name: "Full Body Quick",
+                exercises: [
+                    ex("Goblet Squat", .weighted, rest: 60, sets: [
+                        set(1, weight: 45, reps: 10, done: false),
+                        set(2, weight: 45, reps: 10, done: false),
+                        set(3, weight: 45, reps: 10, done: false),
+                    ]),
+                    ex("Push-Up", .bodyweight, rest: 45, sets: [
+                        set(1, reps: 15, done: false),
+                        set(2, reps: 15, done: false),
+                        set(3, reps: 15, done: false),
+                    ]),
+                    ex("DB Row", .weighted, rest: 60, sets: [
+                        set(1, weight: 40, reps: 10, done: false),
+                        set(2, weight: 40, reps: 10, done: false),
+                        set(3, weight: 40, reps: 10, done: false),
+                    ]),
+                    ex("Plank", .timed, rest: 30, sets: [
+                        set(1, duration: 45, done: false),
+                        set(2, duration: 45, done: false),
+                    ]),
+                ],
+                lastUsed: day(-18)
+            ),
+        ]
+        for t in templates { try await data.saveTemplate(t) }
+
+        // 4c. Personal records — surface something in ExerciseLibraryView
+        // without waiting for the live-workout flow to roll new PRs.
+        let prs: [PersonalRecord] = [
+            PersonalRecord(
+                exerciseSlug: "back-squat", exerciseType: .weighted,
+                weight: 205, reps: 5, estimated1RM: 231,
+                bestReps: nil, bestDuration: nil, band: nil,
+                date: day(-12),
+                history: [
+                    PRHistoryEntry(weight: 185, reps: 5, estimated1RM: 208, date: day(-33)),
+                    PRHistoryEntry(weight: 195, reps: 5, estimated1RM: 220, date: day(-20)),
+                    PRHistoryEntry(weight: 205, reps: 5, estimated1RM: 231, date: day(-12)),
+                ]
+            ),
+            PersonalRecord(
+                exerciseSlug: "bench-press", exerciseType: .weighted,
+                weight: 165, reps: 5, estimated1RM: 186,
+                bestReps: nil, bestDuration: nil, band: nil,
+                date: day(-12),
+                history: [
+                    PRHistoryEntry(weight: 155, reps: 5, estimated1RM: 174, date: day(-26)),
+                    PRHistoryEntry(weight: 165, reps: 5, estimated1RM: 186, date: day(-12)),
+                ]
+            ),
+            PersonalRecord(
+                exerciseSlug: "trap-bar-deadlift", exerciseType: .weighted,
+                weight: 185, reps: 5, estimated1RM: 208,
+                bestReps: nil, bestDuration: nil, band: nil,
+                date: day(-5),
+                history: [
+                    PRHistoryEntry(weight: 165, reps: 5, estimated1RM: 186, date: day(-19)),
+                    PRHistoryEntry(weight: 185, reps: 5, estimated1RM: 208, date: day(-5)),
+                ]
+            ),
+            PersonalRecord(
+                exerciseSlug: "overhead-press", exerciseType: .weighted,
+                weight: 95, reps: 5, estimated1RM: 107,
+                bestReps: nil, bestDuration: nil, band: nil,
+                date: day(-9),
+                history: [
+                    PRHistoryEntry(weight: 85, reps: 5, estimated1RM: 96, date: day(-23)),
+                    PRHistoryEntry(weight: 95, reps: 5, estimated1RM: 107, date: day(-9)),
+                ]
+            ),
+            PersonalRecord(
+                exerciseSlug: "push-up", exerciseType: .bodyweight,
+                weight: nil, reps: nil, estimated1RM: nil,
+                bestReps: 15, bestDuration: nil, band: nil,
+                date: day(-2),
+                history: [
+                    PRHistoryEntry(reps: 12, date: day(-30)),
+                    PRHistoryEntry(reps: 15, date: day(-2)),
+                ]
+            ),
+            PersonalRecord(
+                exerciseSlug: "plank", exerciseType: .timed,
+                weight: nil, reps: nil, estimated1RM: nil,
+                bestReps: nil, bestDuration: 60, band: nil,
+                date: day(-5),
+                history: [
+                    PRHistoryEntry(duration: 45, date: day(-20)),
+                    PRHistoryEntry(duration: 60, date: day(-5)),
+                ]
+            ),
+        ]
+        for pr in prs { try await data.savePR(pr) }
 
         // 5. Training plan with rich phase data + 6 weeks of base sessions
         let plan = TrainingPlan(
@@ -615,7 +858,8 @@ enum SeedData {
                         label: "Lower Body Strength",
                         durMin: 45, durMax: 55,
                         workout: "Trap bar DL 4x5, BSS 3x8, SL RDL 3x10",
-                        completed: isPast
+                        completed: isPast,
+                        exercises: lowerBodyStrengthExercises
                     ),
                     runSession(
                         label: "30m Easy Spin", miles: 8, effort: .recovery, zone: "Z1",
@@ -707,7 +951,8 @@ enum SeedData {
                         label: "Power Strength",
                         durMin: 35, durMax: 45,
                         workout: "Jump squats 4x5, KB swings 4x10, push press 3x5",
-                        notes: "Explosive intent, full recovery."
+                        notes: "Explosive intent, full recovery.",
+                        exercises: powerStrengthExercises
                     ),
                     runSession(
                         label: "30m Easy Spin", miles: 8, effort: .recovery, zone: "Z1",
@@ -856,7 +1101,8 @@ enum SeedData {
 
     private static func strengthSession(
         label: String, durMin: Int, durMax: Int, workout: String, notes: String? = nil,
-        completed: Bool = false
+        completed: Bool = false,
+        exercises: [PrescribedExercise]? = nil
     ) -> PrescribedSession {
         PrescribedSession(
             type: "strength",
@@ -874,10 +1120,106 @@ enum SeedData {
             fuel: nil,
             priority: nil,
             notes: notes,
-            exercises: nil,
+            exercises: exercises,
             legs: nil,
             templateId: nil
         )
+    }
+
+    // MARK: - Strength fixture helpers
+
+    /// Shorthand for building a logged Exercise with its sets inline.
+    private static func ex(
+        _ name: String,
+        _ type: ExerciseType = .weighted,
+        rest: Int? = nil,
+        notes: String? = nil,
+        sets: [ExerciseSet]
+    ) -> Exercise {
+        Exercise(
+            name: name,
+            exerciseType: type,
+            sets: sets,
+            rest: rest,
+            notes: notes
+        )
+    }
+
+    /// Shorthand for a single ExerciseSet. `done` defaults to true for the
+    /// historical-session fixtures; template/prescribed flows pass done: false
+    /// so the athlete starts from an untouched rep count.
+    private static func set(
+        _ num: Int,
+        weight: Double? = nil,
+        reps: Int? = nil,
+        duration: Double? = nil,
+        band: String? = nil,
+        done: Bool = true
+    ) -> ExerciseSet {
+        ExerciseSet(
+            setNum: num,
+            completed: done,
+            weight: weight,
+            reps: reps,
+            duration: duration,
+            band: band
+        )
+    }
+
+    /// Shorthand for building a plan-prescribed exercise (what `Start Workout`
+    /// from a prescribed strength session materializes into live sets).
+    private static func pe(
+        _ name: String,
+        _ type: ExerciseType = .weighted,
+        sets: Int,
+        reps: Int? = nil,
+        weight: Double? = nil,
+        duration: Double? = nil,
+        band: String? = nil,
+        rest: Int? = nil,
+        notes: String? = nil
+    ) -> PrescribedExercise {
+        PrescribedExercise(
+            name: name,
+            exerciseType: type,
+            sets: sets,
+            reps: reps,
+            weight: weight,
+            duration: duration,
+            band: band,
+            rest: rest,
+            notes: notes
+        )
+    }
+
+    /// Lower-body strength prescription used in base weeks. Matches the
+    /// seeded "Lower Body Strength" template so the athlete can choose
+    /// either entry point.
+    private static var lowerBodyStrengthExercises: [PrescribedExercise] {
+        [
+            pe("Trap Bar Deadlift", .weighted, sets: 4, reps: 5, weight: 185, rest: 120,
+               notes: "Work up to a top set of 5 — leave 1 rep in reserve."),
+            pe("Bulgarian Split Squat", .weighted, sets: 3, reps: 8, weight: 35, rest: 90,
+               notes: "Dumbbells at sides, drive through front heel."),
+            pe("Single Leg RDL", .weighted, sets: 3, reps: 10, weight: 30, rest: 60,
+               notes: "Hinge from the hip, hamstring focus."),
+            pe("Plank", .timed, sets: 3, duration: 45, rest: 30,
+               notes: "Brace, no sag."),
+        ]
+    }
+
+    /// Power-focused strength for build weeks — preserves legs for run days.
+    private static var powerStrengthExercises: [PrescribedExercise] {
+        [
+            pe("Jump Squat", .bodyweight, sets: 4, reps: 5, rest: 90,
+               notes: "Explosive — full recovery between sets."),
+            pe("Kettlebell Swing", .weighted, sets: 4, reps: 10, weight: 35, rest: 60,
+               notes: "Hip hinge, not a squat."),
+            pe("Push Press", .weighted, sets: 3, reps: 5, weight: 95, rest: 120,
+               notes: "Legs drive, catch overhead with soft knees."),
+            pe("Band Pull-Apart", .banded, sets: 3, reps: 15, band: "medium", rest: 30,
+               notes: "Scap retraction / shoulder warmup."),
+        ]
     }
 }
 
