@@ -235,14 +235,29 @@ private func callEdgeFunction(
         guard 200..<300 ~= response.statusCode else {
             let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
             NSLog("[chat] HTTP \(response.statusCode): \(preview)")
-            throw FunctionsError.httpError(code: response.statusCode, data: data)
+            // Include the response body in localizedDescription so upstream
+            // catch blocks (e.g. ChatTab) can show the real reason inline
+            // instead of "non-2xx status code".
+            throw NSError(
+                domain: "ChatAgent",
+                code: response.statusCode,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "HTTP \(response.statusCode): \(preview.prefix(400))"
+                ]
+            )
         }
         do {
             return try JSONDecoder().decode(AnthropicResponse.self, from: data)
         } catch {
             let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
             NSLog("[chat] decode failed: \(error)\nbody: \(preview)")
-            throw error
+            throw NSError(
+                domain: "ChatAgent",
+                code: -1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Decode failed: \(error.localizedDescription)\nBody: \(preview.prefix(400))"
+                ]
+            )
         }
     }
 }
