@@ -196,7 +196,7 @@ struct MessageBubble: View {
             if message.role == "user" { Spacer(minLength: 48) }
 
             VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 4) {
-                Text(message.content)
+                Text(renderedContent)
                     .font(CoachFonts.ui(14))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -226,5 +226,18 @@ struct MessageBubble: View {
 
             if message.role == "assistant" { Spacer(minLength: 48) }
         }
+    }
+
+    /// Parse the message as inline markdown so **bold**, *italic*, `code`,
+    /// and [links](url) render properly. Line breaks are preserved. Falls back
+    /// to the raw string if parsing fails.
+    private var renderedContent: AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        if let parsed = try? AttributedString(markdown: message.content, options: options) {
+            return parsed
+        }
+        return AttributedString(message.content)
     }
 }
