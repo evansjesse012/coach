@@ -109,6 +109,24 @@ struct PrescribedBrickLeg: Codable {
     var zone: String?
 }
 
+// MARK: - Completion Status
+
+/// Richer completion state than the legacy `completed: Bool?`.
+/// `nil` means pending (the session exists but hasn't been resolved yet).
+enum CompletionStatus: String, Codable {
+    case completed
+    case modified
+    case swapped
+    case skipped
+}
+
+enum SkipReason: String, Codable {
+    case fatigue
+    case time
+    case soreness
+    case life
+}
+
 // MARK: - Session
 struct PrescribedSession: Codable, Identifiable {
     var id: String { "\(type)-\(label)" }
@@ -119,7 +137,7 @@ struct PrescribedSession: Codable, Identifiable {
     var estimatedDurationMax: Int?
     var distanceMiles: Double?
     var effortCategory: EffortCategory?
-    var completed: Bool?
+    var completed: Bool?           // Legacy boolean flag. New code uses completionStatus.
     var zone: String?
     var targetIntensity: String?
     var paceRange: String?         // e.g. "10:30-11:00/mi" — AI-computed from athlete benchmarks + zone
@@ -132,6 +150,15 @@ struct PrescribedSession: Codable, Identifiable {
     var exercises: [PrescribedExercise]?
     var legs: [PrescribedBrickLeg]?
     var templateId: String?
+
+    // Completion record (Phase 1 of the completion system — manual marking only).
+    var completionStatus: CompletionStatus?
+    var actualDuration: Int?
+    var actualDistance: Double?
+    var actualSport: String?           // For swapped: what the athlete actually did
+    var skipReason: SkipReason?
+    var completionNote: String?
+    var completionResolvedAt: String?  // ISO timestamp when marked
 
     // Legacy keys stay in camelCase for backward compat with existing JSONB.
     enum CodingKeys: String, CodingKey {
@@ -146,6 +173,13 @@ struct PrescribedSession: Codable, Identifiable {
         case paceRange = "pace_range"
         case purpose, workout, fuel, priority, notes, warning, exercises, legs
         case templateId
+        case completionStatus = "completion_status"
+        case actualDuration = "actual_duration"
+        case actualDistance = "actual_distance"
+        case actualSport = "actual_sport"
+        case skipReason = "skip_reason"
+        case completionNote = "completion_note"
+        case completionResolvedAt = "completion_resolved_at"
     }
 }
 

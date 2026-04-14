@@ -149,6 +149,34 @@ final class DataService {
 
     /// Toggles the explicit `completed` flag on a single prescribed session and persists the plan.
     func toggleSessionCompleted(weekNum: Int, dayIdx: Int, sessionIdx: Int) async throws {
+        try await updateSessionCompletion(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx) { session in
+            let nowCompleted = !(session.completed ?? false)
+            session.completed = nowCompleted
+            // Keep the legacy bool in lockstep with the richer enum so both
+            // code paths see the same state.
+            if nowCompleted {
+                session.completionStatus = .completed
+                session.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+            } else {
+                session.completionStatus = nil
+                session.completionResolvedAt = nil
+                session.actualDuration = nil
+                session.actualDistance = nil
+                session.actualSport = nil
+                session.skipReason = nil
+                session.completionNote = nil
+            }
+        }
+    }
+
+    /// Applies an arbitrary mutation to a single prescribed session and persists the plan.
+    /// Used by the completion flow (mark completed / modified / swapped / skipped).
+    func updateSessionCompletion(
+        weekNum: Int,
+        dayIdx: Int,
+        sessionIdx: Int,
+        _ mutate: (inout PrescribedSession) -> Void
+    ) async throws {
         guard var plan = trainingPlan else { return }
         let key = String(weekNum)
         guard var wp = plan.weeklyPlans[key],
@@ -156,7 +184,7 @@ final class DataService {
         var dayPlan = wp.sessions[dayIdx]
         guard sessionIdx >= 0, sessionIdx < dayPlan.sessions.count else { return }
         var session = dayPlan.sessions[sessionIdx]
-        session.completed = !(session.completed ?? false)
+        mutate(&session)
         dayPlan.sessions[sessionIdx] = session
         wp.sessions[dayIdx] = dayPlan
         plan.weeklyPlans[key] = wp

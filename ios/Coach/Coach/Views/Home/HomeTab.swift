@@ -395,6 +395,15 @@ private struct EmptyFocusCard: View {
 
 // MARK: - Today Session Card (hero)
 
+private enum SessionCardState {
+    case upcoming, completed, modified, swapped, skipped, awaitingInput
+}
+
+private enum ActiveCompletionSheet: Identifiable {
+    case modified, swapped, skipped
+    var id: String { String(describing: self) }
+}
+
 private struct TodaySessionCard: View {
     let session: PrescribedSession
     let weekNum: Int
@@ -403,55 +412,90 @@ private struct TodaySessionCard: View {
 
     @Environment(DataService.self) var data
     @Environment(\.colorScheme) var colorScheme
+    @State private var activeSheet: ActiveCompletionSheet?
+
+    // MARK: - State derivation
+
+    private var cardState: SessionCardState {
+        if let status = session.completionStatus {
+            switch status {
+            case .completed: return .completed
+            case .modified:  return .modified
+            case .swapped:   return .swapped
+            case .skipped:   return .skipped
+            }
+        }
+        // Legacy boolean flag (kept in lockstep with completionStatus in
+        // updateSessionCompletion, but guarded here for old data).
+        if session.completed == true {
+            return .completed
+        }
+        // Unresolved: past the workout window → awaiting input.
+        let hour = Calendar.current.component(.hour, from: Date())
+        if hour >= 20 {
+            return .awaitingInput
+        }
+        return .upcoming
+    }
+
+    // MARK: - Body
 
     var body: some View {
-        HStack(spacing: 0) {
-            NavigationLink {
-                PrescribedSessionDetailView(session: session, dateString: todayString())
-            } label: {
-                cardContent
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                Task {
-                    try? await data.toggleSessionCompleted(
-                        weekNum: weekNum,
-                        dayIdx: dayIdx,
-                        sessionIdx: sessionIdx
-                    )
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                NavigationLink {
+                    PrescribedSessionDetailView(session: session, dateString: todayString())
+                } label: {
+                    cardContent
                 }
-            } label: {
-                Image(systemName: session.completed == true ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 26))
-                    .foregroundStyle(session.completed == true ? CoachColors.teal : .secondary)
+                .buttonStyle(.plain)
+
+                rightSideIcon
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 14)
+
+            if cardState == .awaitingInput {
+                actionBar
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .background(cardBackgroundTint)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
             RoundedRectangle(cornerRadius: 14)
-                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                .stroke(cardStrokeColor, lineWidth: cardState == .awaitingInput ? 1.5 : 1)
         )
-        .opacity(session.completed == true ? 0.72 : 1.0)
+        .opacity(cardState == .skipped ? 0.6 : 1.0)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .modified:
+                ModifiedCompletionSheet(session: session) { actual in
+                    Task { await applyModified(actual) }
+                }
+                .presentationDetents([.medium])
+            case .swapped:
+                SwappedCompletionSheet(session: session, otherSessions: otherPendingToday()) { actual in
+                    Task { await applySwapped(actual) }
+                }
+                .presentationDetents([.medium, .large])
+            case .skipped:
+                SkippedCompletionSheet { reason, note in
+                    Task { await applySkipped(reason: reason, note: note) }
+                }
+                .presentationDetents([.height(340)])
+            }
+        }
     }
+
+    // MARK: - Main content row
 
     private var cardContent: some View {
         HStack(spacing: 0) {
-            (session.effortCategory ?? .easy).gradient
-                .frame(width: 6)
+            leftBar
 
             VStack(alignment: .leading, spacing: 10) {
                 headerRow
-                Text(session.label)
-                    .font(CoachFonts.display(19, weight: .bold))
-                    .lineLimit(2)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-                if let purpose = session.purpose, !purpose.isEmpty {
+                titleRow
+                if let purpose = session.purpose, !purpose.isEmpty, cardState != .skipped {
                     Text(purpose)
                         .font(CoachFonts.ui(12))
                         .italic()
@@ -460,18 +504,51 @@ private struct TodaySessionCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
                 }
-                statsRow
-                effortFuelRow
-                if let warning = session.warning, !warning.isEmpty {
+                if cardState == .upcoming || cardState == .awaitingInput {
+                    statsRow
+                    effortFuelRow
+                } else {
+                    completionDetailRow
+                }
+                if let warning = session.warning, !warning.isEmpty,
+                   cardState == .upcoming || cardState == .awaitingInput {
                     warningRow(warning)
+                }
+                if cardState == .awaitingInput {
+                    Text("How'd it go?")
+                        .font(CoachFonts.ui(12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                 }
             }
             .padding(.leading, 12)
             .padding(.vertical, 14)
+            .padding(.trailing, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contentShape(Rectangle())
     }
+
+    // MARK: - Left bar (color varies by state)
+
+    @ViewBuilder
+    private var leftBar: some View {
+        switch cardState {
+        case .upcoming, .awaitingInput:
+            (session.effortCategory ?? .easy).gradient
+                .frame(width: 6)
+        case .completed:
+            Rectangle().fill(CoachColors.green).frame(width: 6)
+        case .modified:
+            Rectangle().fill(CoachColors.yellow).frame(width: 6)
+        case .swapped:
+            Rectangle().fill(CoachColors.blue).frame(width: 6)
+        case .skipped:
+            Rectangle().fill(Color.gray.opacity(0.6)).frame(width: 6)
+        }
+    }
+
+    // MARK: - Header / title
 
     @ViewBuilder
     private var headerRow: some View {
@@ -479,12 +556,53 @@ private struct TodaySessionCard: View {
             if let sport = Sport(rawValue: session.type.lowercased()) {
                 SportBadge(sport: sport)
             }
-            if session.priority == .red {
+            if session.priority == .red && cardState != .skipped {
                 CoachPill(text: "KEY", color: CoachColors.accent)
+            }
+            if cardState == .modified {
+                CoachPill(text: "MODIFIED", color: CoachColors.yellow)
+            }
+            if cardState == .swapped {
+                CoachPill(text: "SWAPPED", color: CoachColors.blue)
             }
             Spacer()
         }
     }
+
+    @ViewBuilder
+    private var titleRow: some View {
+        if cardState == .swapped, let actual = session.actualSport {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.label)
+                    .font(CoachFonts.ui(13))
+                    .foregroundStyle(.secondary)
+                    .strikethrough()
+                    .lineLimit(1)
+                Text("→ \(swappedDescription(actualSport: actual))")
+                    .font(CoachFonts.display(18, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+            }
+        } else {
+            Text(session.label)
+                .font(CoachFonts.display(19, weight: .bold))
+                .lineLimit(2)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .strikethrough(cardState == .skipped)
+        }
+    }
+
+    private func swappedDescription(actualSport: String) -> String {
+        var parts: [String] = []
+        if let d = session.actualDuration {
+            parts.append("\(d)m")
+        }
+        parts.append(actualSport.capitalized)
+        return parts.joined(separator: " ")
+    }
+
+    // MARK: - Stats rows (prescribed vs completion detail)
 
     @ViewBuilder
     private var statsRow: some View {
@@ -500,6 +618,63 @@ private struct TodaySessionCard: View {
             }
             Spacer()
         }
+    }
+
+    @ViewBuilder
+    private var completionDetailRow: some View {
+        switch cardState {
+        case .completed, .modified, .swapped:
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(stateColor)
+                Text(actualSummaryText)
+                    .font(CoachFonts.mono(12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+            }
+            if let note = session.completionNote, !note.isEmpty {
+                Text(note)
+                    .font(CoachFonts.ui(11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case .skipped:
+            if let reason = session.skipReason {
+                Text("Skipped · \(reason.rawValue.capitalized)")
+                    .font(CoachFonts.ui(12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Skipped")
+                    .font(CoachFonts.ui(12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            if let note = session.completionNote, !note.isEmpty {
+                Text(note)
+                    .font(CoachFonts.ui(11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        case .upcoming, .awaitingInput:
+            EmptyView()
+        }
+    }
+
+    private var actualSummaryText: String {
+        var parts: [String] = []
+        if let d = session.actualDuration, d > 0 {
+            parts.append("\(d) min")
+        } else if let d = session.duration, d > 0 {
+            parts.append("\(d) min")
+        }
+        if let dist = session.actualDistance, dist > 0 {
+            parts.append(String(format: "%.1f mi", dist))
+        } else if let dist = session.distanceMiles, dist > 0 {
+            parts.append(String(format: "%.1f mi", dist))
+        }
+        return parts.isEmpty ? "Completed" : parts.joined(separator: " · ")
     }
 
     private var timeValue: String? {
@@ -564,6 +739,248 @@ private struct TodaySessionCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CoachColors.yellow.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Right-side icon
+
+    @ViewBuilder
+    private var rightSideIcon: some View {
+        switch cardState {
+        case .upcoming:
+            Button {
+                Task { await markDidIt() }
+            } label: {
+                Image(systemName: "circle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 14)
+
+        case .completed:
+            Button {
+                Task { await resetCompletion() }
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(CoachColors.green)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 14)
+
+        case .modified:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 26))
+                .foregroundStyle(CoachColors.yellow)
+                .padding(.trailing, 14)
+
+        case .swapped:
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                .font(.system(size: 26))
+                .foregroundStyle(CoachColors.blue)
+                .padding(.trailing, 14)
+
+        case .skipped:
+            Button {
+                Task { await resetCompletion() }
+            } label: {
+                Image(systemName: "minus.circle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 14)
+
+        case .awaitingInput:
+            Image(systemName: "circle.dashed")
+                .font(.system(size: 26))
+                .foregroundStyle(.secondary)
+                .padding(.trailing, 14)
+        }
+    }
+
+    // MARK: - Action bar (AWAITING INPUT only)
+
+    private var actionBar: some View {
+        HStack(spacing: 6) {
+            actionButton(
+                label: "Did it",
+                systemImage: "checkmark",
+                color: CoachColors.green,
+                prominent: true
+            ) {
+                Task { await markDidIt() }
+            }
+            actionButton(
+                label: "Modified",
+                systemImage: "pencil",
+                color: CoachColors.yellow
+            ) {
+                activeSheet = .modified
+            }
+            actionButton(
+                label: "Swapped",
+                systemImage: "arrow.triangle.2.circlepath",
+                color: CoachColors.blue
+            ) {
+                activeSheet = .swapped
+            }
+            actionButton(
+                label: "Skipped",
+                systemImage: "xmark",
+                color: Color.gray
+            ) {
+                activeSheet = .skipped
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+    }
+
+    private func actionButton(
+        label: String,
+        systemImage: String,
+        color: Color,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(label)
+                    .font(CoachFonts.ui(10, weight: .semibold))
+            }
+            .foregroundStyle(prominent ? .white : color)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(prominent ? color : color.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Chrome helpers
+
+    private var stateColor: Color {
+        switch cardState {
+        case .upcoming, .awaitingInput: return CoachColors.accent
+        case .completed: return CoachColors.green
+        case .modified:  return CoachColors.yellow
+        case .swapped:   return CoachColors.blue
+        case .skipped:   return Color.gray
+        }
+    }
+
+    private var cardBackgroundTint: Color {
+        let base = colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard
+        switch cardState {
+        case .upcoming, .awaitingInput, .skipped:
+            return base
+        case .completed:
+            return CoachColors.green.opacity(0.06)
+        case .modified:
+            return CoachColors.yellow.opacity(0.06)
+        case .swapped:
+            return CoachColors.blue.opacity(0.06)
+        }
+    }
+
+    private var cardStrokeColor: Color {
+        let base = colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder
+        switch cardState {
+        case .upcoming, .skipped: return base
+        case .awaitingInput:      return (session.effortCategory ?? .easy).color.opacity(0.5)
+        case .completed:          return CoachColors.green.opacity(0.35)
+        case .modified:           return CoachColors.yellow.opacity(0.35)
+        case .swapped:            return CoachColors.blue.opacity(0.35)
+        }
+    }
+
+    // MARK: - Other pending sessions today (for Swapped sheet picker)
+
+    private func otherPendingToday() -> [PrescribedSession] {
+        guard let plan = data.trainingPlan,
+              let wp = plan.weeklyPlans[String(weekNum)],
+              dayIdx < wp.sessions.count else { return [] }
+        let all = wp.sessions[dayIdx].sessions
+        return all.enumerated().compactMap { idx, s in
+            guard idx != sessionIdx, s.completionStatus == nil, s.completed != true else { return nil }
+            return s
+        }
+    }
+
+    // MARK: - Completion actions
+
+    private func markDidIt() async {
+        let now = ISO8601DateFormatter().string(from: Date())
+        try? await data.updateSessionCompletion(
+            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+        ) { s in
+            s.completionStatus = .completed
+            s.completed = true
+            s.completionResolvedAt = now
+            // Default actual stats to prescribed so the completed card shows
+            // something meaningful. The user can override via "Modified".
+            if s.actualDuration == nil, let d = s.duration { s.actualDuration = d }
+            if s.actualDistance == nil, let dist = s.distanceMiles { s.actualDistance = dist }
+        }
+    }
+
+    private func resetCompletion() async {
+        try? await data.updateSessionCompletion(
+            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+        ) { s in
+            s.completionStatus = nil
+            s.completed = false
+            s.completionResolvedAt = nil
+            s.actualDuration = nil
+            s.actualDistance = nil
+            s.actualSport = nil
+            s.skipReason = nil
+            s.completionNote = nil
+        }
+    }
+
+    private func applyModified(_ actual: ModifiedActualInput) async {
+        let now = ISO8601DateFormatter().string(from: Date())
+        try? await data.updateSessionCompletion(
+            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+        ) { s in
+            s.completionStatus = .modified
+            s.completed = true
+            s.completionResolvedAt = now
+            s.actualDuration = actual.duration
+            s.actualDistance = actual.distance
+            s.completionNote = actual.note.isEmpty ? nil : actual.note
+        }
+    }
+
+    private func applySwapped(_ actual: SwappedActualInput) async {
+        let now = ISO8601DateFormatter().string(from: Date())
+        try? await data.updateSessionCompletion(
+            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+        ) { s in
+            s.completionStatus = .swapped
+            s.completed = true
+            s.completionResolvedAt = now
+            s.actualSport = actual.sport
+            s.actualDuration = actual.duration
+            s.completionNote = actual.note.isEmpty ? nil : actual.note
+        }
+    }
+
+    private func applySkipped(reason: SkipReason, note: String) async {
+        let now = ISO8601DateFormatter().string(from: Date())
+        try? await data.updateSessionCompletion(
+            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+        ) { s in
+            s.completionStatus = .skipped
+            s.completed = false
+            s.completionResolvedAt = now
+            s.skipReason = reason
+            s.completionNote = note.isEmpty ? nil : note
+        }
     }
 }
 
