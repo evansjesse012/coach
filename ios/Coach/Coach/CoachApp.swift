@@ -66,15 +66,18 @@ struct CoachApp: App {
         do {
             let client = SupabaseService.shared.client
 
-            // If a session already exists (from Supabase's local storage), use it.
-            if let _ = try? await client.auth.session {
+            // Reuse a cached session only if it's still valid. The SDK's
+            // `Session.isExpired` includes a 30-second buffer, so we won't
+            // fire requests against a token that's about to die. If the
+            // cached session is missing or expired, fall through and mint
+            // a fresh one via signIn below.
+            if let session = try? await client.auth.session, !session.isExpired {
                 isAuthenticated = true
                 await dataService.loadAll()
                 isLoading = false
                 return
             }
 
-            // Otherwise, sign in with the dev credentials.
             try await client.auth.signIn(email: DEV_USER_EMAIL, password: DEV_USER_PASSWORD)
             isAuthenticated = true
             await dataService.loadAll()
