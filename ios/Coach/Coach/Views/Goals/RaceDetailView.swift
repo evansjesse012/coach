@@ -2,6 +2,11 @@ import SwiftUI
 import Supabase
 import Functions
 
+private struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
 struct RaceDetailView: View {
     let eventId: String
 
@@ -19,6 +24,7 @@ struct RaceDetailView: View {
     @State private var newNote: String = ""
 
     @State private var showEditSheet = false
+    @State private var presentedURL: IdentifiableURL?
 
     var body: some View {
         ScrollView {
@@ -66,6 +72,9 @@ struct RaceDetailView: View {
                     dismiss()
                 }
             }
+        }
+        .sheet(item: $presentedURL) { wrapped in
+            SafariSheet(url: wrapped.url)
         }
     }
 
@@ -122,6 +131,18 @@ struct RaceDetailView: View {
                     Label(distance, systemImage: "ruler")
                         .font(CoachFonts.ui(13))
                         .foregroundStyle(.secondary)
+                }
+                if let urlString = event.url,
+                   !urlString.isEmpty,
+                   let url = URL(string: urlString) {
+                    Button {
+                        presentedURL = IdentifiableURL(url: url)
+                    } label: {
+                        Label("Official site", systemImage: "link")
+                            .font(CoachFonts.ui(13, weight: .medium))
+                            .foregroundStyle(CoachColors.accent)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
