@@ -225,39 +225,38 @@ private func callEdgeFunction(
 
     let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-    // Use the closure overload so we get raw (Data, HTTPURLResponse) instead of
-    // letting Functions try to JSON-decode into our return type. This lets us
-    // log the body on any failure.
-    return try await client.functions.invoke(
-        "chat",
-        options: .init(body: bodyData)
-    ) { data, response in
-        guard 200..<300 ~= response.statusCode else {
-            let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
-            NSLog("[chat] HTTP \(response.statusCode): \(preview)")
-            // Include the response body in localizedDescription so upstream
-            // catch blocks (e.g. ChatTab) can show the real reason inline
-            // instead of "non-2xx status code".
-            throw NSError(
-                domain: "ChatAgent",
-                code: response.statusCode,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "HTTP \(response.statusCode): \(preview.prefix(400))"
-                ]
-            )
+    // The SDK's FunctionsClient.invoke pre-checks status inside rawInvoke and
+    // throws FunctionsError.httpError on non-2xx BEFORE calling our decode
+    // closure. So we have to catch the error out here — any status check
+    // inside the closure is dead code on the non-2xx path.
+    do {
+        return try await client.functions.invoke(
+            "chat",
+            options: .init(body: bodyData)
+        ) { data, _ in
+            do {
+                return try JSONDecoder().decode(AnthropicResponse.self, from: data)
+            } catch {
+                let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
+                NSLog("[chat] decode failed: \(error)\nbody: \(preview)")
+                throw NSError(
+                    domain: "ChatAgent",
+                    code: -1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Decode failed: \(error.localizedDescription)\nBody: \(preview.prefix(400))"
+                    ]
+                )
+            }
         }
-        do {
-            return try JSONDecoder().decode(AnthropicResponse.self, from: data)
-        } catch {
-            let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
-            NSLog("[chat] decode failed: \(error)\nbody: \(preview)")
-            throw NSError(
-                domain: "ChatAgent",
-                code: -1,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "Decode failed: \(error.localizedDescription)\nBody: \(preview.prefix(400))"
-                ]
-            )
-        }
+    } catch let FunctionsError.httpError(code, data) {
+        let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
+        NSLog("[chat] HTTP \(code): \(preview)")
+        throw NSError(
+            domain: "ChatAgent",
+            code: code,
+            userInfo: [
+                NSLocalizedDescriptionKey: "HTTP \(code): \(preview.prefix(400))"
+            ]
+        )
     }
 }
