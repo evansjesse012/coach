@@ -2,7 +2,9 @@ import SwiftUI
 
 struct GoalsTab: View {
     @Environment(DataService.self) var data
-    @State private var showCreateSheet = false
+    @State private var showPicker = false
+    @State private var showFormSheet = false
+    @State private var showChatSheet = false
 
     var body: some View {
         NavigationStack {
@@ -50,15 +52,26 @@ struct GoalsTab: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showCreateSheet = true
+                        showPicker = true
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .foregroundStyle(CoachColors.accent)
                     }
                 }
             }
-            .sheet(isPresented: $showCreateSheet) {
-                CreateGoalSheet(isPresented: $showCreateSheet)
+            .sheet(isPresented: $showPicker) {
+                GoalCreationPickerSheet { mode in
+                    switch mode {
+                    case .chat: showChatSheet = true
+                    case .form: showFormSheet = true
+                    }
+                }
+            }
+            .sheet(isPresented: $showFormSheet) {
+                CreateGoalSheet(isPresented: $showFormSheet)
+            }
+            .sheet(isPresented: $showChatSheet) {
+                RaceCreationChatSheet()
             }
         }
     }
