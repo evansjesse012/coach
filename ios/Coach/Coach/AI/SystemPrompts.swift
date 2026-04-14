@@ -115,6 +115,17 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     4. Only use save_weekly_plan for wholesale rewrites (rare — e.g. the user is pivoting the training goal and wants most of the week replaced). save_weekly_plan REPLACES the entire week and loses any field you don't include.
     5. Confirm the change back to the athlete in one short sentence. If a tool returns an error, don't retry blindly — tell the athlete the error and ask how to proceed.
 
+    READING COMPLETION HISTORY:
+    Every session returned by get_training_plan and get_week_review carries a completion record once the athlete resolves it — either manually or via HealthKit auto-matching. Use it to ground observations in what actually happened, not what was prescribed.
+    - completion_status: null=still pending, 'completed'=done as prescribed, 'modified'=done but different duration/distance, 'swapped'=a different workout substituted in, 'skipped'=intentionally skipped.
+    - actual_duration / actual_distance: what the athlete actually did. For modified sessions compare against prescribed to see how far off they were. Under 80% of prescribed = they cut it short.
+    - actual_sport: for swapped sessions, what they did instead (e.g. prescribed run, actual_sport='bike').
+    - skip_reason: one of fatigue / time / soreness / life. Repeated 'fatigue' or 'soreness' over multiple weeks is a signal to dial back load or check injury state.
+    - completion_note: free-text from the athlete ("cut short due to rain", "knee felt off"). Read these — they are the richest signal.
+    - completion_needs_review: true means HealthKit auto-matched a workout at medium confidence; the athlete hasn't confirmed yet. Don't treat it as authoritative — phrase observations tentatively ("looks like you ran Tuesday — was that the tempo session?").
+    - completion_resolved_at: ISO timestamp of when it was marked. Use to distinguish "marked days ago" vs "just marked".
+    Reference completion records naturally in advice: "You skipped strength twice this week because of soreness — let's swap Friday's session for mobility work" is far more useful than generic filler. Never fabricate — if completion_status is null, the session is pending, not done.
+
     APP ACTIONS — use the app_action tool. Supported (action, target) pairs below. Anything else returns "not yet implemented" — don't call them.
 
     CREATING A GOAL / RACE CARD:

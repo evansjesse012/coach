@@ -193,10 +193,21 @@ private struct SessionCard: View {
                         .frame(width: 6)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(session.label)
-                            .font(CoachFonts.ui(16, weight: .bold))
-                            .lineLimit(2)
-                            .foregroundStyle(.primary)
+                        HStack(spacing: 8) {
+                            Text(session.label)
+                                .font(CoachFonts.ui(16, weight: .bold))
+                                .lineLimit(2)
+                                .foregroundStyle(.primary)
+                            if let pill = statusPillLabel {
+                                Text(pill)
+                                    .font(CoachFonts.ui(9, weight: .bold))
+                                    .tracking(0.6)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(statusPillColor.opacity(0.18)))
+                                    .foregroundStyle(statusPillColor)
+                            }
+                        }
 
                         Text(secondLine)
                             .font(CoachFonts.ui(12))
@@ -209,6 +220,15 @@ private struct SessionCard: View {
                         if let note = session.notes, !note.isEmpty {
                             Text(note)
                                 .font(CoachFonts.ui(11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .padding(.top, 2)
+                        }
+
+                        if let completionNote = session.completionNote, !completionNote.isEmpty {
+                            Text("“\(completionNote)”")
+                                .font(CoachFonts.ui(11))
+                                .italic()
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                                 .padding(.top, 2)
@@ -230,9 +250,8 @@ private struct SessionCard: View {
                     )
                 }
             } label: {
-                Image(systemName: session.completed == true ? "checkmark.circle.fill" : "circle")
+                statusButtonIcon
                     .font(.system(size: 26))
-                    .foregroundStyle(session.completed == true ? CoachColors.teal : .secondary)
             }
             .buttonStyle(.plain)
             .padding(.trailing, 14)
@@ -242,9 +261,62 @@ private struct SessionCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                .stroke(cardBorderColor, lineWidth: cardBorderWidth)
         )
-        .opacity(session.completed == true ? 0.7 : 1.0)
+        .opacity(session.isResolved ? 0.75 : 1.0)
+    }
+
+    // MARK: - Status visuals
+
+    @ViewBuilder
+    private var statusButtonIcon: some View {
+        switch session.displayState {
+        case .upcoming:
+            Image(systemName: "circle").foregroundStyle(.secondary)
+        case .completed:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(CoachColors.teal)
+        case .needsReview:
+            Image(systemName: "questionmark.circle.fill").foregroundStyle(Color.orange)
+        case .modified:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.yellow)
+        case .swapped:
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill").foregroundStyle(Color.purple)
+        case .skipped:
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        }
+    }
+
+    private var statusPillLabel: String? {
+        switch session.displayState {
+        case .upcoming: return nil
+        case .completed: return "DONE"
+        case .needsReview: return "REVIEW"
+        case .modified: return "MODIFIED"
+        case .swapped: return "SWAPPED"
+        case .skipped: return "SKIPPED"
+        }
+    }
+
+    private var statusPillColor: Color {
+        switch session.displayState {
+        case .upcoming: return .secondary
+        case .completed: return CoachColors.teal
+        case .needsReview: return .orange
+        case .modified: return .yellow
+        case .swapped: return .purple
+        case .skipped: return .secondary
+        }
+    }
+
+    private var cardBorderColor: Color {
+        if session.displayState == .needsReview {
+            return Color.orange.opacity(0.6)
+        }
+        return colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder
+    }
+
+    private var cardBorderWidth: CGFloat {
+        session.displayState == .needsReview ? 1.5 : 1
     }
 
     // MARK: derived

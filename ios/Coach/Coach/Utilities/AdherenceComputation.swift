@@ -43,6 +43,61 @@ struct WeekAdherence {
     var missedByType: [String: Int]
 }
 
+// MARK: - Completion Status → SessionReview
+
+/// If a session has an explicit completionStatus (set by manual marking or
+/// HealthKit auto-matching), translate it directly into a SessionReview. This
+/// skips the log-matching heuristic so that the athlete's recorded intent is
+/// always the source of truth.
+private func reviewFromCompletionStatus(session sess: PrescribedSession, dateStr: String) -> SessionReview? {
+    guard let status = sess.completionStatus else { return nil }
+    switch status {
+    case .completed:
+        return SessionReview(
+            type: sess.type,
+            label: sess.label,
+            duration: sess.duration,
+            status: .completed,
+            actualDuration: sess.actualDuration ?? sess.duration,
+            dateStr: dateStr
+        )
+    case .modified:
+        // Under 80% of prescribed counts as "shortened" for adherence purposes.
+        let ratio: Double = {
+            guard let prescribed = sess.duration, prescribed > 0,
+                  let actual = sess.actualDuration else { return 1.0 }
+            return Double(actual) / Double(prescribed)
+        }()
+        let resolved: SessionStatus = ratio >= 0.8 ? .completed : .shortened
+        return SessionReview(
+            type: sess.type,
+            label: sess.label,
+            duration: sess.duration,
+            status: resolved,
+            actualDuration: sess.actualDuration,
+            dateStr: dateStr
+        )
+    case .swapped:
+        return SessionReview(
+            type: sess.type,
+            label: sess.label,
+            duration: sess.duration,
+            status: .substituted,
+            actualDuration: sess.actualDuration,
+            substitute: sess.actualSport,
+            dateStr: dateStr
+        )
+    case .skipped:
+        return SessionReview(
+            type: sess.type,
+            label: sess.label,
+            duration: sess.duration,
+            status: .missed,
+            dateStr: dateStr
+        )
+    }
+}
+
 // MARK: - Compute Week Adherence
 
 /// Port of computeWeekAdherence from page.jsx lines 382-437
@@ -80,6 +135,12 @@ func computeWeekAdherence(
         let dayStrength = strength.filter { $0.date == dateStr }
 
         let sessions: [SessionReview] = dayObj.sessions.map { sess in
+            // Phase 3: prefer the explicit completionStatus set by manual marking
+            // or HealthKit auto-matching over the legacy log-matching inference.
+            if let explicit = reviewFromCompletionStatus(session: sess, dateStr: dateStr) {
+                return explicit
+            }
+
             let isStr = sess.type == "strength"
 
             if isStr {

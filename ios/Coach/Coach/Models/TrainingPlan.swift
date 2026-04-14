@@ -187,6 +187,43 @@ struct PrescribedSession: Codable, Identifiable {
     }
 }
 
+// MARK: - Display State
+
+/// Collapses completionStatus + legacy `completed` + needsReview into a single
+/// value the UI can switch on when drawing a session row/card.
+enum PrescribedSessionDisplayState {
+    case upcoming
+    case completed
+    case needsReview
+    case modified
+    case swapped
+    case skipped
+}
+
+extension PrescribedSession {
+    var displayState: PrescribedSessionDisplayState {
+        if let status = completionStatus {
+            switch status {
+            case .completed:
+                return completionNeedsReview == true ? .needsReview : .completed
+            case .modified:
+                return .modified
+            case .swapped:
+                return .swapped
+            case .skipped:
+                return .skipped
+            }
+        }
+        // Legacy flag fallback for plans saved before Phase 1.
+        if completed == true { return .completed }
+        return .upcoming
+    }
+
+    var isResolved: Bool {
+        completionStatus != nil || completed == true
+    }
+}
+
 // MARK: - Day Plan
 struct DayPlan: Codable, Identifiable {
     var id: String { day }

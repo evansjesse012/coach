@@ -613,7 +613,7 @@ private struct WeekCard: View {
 
     private var allSessions: [PrescribedSession] { weeklyPlan.sessions.flatMap(\.sessions) }
     private var totalSessions: Int { allSessions.count }
-    private var completedSessions: Int { allSessions.filter { $0.completed == true }.count }
+    private var completedSessions: Int { allSessions.filter(\.isResolved).count }
     private var totalDistance: Double { allSessions.compactMap(\.distanceMiles).reduce(0, +) }
 
     private var dateRangeString: String {
@@ -667,23 +667,14 @@ private struct DayRow: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 32, alignment: .leading)
 
-                    if session.completed == true {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(CoachColors.teal)
-                            .frame(width: 14, height: 14)
-                    } else {
-                        Circle()
-                            .fill(session.effortCategory?.color ?? Color.gray.opacity(0.5))
-                            .frame(width: 10, height: 10)
-                            .frame(width: 14, height: 14)
-                    }
+                    statusIcon(for: session)
+                        .frame(width: 14, height: 14)
 
                     Text(session.label)
                         .font(CoachFonts.ui(13))
                         .lineLimit(1)
-                        .strikethrough(session.completed == true, color: .secondary)
-                        .foregroundStyle(session.completed == true ? .secondary : .primary)
+                        .strikethrough(strikethrough(for: session.displayState), color: .secondary)
+                        .foregroundStyle(labelColor(for: session.displayState))
 
                     Spacer()
 
@@ -692,6 +683,50 @@ private struct DayRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func statusIcon(for session: PrescribedSession) -> some View {
+        switch session.displayState {
+        case .upcoming:
+            Circle()
+                .fill(session.effortCategory?.color ?? Color.gray.opacity(0.5))
+                .frame(width: 10, height: 10)
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(CoachColors.teal)
+        case .needsReview:
+            Image(systemName: "questionmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.orange)
+        case .modified:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.yellow)
+        case .swapped:
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(Color.purple)
+        case .skipped:
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func strikethrough(for state: PrescribedSessionDisplayState) -> Bool {
+        switch state {
+        case .completed, .modified, .swapped, .skipped: return true
+        case .upcoming, .needsReview: return false
+        }
+    }
+
+    private func labelColor(for state: PrescribedSessionDisplayState) -> Color {
+        switch state {
+        case .upcoming, .needsReview: return .primary
+        case .completed, .modified, .swapped, .skipped: return .secondary
         }
     }
 
