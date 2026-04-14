@@ -96,22 +96,37 @@ struct WeekDetailView: View {
     // MARK: - Sessions list
 
     private func sessionsList(plan: TrainingPlan, weeklyPlan: WeeklyPlan) -> some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 18) {
             ForEach(Array(weeklyPlan.sessions.enumerated()), id: \.offset) { dayIdx, dayPlan in
-                if dayPlan.isRest == true {
-                    RestDayCard(
-                        dayPlan: dayPlan,
-                        dateString: dateString(plan: plan, dayIdx: dayIdx)
-                    )
+                dayGroup(plan: plan, dayPlan: dayPlan, dayIdx: dayIdx)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dayGroup(plan: TrainingPlan, dayPlan: DayPlan, dayIdx: Int) -> some View {
+        let dateStr = dateString(plan: plan, dayIdx: dayIdx)
+        let isToday = !dateStr.isEmpty && dateStr == todayString()
+        let isRest = dayPlan.isRest == true
+
+        if isRest || !dayPlan.sessions.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                DayHeader(dayName: dayPlan.day, isToday: isToday)
+                    .padding(.leading, 4)
+
+                if isRest {
+                    RestDayCard(dayPlan: dayPlan, dateString: dateStr)
                 } else {
-                    ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { sessionIdx, session in
-                        SessionCard(
-                            session: session,
-                            dateString: dateString(plan: plan, dayIdx: dayIdx),
-                            weekNum: weekNum,
-                            dayIdx: dayIdx,
-                            sessionIdx: sessionIdx
-                        )
+                    VStack(spacing: 12) {
+                        ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { sessionIdx, session in
+                            SessionCard(
+                                session: session,
+                                dateString: dateStr,
+                                weekNum: weekNum,
+                                dayIdx: dayIdx,
+                                sessionIdx: sessionIdx
+                            )
+                        }
                     }
                 }
             }
@@ -127,6 +142,31 @@ struct WeekDetailView: View {
         let totalDays = (weekNum - 1) * 7 + dayIdx
         guard let date = cal.date(byAdding: .day, value: totalDays, to: planStart) else { return "" }
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Day Header
+
+private struct DayHeader: View {
+    let dayName: String
+    let isToday: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(dayName.capitalized)
+                .font(CoachFonts.ui(14, weight: .bold))
+                .foregroundStyle(.secondary)
+            if isToday {
+                Text("TODAY")
+                    .font(CoachFonts.ui(9, weight: .bold))
+                    .tracking(0.6)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(CoachColors.accent))
+                    .foregroundStyle(.white)
+            }
+            Spacer()
+        }
     }
 }
 
@@ -211,8 +251,8 @@ private struct SessionCard: View {
 
     private var secondLine: String {
         var parts: [String] = []
-        if !dateString.isEmpty {
-            parts.append(formatDayLong(dateString))
+        if let short = shortDate {
+            parts.append(short)
         }
         if let durRange = durationRange {
             parts.append(durRange)
@@ -220,6 +260,16 @@ private struct SessionCard: View {
             parts.append("\(dur)m")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private var shortDate: String? {
+        guard !dateString.isEmpty else { return nil }
+        let input = DateFormatter()
+        input.dateFormat = "yyyy-MM-dd"
+        guard let date = input.date(from: dateString) else { return nil }
+        let output = DateFormatter()
+        output.dateFormat = "MMM d"
+        return output.string(from: date)
     }
 
     private var thirdLine: String {
