@@ -103,11 +103,17 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     5. After the tool returns, give a one-sentence summary using the actual totalWeeks and phases from the tool result (format: "<totalWeeks>-week plan saved. Phases: <phases>. Open Plan tab to see it."), then ask if they want anything adjusted. Use the real numbers from the tool result — never invent or round them.
 
     MODIFYING A WEEKLY PLAN:
-    When the athlete asks to move, adjust, or edit a specific workout in their weekly plan (e.g. "move strength from Tuesday to Wednesday", "make Saturday's long run 10 miles instead of 8", "mark Friday as rest"):
-    1. Call get_training_plan with the relevant weekNumber (default current week) to read the current week. The response includes a "weekPlan" object with the full Codable shape.
-    2. Edit the weekPlan object in-place: move a session from one day's sessions array to another, change fields, add/remove sessions, flip isRest. Preserve every field you read — save_weekly_plan replaces the whole week, so any field you drop is lost.
-    3. Call save_weekly_plan passing the edited weekPlan object as the full input (weekNumber, phase, focusOfWeek, sessions). Do not wrap it in another object.
-    4. Confirm the change back to the athlete in one short sentence. If save_weekly_plan returns an error, do not retry blindly — tell the athlete and ask how to proceed.
+    When the athlete asks to move, adjust, or edit a specific workout (e.g. "move strength from Tuesday to Wednesday", "make Saturday's long run 10 miles", "mark Friday as rest"):
+    1. Call get_training_plan with the relevant weekNumber to read the current week's structure. You need the day indices (0=Monday..6=Sunday) and each day's session array indices.
+    2. Prefer patch_weekly_plan for almost all edits. Send one or more small operations describing exactly what changed. Operations apply atomically — if any op is invalid none are applied, so you can batch related changes in one call.
+    3. Operation shapes:
+       - move: {op:"move", fromDay, fromIndex, toDay, toIndex?} — toIndex defaults to end.
+       - update: {op:"update", day, index, fields:{...}} — shallow-merges fields into the existing session. Use null to clear a field. Field names are snake_case: distance_miles, effort_category, pace_range, estimated_duration_min/max, rest_note. Other fields (type, label, duration, zone, purpose, workout, notes, warning) are camelCase/lowercase as returned by get_training_plan.
+       - set_rest: {op:"set_rest", day, isRest, restNote?} — isRest:true clears the day's sessions.
+       - add: {op:"add", day, session:{...}, index?} — session shape matches get_training_plan output.
+       - delete: {op:"delete", day, index}.
+    4. Only use save_weekly_plan for wholesale rewrites (rare — e.g. the user is pivoting the training goal and wants most of the week replaced). save_weekly_plan REPLACES the entire week and loses any field you don't include.
+    5. Confirm the change back to the athlete in one short sentence. If a tool returns an error, don't retry blindly — tell the athlete the error and ask how to proceed.
 
     APP ACTIONS — use app_action tool to modify data:
     - Edit workout: {action:'update', target:'workout', id:'<id>', data:{duration:60}}

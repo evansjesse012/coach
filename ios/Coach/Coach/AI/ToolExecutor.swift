@@ -281,9 +281,9 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
 
     // MARK: save_weekly_plan
     case "save_weekly_plan":
-        // Replace (or insert) a single week's plan. Input must match the
-        // WeeklyPlan Codable shape — which is exactly what get_training_plan
-        // returns under "weekPlan". The LLM reads, edits, and sends back.
+        // Wholesale replacement — prefer patch_weekly_plan for surgical edits.
+        // Input must match the WeeklyPlan Codable shape (same as what
+        // get_training_plan returns under "weekPlan").
         guard dataService.trainingPlan != nil else {
             return ToolResult(summary: #"{"error":"No training plan to modify. Create one first with create_training_plan."}"#)
         }
@@ -302,6 +302,46 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             return ToolResult(summary: jsonString([
                 "error": "Invalid weekPlan shape: \(error.localizedDescription). Expected the same shape returned by get_training_plan under weekPlan.",
             ]))
+        }
+
+    // MARK: patch_weekly_plan
+    case "patch_weekly_plan":
+        // Surgical, op-based edits to a single week. Applies a list of
+        // operations atomically: if any op fails, none are applied and we
+        // return an error. On success, emits .weekUpdated with the mutated
+        // WeeklyPlan — ChatTab handles persistence via DataService.savePlan.
+        guard let plan = dataService.trainingPlan else {
+            return ToolResult(summary: #"{"error":"No training plan to patch. Create one first with create_training_plan."}"#)
+        }
+        guard let weekNum = input["weekNumber"] as? Int else {
+            return ToolResult(summary: #"{"error":"patch_weekly_plan requires weekNumber."}"#)
+        }
+        guard var wp = plan.weeklyPlans[String(weekNum)] else {
+            return ToolResult(summary: jsonString(["error": "Week \(weekNum) not found in plan. Call get_training_plan first to see available weeks."]))
+        }
+        guard let operations = input["operations"] as? [[String: Any]], !operations.isEmpty else {
+            return ToolResult(summary: #"{"error":"patch_weekly_plan requires a non-empty operations array."}"#)
+        }
+
+        do {
+            for (i, op) in operations.enumerated() {
+                do {
+                    try applyPatchOperation(op, to: &wp)
+                } catch let PatchError.invalidOp(msg) {
+                    throw PatchError.invalidOp("op #\(i): \(msg)")
+                }
+            }
+            return ToolResult(
+                summary: jsonString([
+                    "applied": operations.count,
+                    "weekNumber": wp.weekNumber,
+                ]),
+                effects: [.weekUpdated(weekNumber: wp.weekNumber, weekPlan: wp)]
+            )
+        } catch let PatchError.invalidOp(msg) {
+            return ToolResult(summary: jsonString(["error": "patch rejected — \(msg)"]))
+        } catch {
+            return ToolResult(summary: jsonString(["error": "patch rejected: \(error.localizedDescription)"]))
         }
 
     // MARK: update_plan_progress
@@ -374,4 +414,124 @@ private func jsonString(_ value: Any) -> String {
         return "{}"
     }
     return str
+}
+
+// MARK: - Patch support
+
+private enum PatchError: Error {
+    case invalidOp(String)
+}
+
+/// Applies a single patch_weekly_plan operation to a mutable WeeklyPlan.
+/// Throws PatchError.invalidOp on any shape/bounds problem; callers are
+/// expected to treat a thrown error as rejecting the whole patch batch.
+private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) throws {
+    guard let type = op["op"] as? String else {
+        throw PatchError.invalidOp("missing op type")
+    }
+
+    switch type {
+    case "move":
+        guard let fromDay = op["fromDay"] as? Int,
+              let fromIndex = op["fromIndex"] as? Int,
+              let toDay = op["toDay"] as? Int else {
+            throw PatchError.invalidOp("move requires fromDay, fromIndex, toDay")
+        }
+        try validateDay(fromDay, in: wp)
+        try validateDay(toDay, in: wp)
+        guard fromIndex >= 0, fromIndex < wp.sessions[fromDay].sessions.count else {
+            throw PatchError.invalidOp("move fromIndex \(fromIndex) out of bounds for day \(fromDay) (has \(wp.sessions[fromDay].sessions.count) sessions)")
+        }
+        let session = wp.sessions[fromDay].sessions.remove(at: fromIndex)
+        // Moving a session into a rest day implicitly un-rests it.
+        if wp.sessions[toDay].isRest == true {
+            wp.sessions[toDay].isRest = false
+        }
+        let rawTo = op["toIndex"] as? Int ?? wp.sessions[toDay].sessions.count
+        let toIndex = max(0, min(rawTo, wp.sessions[toDay].sessions.count))
+        wp.sessions[toDay].sessions.insert(session, at: toIndex)
+
+    case "update":
+        guard let day = op["day"] as? Int,
+              let index = op["index"] as? Int,
+              let fields = op["fields"] as? [String: Any] else {
+            throw PatchError.invalidOp("update requires day, index, fields")
+        }
+        try validateDay(day, in: wp)
+        guard index >= 0, index < wp.sessions[day].sessions.count else {
+            throw PatchError.invalidOp("update index \(index) out of bounds for day \(day) (has \(wp.sessions[day].sessions.count) sessions)")
+        }
+        // Shallow-merge fields onto a JSON round-trip of the existing session.
+        // null fields become NSNull → re-decoded as nil, so the LLM can clear
+        // a field by passing `null`.
+        let existingData = try JSONEncoder().encode(wp.sessions[day].sessions[index])
+        guard var existingDict = try JSONSerialization.jsonObject(with: existingData) as? [String: Any] else {
+            throw PatchError.invalidOp("update: could not serialize existing session for merge")
+        }
+        for (k, v) in fields {
+            existingDict[k] = v
+        }
+        let mergedData = try JSONSerialization.data(withJSONObject: existingDict)
+        let updated: PrescribedSession
+        do {
+            updated = try JSONDecoder().decode(PrescribedSession.self, from: mergedData)
+        } catch {
+            throw PatchError.invalidOp("update merged session failed to decode: \(error.localizedDescription)")
+        }
+        wp.sessions[day].sessions[index] = updated
+
+    case "set_rest":
+        guard let day = op["day"] as? Int,
+              let isRest = op["isRest"] as? Bool else {
+            throw PatchError.invalidOp("set_rest requires day, isRest")
+        }
+        try validateDay(day, in: wp)
+        wp.sessions[day].isRest = isRest
+        if isRest {
+            wp.sessions[day].sessions = []
+        }
+        if let note = op["restNote"] as? String {
+            wp.sessions[day].restNote = note.isEmpty ? nil : note
+        }
+
+    case "add":
+        guard let day = op["day"] as? Int,
+              let sessionDict = op["session"] as? [String: Any] else {
+            throw PatchError.invalidOp("add requires day, session")
+        }
+        try validateDay(day, in: wp)
+        let sessionData = try JSONSerialization.data(withJSONObject: sessionDict)
+        let newSession: PrescribedSession
+        do {
+            newSession = try JSONDecoder().decode(PrescribedSession.self, from: sessionData)
+        } catch {
+            throw PatchError.invalidOp("add session failed to decode: \(error.localizedDescription)")
+        }
+        let rawIdx = op["index"] as? Int ?? wp.sessions[day].sessions.count
+        let idx = max(0, min(rawIdx, wp.sessions[day].sessions.count))
+        if wp.sessions[day].isRest == true {
+            wp.sessions[day].isRest = false
+        }
+        wp.sessions[day].sessions.insert(newSession, at: idx)
+
+    case "delete":
+        guard let day = op["day"] as? Int,
+              let index = op["index"] as? Int else {
+            throw PatchError.invalidOp("delete requires day, index")
+        }
+        try validateDay(day, in: wp)
+        guard index >= 0, index < wp.sessions[day].sessions.count else {
+            throw PatchError.invalidOp("delete index \(index) out of bounds for day \(day) (has \(wp.sessions[day].sessions.count) sessions)")
+        }
+        wp.sessions[day].sessions.remove(at: index)
+
+    default:
+        throw PatchError.invalidOp("unknown op type: \(type) (expected move, update, set_rest, add, delete)")
+    }
+}
+
+private func validateDay(_ day: Int, in wp: WeeklyPlan) throws {
+    guard day >= 0, day < wp.sessions.count else {
+        throw PatchError.invalidOp("day \(day) out of bounds (expected 0-\(wp.sessions.count - 1), day 0 = Monday)")
+    }
 }
