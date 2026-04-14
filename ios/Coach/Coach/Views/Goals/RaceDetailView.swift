@@ -18,9 +18,6 @@ struct RaceDetailView: View {
 
     @State private var newNote: String = ""
 
-    @State private var editingURL = false
-    @State private var urlDraft = ""
-
     @State private var showEditSheet = false
 
     var body: some View {
@@ -63,9 +60,6 @@ struct RaceDetailView: View {
         .task(id: eventId) {
             await loadWeatherIfNeeded()
         }
-        .sheet(isPresented: $editingURL) {
-            editURLSheet
-        }
         .sheet(isPresented: $showEditSheet) {
             EditGoalSheet(eventId: eventId, isPresented: $showEditSheet) { result in
                 if case .deleted = result {
@@ -93,7 +87,6 @@ struct RaceDetailView: View {
                 }
                 CoachPill(text: event.mode.rawValue.uppercased(), color: CoachColors.accent)
                 Spacer()
-                headerURLEditButton(event: event)
                 if let date = event.date, !event.completed, let days = daysUntil(date), days >= 0 {
                     VStack(alignment: .trailing, spacing: 0) {
                         Text("\(days)")
@@ -173,22 +166,6 @@ struct RaceDetailView: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(CoachColors.accent.opacity(0.3), lineWidth: 1)
         )
-    }
-
-    @ViewBuilder
-    private func headerURLEditButton(event: Event) -> some View {
-        if event.mode == .race {
-            Button {
-                urlDraft = event.url ?? ""
-                editingURL = true
-            } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 14))
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(mutedIcon)
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     // MARK: - AI Overview
@@ -904,33 +881,6 @@ struct RaceDetailView: View {
         }
     }
 
-    // MARK: - Edit URL sheet
-
-    private var editURLSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Official race website") {
-                    TextField("https://...", text: $urlDraft)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                }
-            }
-            .navigationTitle("Edit URL")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { editingURL = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await saveURL() }
-                    }
-                }
-            }
-        }
-    }
-
     // MARK: - Card chrome (consistent section card style)
 
     @ViewBuilder
@@ -1059,13 +1009,6 @@ struct RaceDetailView: View {
         generatingOverview = false
     }
 
-    private func saveURL() async {
-        guard var event = currentEvent else { return }
-        let trimmed = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        event.url = trimmed.isEmpty ? nil : trimmed
-        try? await data.updateEvent(event)
-        editingURL = false
-    }
 }
 
 // MARK: - Weather Icon
