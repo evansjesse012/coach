@@ -2,8 +2,6 @@
 // Replaces /api/chat/route.js from the Next.js app
 // API key stored as Supabase secret, never in the iOS binary
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -50,7 +48,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Validate the user's JWT
+    // Validate the user's JWT. We verify by calling /auth/v1/user directly
+    // instead of using supabase-js: the Deno build of @supabase/supabase-js
+    // loaded via esm.sh doesn't reliably verify ES256-signed tokens that
+    // projects with asymmetric JWT signing keys now issue. A direct fetch to
+    // the auth endpoint uses the same verification path PostgREST uses, which
+    // we've confirmed works with our current project config.
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing authorization" }), {
@@ -59,16 +62,21 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
+    const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        Authorization: authHeader,
+        apikey: SUPABASE_ANON_KEY,
+      },
     });
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!userRes.ok) {
+      const preview = await userRes.text();
+      return new Response(
+        JSON.stringify({ error: "Unauthorized", detail: preview.slice(0, 200) }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const body = await req.json();
