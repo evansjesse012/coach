@@ -843,10 +843,10 @@ private struct TodaySessionCard: View {
                 Text(label)
                     .font(CoachFonts.ui(10, weight: .semibold))
             }
-            .foregroundStyle(prominent ? .white : color)
+            .foregroundStyle(color)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 7)
-            .background(prominent ? color : color.opacity(0.12))
+            .background(color.opacity(prominent ? 0.22 : 0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
