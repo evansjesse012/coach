@@ -90,6 +90,13 @@ final class DataService {
         try await client.from("cardio_workouts").insert(workout).execute()
     }
 
+    func updateCardio(_ workout: CardioWorkout) async throws {
+        if let idx = cardio.firstIndex(where: { $0.id == workout.id }) {
+            cardio[idx] = workout
+        }
+        try await client.from("cardio_workouts").upsert(workout).execute()
+    }
+
     func deleteCardio(_ id: String) async throws {
         cardio.removeAll { $0.id == id }
         try await client.from("cardio_workouts").delete().eq("id", value: id).execute()

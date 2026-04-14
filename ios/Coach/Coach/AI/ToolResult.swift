@@ -20,11 +20,18 @@ struct ToolResult {
 enum ToolEffect {
     case planCreated(TrainingPlan)
     case planUpdated(TrainingPlan)
+    case planDeleted(id: String, history: PlanHistory)
     case weekUpdated(weekNumber: Int, weekPlan: WeeklyPlan)
     case progressUpdated(currentWeek: Int, currentPhase: Int)
     case workoutLogged(CardioWorkout)
+    case cardioUpdated(CardioWorkout)
+    case cardioDeleted(id: String)
+    case strengthDeleted(id: String)
     case nutritionLogged(NutritionEntry)
     case eventCreated(Event)
     case eventUpdated(Event)
     case eventDeleted(id: String)
+    case memoryUpdated(CoachingMemory)
+    case settingsUpdated(UserSettings)
+    case tabChanged(tab: String)
 }

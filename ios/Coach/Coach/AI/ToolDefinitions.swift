@@ -213,14 +213,14 @@ let coachToolDefinitions: [ToolDefinition] = [
     ),
     ToolDefinition(
         name: "app_action",
-        description: "Perform any action in the app: create, update, delete data, change settings, or navigate.",
+        description: "Perform an action in the app: create/update/delete a goal, update/delete a logged workout, delete a strength session, delete the training plan (with archiving), update coaching memory, change settings, or navigate to a tab. See the system prompt for the exact data shapes per (action, target) pair.",
         inputSchema: ToolInputSchema(
             type: "object",
             properties: [
-                "action": ToolProperty(type: "string", description: "The action type", enum: ["create", "update", "delete", "navigate", "settings"]),
-                "target": ToolProperty(type: "string", description: "What to act on", enum: ["workout", "strength_workout", "goal", "nutrition", "plan", "plan_session", "coaching_memory", "brick", "app"]),
-                "id": ToolProperty(type: "string", description: "ID of the item to update/delete", enum: nil),
-                "data": ToolProperty(type: "object", description: "Payload — fields depend on target.", enum: nil),
+                "action": ToolProperty(type: "string", description: "The action type", enum: ["create", "update", "delete", "navigate"]),
+                "target": ToolProperty(type: "string", description: "What to act on", enum: ["goal", "workout", "strength_workout", "plan", "coaching_memory", "settings", "app"]),
+                "id": ToolProperty(type: "string", description: "ID of the item to update/delete (required for update/delete on goal, workout, strength_workout).", enum: nil),
+                "data": ToolProperty(type: "object", description: "Payload — fields depend on the (action, target) pair. See system prompt.", enum: nil),
             ],
             required: ["action", "target"]
         )

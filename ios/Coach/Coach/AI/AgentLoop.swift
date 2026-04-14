@@ -19,7 +19,7 @@ struct AgentResult {
     var hasPlanChanges: Bool {
         effects.contains {
             switch $0 {
-            case .planCreated, .planUpdated, .weekUpdated, .progressUpdated: return true
+            case .planCreated, .planUpdated, .planDeleted, .weekUpdated, .progressUpdated: return true
             default: return false
             }
         }
@@ -27,7 +27,9 @@ struct AgentResult {
     var hasAppActions: Bool {
         effects.contains {
             switch $0 {
-            case .eventCreated, .eventUpdated, .eventDeleted: return true
+            case .eventCreated, .eventUpdated, .eventDeleted,
+                 .cardioUpdated, .cardioDeleted, .strengthDeleted,
+                 .memoryUpdated, .settingsUpdated, .tabChanged: return true
             default: return false
             }
         }

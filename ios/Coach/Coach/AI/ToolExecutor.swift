@@ -527,9 +527,196 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                 effects: [.eventDeleted(id: event.id)]
             )
 
+        case ("update", "workout"):
+            guard let id = input["id"] as? String, !id.isEmpty else {
+                return ToolResult(summary: jsonString(["error": "Update workout requires id"]))
+            }
+            guard var workout = dataService.cardio.first(where: { $0.id == id }) else {
+                return ToolResult(summary: jsonString(["error": "Workout with id \(id) not found. Call get_workouts first."]))
+            }
+
+            if let dateStr = data["date"] as? String, !dateStr.isEmpty { workout.date = dateStr }
+            if let sportStr = data["sport"] as? String, let sport = Sport(rawValue: sportStr) {
+                workout.sport = sport
+            }
+            if let duration = data["duration"] as? Int { workout.duration = duration }
+            if let distance = data["distance"] as? String {
+                workout.distance = distance.isEmpty ? nil : distance
+            }
+            if let pace = data["pace"] as? String {
+                workout.pace = pace.isEmpty ? nil : pace
+            }
+            if let notes = data["notes"] as? String {
+                workout.notes = notes.isEmpty ? nil : notes
+            }
+            if let avgHR = data["avgHR"] as? Int { workout.avgHR = avgHR }
+            if let maxHR = data["maxHR"] as? Int { workout.maxHR = maxHR }
+            if let calories = data["calories"] as? Int { workout.calories = calories }
+            if let location = data["location"] as? String {
+                workout.location = location.isEmpty ? nil : location
+            }
+
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "workout": [
+                        "id": workout.id,
+                        "sport": workout.sport.rawValue,
+                        "duration": workout.duration,
+                        "date": workout.date,
+                    ],
+                ]),
+                effects: [.cardioUpdated(workout)]
+            )
+
+        case ("delete", "workout"):
+            guard let id = input["id"] as? String, !id.isEmpty else {
+                return ToolResult(summary: jsonString(["error": "Delete workout requires id"]))
+            }
+            guard let workout = dataService.cardio.first(where: { $0.id == id }) else {
+                return ToolResult(summary: jsonString(["error": "Workout with id \(id) not found. Call get_workouts first."]))
+            }
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "deleted": [
+                        "id": workout.id,
+                        "sport": workout.sport.rawValue,
+                        "date": workout.date,
+                    ],
+                ]),
+                effects: [.cardioDeleted(id: workout.id)]
+            )
+
+        case ("delete", "strength_workout"):
+            guard let id = input["id"] as? String, !id.isEmpty else {
+                return ToolResult(summary: jsonString(["error": "Delete strength workout requires id"]))
+            }
+            guard let session = dataService.strength.first(where: { $0.id == id }) else {
+                return ToolResult(summary: jsonString(["error": "Strength session with id \(id) not found. Call get_workouts first."]))
+            }
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "deleted": ["id": session.id, "name": session.name, "date": session.date],
+                ]),
+                effects: [.strengthDeleted(id: session.id)]
+            )
+
+        case ("delete", "plan"):
+            guard let plan = dataService.trainingPlan else {
+                return ToolResult(summary: jsonString(["error": "No training plan to delete."]))
+            }
+            let reason = data["reason"] as? String
+            let notes = data["notes"] as? String
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            let endedDate = formatter.string(from: Date())
+
+            let history = PlanHistory(
+                id: UUID().uuidString,
+                raceName: plan.raceName,
+                goalId: plan.goalId,
+                raceDate: plan.raceDate,
+                startDate: plan.startDate,
+                endedDate: endedDate,
+                totalWeeks: plan.totalWeeks,
+                completedWeeks: max(0, plan.currentWeek - 1),
+                totalPhases: plan.phases.count,
+                phasesCompleted: max(0, plan.currentPhase - 1),
+                phases: plan.phases,
+                endReason: reason,
+                endNotes: notes,
+                adherence: nil,
+                weeklyAdherence: nil
+            )
+
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "deleted": ["id": plan.id, "raceName": plan.raceName ?? ""],
+                    "archivedAs": history.id,
+                ]),
+                effects: [.planDeleted(id: plan.id, history: history)]
+            )
+
+        case ("update", "coaching_memory"):
+            guard let category = data["category"] as? String, !category.isEmpty else {
+                return ToolResult(summary: jsonString(["error": "Update memory requires data.category"]))
+            }
+            let operation = data["operation"] as? String ?? "add"
+            var memory = dataService.memory
+            do {
+                try applyMemoryUpdate(
+                    category: category,
+                    operation: operation,
+                    value: data["value"],
+                    itemId: data["id"] as? String,
+                    to: &memory
+                )
+                return ToolResult(
+                    summary: jsonString([
+                        "success": true,
+                        "category": category,
+                        "operation": operation,
+                    ]),
+                    effects: [.memoryUpdated(memory)]
+                )
+            } catch let MemoryUpdateError.invalid(msg) {
+                return ToolResult(summary: jsonString(["error": "Memory update failed: \(msg)"]))
+            } catch {
+                return ToolResult(summary: jsonString(["error": "Memory update failed: \(error.localizedDescription)"]))
+            }
+
+        case ("update", "settings"), ("settings", "app"), ("update", "app"):
+            var settings = dataService.settings
+            if let personalityStr = data["personality"] as? String,
+               let personality = Personality(rawValue: personalityStr) {
+                settings.personality = personality
+            }
+            if let appearanceStr = data["appearance"] as? String,
+               let appearance = Appearance(rawValue: appearanceStr) {
+                settings.appearance = appearance
+                settings.darkMode = (appearance == .dark)
+            }
+            // Legacy darkMode bool
+            if let darkMode = data["darkMode"] as? Bool {
+                settings.darkMode = darkMode
+                if settings.appearance == nil || data["appearance"] == nil {
+                    settings.appearance = darkMode ? .dark : .light
+                }
+            }
+            if let customPrompt = data["customPrompt"] as? String {
+                settings.customPrompt = customPrompt
+            }
+            return ToolResult(
+                summary: jsonString([
+                    "success": true,
+                    "settings": [
+                        "appearance": settings.effectiveAppearance.rawValue,
+                        "personality": settings.personality.rawValue,
+                    ],
+                ]),
+                effects: [.settingsUpdated(settings)]
+            )
+
+        case ("navigate", "app"), ("navigate", "tab"):
+            guard let tab = data["tab"] as? String, !tab.isEmpty else {
+                return ToolResult(summary: jsonString(["error": "Navigate requires data.tab (one of: home, goals, plan, log, coach)"]))
+            }
+            let valid = Set(["home", "goals", "plan", "log", "coach"])
+            guard valid.contains(tab) else {
+                return ToolResult(summary: jsonString(["error": "Unknown tab '\(tab)'. Must be one of: home, goals, plan, log, coach."]))
+            }
+            return ToolResult(
+                summary: jsonString(["success": true, "tab": tab]),
+                effects: [.tabChanged(tab: tab)]
+            )
+
         default:
             return ToolResult(summary: jsonString([
-                "error": "Not yet implemented: \(action) \(target). Only goal create/update/delete are wired right now.",
+                "error": "Not yet implemented: \(action) \(target). Supported: create/update/delete goal, update/delete workout, delete strength_workout, delete plan, update coaching_memory, update settings, navigate app.",
             ]))
         }
 
@@ -666,4 +853,207 @@ private func validateDay(_ day: Int, in wp: WeeklyPlan) throws {
     guard day >= 0, day < wp.sessions.count else {
         throw PatchError.invalidOp("day \(day) out of bounds (expected 0-\(wp.sessions.count - 1), day 0 = Monday)")
     }
+}
+
+// MARK: - Memory update support
+
+private enum MemoryUpdateError: Error {
+    case invalid(String)
+}
+
+/// Applies a category/operation/value triple to a mutable CoachingMemory.
+/// Stamps lastUpdated to today on success. Throws MemoryUpdateError.invalid
+/// with a specific message on any shape problem.
+private func applyMemoryUpdate(
+    category: String,
+    operation: String,
+    value: Any?,
+    itemId: String?,
+    to memory: inout CoachingMemory
+) throws {
+    func applyStringListOp(_ list: inout [String]) throws {
+        switch operation {
+        case "add":
+            guard let s = value as? String, !s.isEmpty else {
+                throw MemoryUpdateError.invalid("add requires a non-empty string value")
+            }
+            if !list.contains(s) { list.append(s) }
+        case "remove":
+            guard let s = value as? String else {
+                throw MemoryUpdateError.invalid("remove requires a string value")
+            }
+            list.removeAll { $0 == s }
+        case "clear":
+            list = []
+        default:
+            throw MemoryUpdateError.invalid("string-list category '\(category)' only supports add/remove/clear")
+        }
+    }
+
+    func applySingletonOp(_ field: inout String) throws {
+        switch operation {
+        case "set":
+            guard let s = value as? String else {
+                throw MemoryUpdateError.invalid("set requires a string value")
+            }
+            field = s
+        case "clear":
+            field = ""
+        default:
+            throw MemoryUpdateError.invalid("singleton string '\(category)' only supports set/clear")
+        }
+    }
+
+    switch category {
+    // Permanent string lists
+    case "equipment":          try applyStringListOp(&memory.permanent.equipment)
+    case "facilities":         try applyStringListOp(&memory.permanent.facilities)
+    case "medicalHistory":     try applyStringListOp(&memory.permanent.medicalHistory)
+    case "dietaryConstraints": try applyStringListOp(&memory.permanent.dietaryConstraints)
+
+    // Permanent singleton
+    case "communicationPrefs": try applySingletonOp(&memory.permanent.communicationPrefs)
+
+    // Observations string lists
+    case "patterns":           try applyStringListOp(&memory.observations.patterns)
+    case "motivators":         try applyStringListOp(&memory.observations.motivators)
+    case "coachingNotes":      try applyStringListOp(&memory.observations.coachingNotes)
+    case "openItems":          try applyStringListOp(&memory.observations.openItems)
+
+    // Observations singletons
+    case "consistency":        try applySingletonOp(&memory.observations.consistency)
+    case "currentFocus":       try applySingletonOp(&memory.observations.currentFocus)
+
+    // Response profile singletons
+    case "volumeVsIntensity":  try applySingletonOp(&memory.responseProfile.volumeVsIntensity)
+    case "recoveryRate":       try applySingletonOp(&memory.responseProfile.recoveryRate)
+    case "easyDayDiscipline":  try applySingletonOp(&memory.responseProfile.easyDayDiscipline)
+    case "sessionPreferences": try applySingletonOp(&memory.responseProfile.sessionPreferences)
+    case "communicationNeeds": try applySingletonOp(&memory.responseProfile.communicationNeeds)
+    case "skipPatterns":       try applyStringListOp(&memory.responseProfile.skipPatterns)
+
+    // Benchmarks — structured
+    case "benchmarks":
+        switch operation {
+        case "add":
+            guard let obj = value as? [String: Any],
+                  let metric = obj["metric"] as? String,
+                  let val = obj["value"] as? String else {
+                throw MemoryUpdateError.invalid("benchmarks add requires value: {metric, value, testDate?, method?}")
+            }
+            memory.benchmarks.removeAll { $0.metric == metric }  // replace if same metric
+            memory.benchmarks.append(Benchmark(
+                metric: metric,
+                value: val,
+                testDate: obj["testDate"] as? String,
+                method: obj["method"] as? String
+            ))
+        case "remove":
+            let metric: String
+            if let s = value as? String {
+                metric = s
+            } else if let obj = value as? [String: Any], let m = obj["metric"] as? String {
+                metric = m
+            } else {
+                throw MemoryUpdateError.invalid("benchmarks remove requires metric name as value (string or {metric})")
+            }
+            memory.benchmarks.removeAll { $0.metric == metric }
+        case "clear":
+            memory.benchmarks = []
+        default:
+            throw MemoryUpdateError.invalid("benchmarks only supports add/remove/clear")
+        }
+
+    // Injuries — structured, with update support
+    case "injuries":
+        switch operation {
+        case "add":
+            guard let obj = value as? [String: Any],
+                  let area = obj["area"] as? String, !area.isEmpty else {
+                throw MemoryUpdateError.invalid("injuries add requires value.area")
+            }
+            let injury = InjuryRecord(
+                id: obj["id"] as? String ?? UUID().uuidString,
+                area: area,
+                status: obj["status"] as? String ?? "active",
+                severity: obj["severity"] as? String ?? "mild",
+                firstReported: obj["firstReported"] as? String ?? todayString(),
+                lastUpdated: todayString(),
+                triggers: obj["triggers"] as? [String] ?? [],
+                safeActivities: obj["safeActivities"] as? [String] ?? [],
+                modifications: obj["modifications"] as? [String] ?? [],
+                returnCriteria: obj["returnCriteria"] as? String,
+                history: []
+            )
+            memory.injuries.append(injury)
+        case "remove":
+            let removeId = itemId
+                ?? (value as? String)
+                ?? (value as? [String: Any])?["id"] as? String
+            guard let removeId else {
+                throw MemoryUpdateError.invalid("injuries remove requires id (top-level or in value)")
+            }
+            memory.injuries.removeAll { $0.id == removeId }
+        case "update":
+            let updateId = itemId ?? (value as? [String: Any])?["id"] as? String
+            guard let updateId,
+                  let idx = memory.injuries.firstIndex(where: { $0.id == updateId }) else {
+                throw MemoryUpdateError.invalid("injuries update requires id matching an existing injury")
+            }
+            guard let obj = value as? [String: Any] else {
+                throw MemoryUpdateError.invalid("injuries update requires value object")
+            }
+            if let status = obj["status"] as? String { memory.injuries[idx].status = status }
+            if let severity = obj["severity"] as? String { memory.injuries[idx].severity = severity }
+            if let triggers = obj["triggers"] as? [String] { memory.injuries[idx].triggers = triggers }
+            if let safeActivities = obj["safeActivities"] as? [String] { memory.injuries[idx].safeActivities = safeActivities }
+            if let modifications = obj["modifications"] as? [String] { memory.injuries[idx].modifications = modifications }
+            if let returnCriteria = obj["returnCriteria"] as? String {
+                memory.injuries[idx].returnCriteria = returnCriteria.isEmpty ? nil : returnCriteria
+            }
+            if let note = obj["note"] as? String, !note.isEmpty {
+                memory.injuries[idx].history.append(InjuryHistoryEntry(date: todayString(), note: note))
+            }
+            memory.injuries[idx].lastUpdated = todayString()
+        case "clear":
+            memory.injuries = []
+        default:
+            throw MemoryUpdateError.invalid("injuries supports add/remove/update/clear")
+        }
+
+    // Safety rules — structured
+    case "safetyRules":
+        switch operation {
+        case "add":
+            guard let obj = value as? [String: Any],
+                  let rule = obj["rule"] as? String,
+                  let reason = obj["reason"] as? String else {
+                throw MemoryUpdateError.invalid("safetyRules add requires value: {rule, reason}")
+            }
+            memory.permanent.safetyRules.append(SafetyRule(
+                rule: rule,
+                reason: reason,
+                addedDate: todayString()
+            ))
+        case "remove":
+            let rule: String
+            if let s = value as? String {
+                rule = s
+            } else if let obj = value as? [String: Any], let r = obj["rule"] as? String {
+                rule = r
+            } else {
+                throw MemoryUpdateError.invalid("safetyRules remove requires rule text")
+            }
+            memory.permanent.safetyRules.removeAll { $0.rule == rule }
+        case "clear":
+            memory.permanent.safetyRules = []
+        default:
+            throw MemoryUpdateError.invalid("safetyRules only supports add/remove/clear")
+        }
+
+    default:
+        throw MemoryUpdateError.invalid("unknown memory category: \(category)")
+    }
+
+    memory.lastUpdated = todayString()
 }

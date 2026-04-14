@@ -126,10 +126,18 @@ struct ChatTab: View {
                 switch effect {
                 case .workoutLogged(let workout):
                     try? await data.addCardio(workout)
+                case .cardioUpdated(let workout):
+                    try? await data.updateCardio(workout)
+                case .cardioDeleted(let id):
+                    try? await data.deleteCardio(id)
+                case .strengthDeleted(let id):
+                    try? await data.deleteStrength(id)
                 case .nutritionLogged(let entry):
                     try? await data.addNutrition(entry)
                 case .planCreated(let plan), .planUpdated(let plan):
                     try? await data.savePlan(plan)
+                case .planDeleted(let id, let history):
+                    try? await data.deletePlan(id, archiveTo: history)
                 case .weekUpdated(let weekNum, let weekPlan):
                     if var current = data.trainingPlan {
                         current.weeklyPlans[String(weekNum)] = weekPlan
@@ -147,6 +155,12 @@ struct ChatTab: View {
                     try? await data.updateEvent(event)
                 case .eventDeleted(let id):
                     try? await data.deleteEvent(id)
+                case .memoryUpdated(let memory):
+                    try? await data.saveMemory(memory)
+                case .settingsUpdated(let settings):
+                    try? await data.saveSettings(settings)
+                case .tabChanged(let tab):
+                    data.selectedTab = tab
                 }
             }
 
