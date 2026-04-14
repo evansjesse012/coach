@@ -4,11 +4,27 @@ struct LogTab: View {
     @Environment(DataService.self) var data
     @State private var showCardio = true
     @State private var sportFilter: Sport?
+    @State private var showWorkoutLogger = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    // In-progress workout banner — takes precedence when a
+                    // live session is active so the athlete can jump back in.
+                    if data.activeStrengthSession != nil {
+                        ActiveWorkoutResumeCard {
+                            showWorkoutLogger = true
+                        }
+                        .padding(.horizontal)
+                    } else if !showCardio {
+                        StartWorkoutButton {
+                            data.startStrengthWorkout(StrengthSession.quickStart())
+                            showWorkoutLogger = true
+                        }
+                        .padding(.horizontal)
+                    }
+
                     NavigationLink {
                         ExerciseLibraryView()
                     } label: {
@@ -136,7 +152,7 @@ struct LogTab: View {
                             ContentUnavailableView(
                                 "No Strength Sessions",
                                 systemImage: "dumbbell.fill",
-                                description: Text("Start tracking your strength workouts.")
+                                description: Text("Tap Start Workout above to log your first session.")
                             )
                         }
                     }
@@ -144,7 +160,108 @@ struct LogTab: View {
                 .padding(.vertical)
             }
             .navigationTitle("Activities")
+            .fullScreenCover(isPresented: $showWorkoutLogger) {
+                NavigationStack {
+                    WorkoutLoggingView()
+                }
+            }
         }
+    }
+}
+
+// MARK: - Start Workout Button
+
+private struct StartWorkoutButton: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.22))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Start Workout")
+                        .font(CoachFonts.ui(15, weight: .bold))
+                        .foregroundStyle(.white)
+                    Text("Quick-log sets with a rest timer")
+                        .font(CoachFonts.ui(11))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                LinearGradient(
+                    colors: [CoachColors.accent, CoachColors.accent.opacity(0.85)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: CoachColors.accent.opacity(0.25), radius: 8, y: 3)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Resume Banner
+
+private struct ActiveWorkoutResumeCard: View {
+    @Environment(DataService.self) private var data
+    let onResume: () -> Void
+
+    var body: some View {
+        Button(action: onResume) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.22))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("WORKOUT IN PROGRESS")
+                        .font(CoachFonts.ui(9, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(.white.opacity(0.8))
+                    Text(data.activeStrengthSession?.name ?? "Active workout")
+                        .font(CoachFonts.ui(15, weight: .bold))
+                        .foregroundStyle(.white)
+                    if let session = data.activeStrengthSession {
+                        Text("\(session.completedSetCount) sets logged · tap to resume")
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                }
+                Spacer()
+                ElapsedTimeView(startedAt: data.activeWorkoutStartedAt)
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                LinearGradient(
+                    colors: [CoachColors.green, CoachColors.green.opacity(0.85)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: CoachColors.green.opacity(0.25), radius: 8, y: 3)
+        }
+        .buttonStyle(.plain)
     }
 }
 

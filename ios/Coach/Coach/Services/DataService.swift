@@ -48,6 +48,30 @@ final class DataService {
     /// programmatically (e.g. Plan tab routing to the coach).
     var selectedTab: String = "home"
 
+    // MARK: - Active Strength Workout
+
+    /// The strength session the athlete is currently logging. Lives only in
+    /// memory + UserDefaults until the workout is finished, at which point it
+    /// is persisted to Supabase via addStrength. `nil` means no active workout.
+    var activeStrengthSession: StrengthSession?
+
+    /// Wall-clock timestamp when the athlete tapped "Start Workout". Used by
+    /// WorkoutLoggingView's elapsed-time display and saved as the final
+    /// `duration` (minutes) when the workout is finished.
+    var activeWorkoutStartedAt: Date?
+
+    /// Countdown state for the between-set rest timer. Both values are nil
+    /// when no rest is running; otherwise remaining ticks down each second.
+    var restTimerSecondsRemaining: Int?
+    var restTimerTotalSeconds: Int?
+
+    /// Background task running the rest-timer countdown. Cancelled whenever
+    /// the timer is stopped, skipped, or restarted.
+    private var restTimerTask: Task<Void, Never>?
+
+    private let activeSessionKey = "coach.activeStrengthSession.v1"
+    private let activeStartedAtKey = "coach.activeWorkoutStartedAt.v1"
+
     private var client: SupabaseClient { SupabaseService.shared.client }
 
     // MARK: - Load All Data
@@ -279,9 +303,213 @@ final class DataService {
         try await client.from("strength_sessions").insert(session).execute()
     }
 
+    func updateStrength(_ session: StrengthSession) async throws {
+        if let idx = strength.firstIndex(where: { $0.id == session.id }) {
+            strength[idx] = session
+        } else {
+            strength.insert(session, at: 0)
+        }
+        try await client.from("strength_sessions").upsert(session).execute()
+    }
+
     func deleteStrength(_ id: String) async throws {
         strength.removeAll { $0.id == id }
         try await client.from("strength_sessions").delete().eq("id", value: id).execute()
+    }
+
+    // MARK: - Active Workout (in-memory + UserDefaults)
+
+    /// Start a new live strength workout. Persists to UserDefaults so a mid-
+    /// workout app kill can be recovered. Cancels any already-running rest
+    /// timer to avoid stale state from a previous session.
+    func startStrengthWorkout(_ session: StrengthSession) {
+        activeStrengthSession = session
+        activeWorkoutStartedAt = Date()
+        stopRestTimer()
+        persistActiveSession()
+    }
+
+    /// Mutate the in-progress workout in place and re-persist. Callers pass
+    /// an inout closure so SwiftUI sees one observable change per edit.
+    func mutateActiveWorkout(_ mutate: (inout StrengthSession) -> Void) {
+        guard var session = activeStrengthSession else { return }
+        mutate(&session)
+        activeStrengthSession = session
+        persistActiveSession()
+    }
+
+    /// Finish the active workout: stamp duration, promote to Supabase, roll
+    /// PRs, then clear the in-memory + UserDefaults active state.
+    func finishActiveWorkout() async throws {
+        guard var session = activeStrengthSession else { return }
+        let duration: Int
+        if let started = activeWorkoutStartedAt {
+            let seconds = Date().timeIntervalSince(started)
+            duration = max(1, Int((seconds / 60.0).rounded()))
+        } else {
+            duration = 0
+        }
+        session.duration = duration
+        // Drop any exercises that had zero completed sets so the logged
+        // history reflects what was actually done.
+        session.exercises = session.exercises.filter { ex in
+            ex.sets.contains(where: \.completed)
+        }
+        // Also drop any trailing non-completed sets so the saved session is
+        // clean — Strong-app style.
+        session.exercises = session.exercises.map { ex in
+            var copy = ex
+            copy.sets = copy.sets.filter(\.completed)
+            for i in copy.sets.indices {
+                copy.sets[i].setNum = i + 1
+            }
+            return copy
+        }
+
+        stopRestTimer()
+        try await addStrength(session)
+        await rollPRsForSession(session)
+
+        activeStrengthSession = nil
+        activeWorkoutStartedAt = nil
+        clearPersistedActiveSession()
+    }
+
+    /// Abandon the active workout without saving anything.
+    func cancelActiveWorkout() {
+        stopRestTimer()
+        activeStrengthSession = nil
+        activeWorkoutStartedAt = nil
+        clearPersistedActiveSession()
+    }
+
+    /// Walk the completed sets of a freshly-saved session and upsert any PRs
+    /// it produced. Uses the existing computeExercisePR helper so the logic
+    /// matches what the library's sessionPRs() computes.
+    private func rollPRsForSession(_ session: StrengthSession) async {
+        for exercise in session.exercises {
+            let slug = exercise.name.slugified
+            guard !slug.isEmpty else { continue }
+            var existing = prs[slug]
+            var hit = false
+            for set in exercise.sets where set.completed {
+                if let updated = computeExercisePR(
+                    existing: existing,
+                    name: exercise.name,
+                    set: set,
+                    type: exercise.exerciseType
+                ) {
+                    existing = updated
+                    hit = true
+                }
+            }
+            if hit, let newPR = existing {
+                try? await savePR(newPR)
+            }
+        }
+    }
+
+    // MARK: - Rest Timer
+
+    /// Kick off (or restart) a countdown for the given number of seconds.
+    /// A running timer is implicitly cancelled so chaining sets works.
+    func startRestTimer(seconds: Int) {
+        guard seconds > 0 else { return }
+        restTimerTotalSeconds = seconds
+        restTimerSecondsRemaining = seconds
+        restTimerTask?.cancel()
+        restTimerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    guard let self, let remaining = self.restTimerSecondsRemaining else { return }
+                    if remaining <= 1 {
+                        self.restTimerSecondsRemaining = nil
+                        self.restTimerTotalSeconds = nil
+                        self.restTimerTask = nil
+                    } else {
+                        self.restTimerSecondsRemaining = remaining - 1
+                    }
+                }
+            }
+        }
+    }
+
+    /// Shift the rest timer by a positive or negative number of seconds.
+    /// Used by the +15 / -15 buttons in the overlay.
+    func adjustRestTimer(by delta: Int) {
+        guard var remaining = restTimerSecondsRemaining else { return }
+        remaining = max(1, remaining + delta)
+        restTimerSecondsRemaining = remaining
+        if let total = restTimerTotalSeconds {
+            restTimerTotalSeconds = max(total, remaining)
+        }
+    }
+
+    /// Cancel and hide the rest timer immediately.
+    func stopRestTimer() {
+        restTimerTask?.cancel()
+        restTimerTask = nil
+        restTimerSecondsRemaining = nil
+        restTimerTotalSeconds = nil
+    }
+
+    // MARK: - Active Workout persistence
+
+    private func persistActiveSession() {
+        let defaults = UserDefaults.standard
+        if let session = activeStrengthSession,
+           let data = try? JSONEncoder().encode(session) {
+            defaults.set(data, forKey: activeSessionKey)
+        } else {
+            defaults.removeObject(forKey: activeSessionKey)
+        }
+        if let started = activeWorkoutStartedAt {
+            defaults.set(started.timeIntervalSince1970, forKey: activeStartedAtKey)
+        } else {
+            defaults.removeObject(forKey: activeStartedAtKey)
+        }
+    }
+
+    private func clearPersistedActiveSession() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: activeSessionKey)
+        defaults.removeObject(forKey: activeStartedAtKey)
+    }
+
+    /// Called from CoachApp on launch (after loadAll) to restore an in-
+    /// progress workout, if any. Silently no-ops on failure so a bad blob
+    /// can't block the app.
+    func restoreActiveWorkoutFromDisk() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: activeSessionKey),
+              let session = try? JSONDecoder().decode(StrengthSession.self, from: data) else {
+            return
+        }
+        activeStrengthSession = session
+        let ts = defaults.double(forKey: activeStartedAtKey)
+        if ts > 0 {
+            activeWorkoutStartedAt = Date(timeIntervalSince1970: ts)
+        } else {
+            activeWorkoutStartedAt = Date()
+        }
+    }
+
+    /// Look up the most recent completed set the athlete logged for an
+    /// exercise (by slug). Used by WorkoutLoggingView to show "previous"
+    /// targets in the set rows Strong-app style.
+    func previousBest(forExerciseName name: String) -> ExerciseSet? {
+        let slug = name.slugified
+        guard !slug.isEmpty else { return nil }
+        for session in strength.sorted(by: { $0.date > $1.date }) {
+            for exercise in session.exercises where exercise.name.slugified == slug {
+                if let last = exercise.sets.last(where: \.completed) {
+                    return last
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Events CRUD

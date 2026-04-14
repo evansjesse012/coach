@@ -77,6 +77,9 @@ struct CoachApp: App {
             try await client.auth.signIn(email: DEV_USER_EMAIL, password: DEV_USER_PASSWORD)
             isAuthenticated = true
             await dataService.loadAll()
+            // Restore any in-progress strength workout that was active when
+            // the app was last killed or backgrounded out of memory.
+            dataService.restoreActiveWorkoutFromDisk()
         } catch {
             errorMessage = error.localizedDescription
             isAuthenticated = false

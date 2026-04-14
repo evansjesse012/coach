@@ -4,9 +4,12 @@ struct PrescribedSessionDetailView: View {
     let session: PrescribedSession
     let dateString: String?
 
+    @Environment(DataService.self) private var data
     @Environment(\.colorScheme) var colorScheme
     @State private var showNotes = false
     @State private var showNutrition = false
+    @State private var showWorkoutLogger = false
+    @State private var showResumeConfirm = false
 
     var body: some View {
         ScrollView {
@@ -35,6 +38,7 @@ struct PrescribedSessionDetailView: View {
 
                 if session.type.lowercased() == "strength",
                    let exercises = session.exercises, !exercises.isEmpty {
+                    startWorkoutCTA
                     exerciseListCard(exercises)
                 }
 
@@ -51,6 +55,77 @@ struct PrescribedSessionDetailView: View {
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle(session.label)
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $showWorkoutLogger) {
+            NavigationStack {
+                WorkoutLoggingView()
+            }
+        }
+        .confirmationDialog(
+            "Workout already in progress",
+            isPresented: $showResumeConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Resume") {
+                showWorkoutLogger = true
+            }
+            Button("Discard and start new", role: .destructive) {
+                data.cancelActiveWorkout()
+                data.startStrengthWorkout(StrengthSession.fromPrescribed(session))
+                showWorkoutLogger = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let active = data.activeStrengthSession {
+                Text("You have “\(active.name)” in progress. Resume it or start a new one?")
+            }
+        }
+    }
+
+    // MARK: - Start Workout CTA
+
+    @ViewBuilder
+    private var startWorkoutCTA: some View {
+        Button {
+            if data.activeStrengthSession != nil {
+                showResumeConfirm = true
+            } else {
+                data.startStrengthWorkout(StrengthSession.fromPrescribed(session))
+                showWorkoutLogger = true
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text(startButtonLabel)
+                    .font(CoachFonts.ui(15, weight: .bold))
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(
+                LinearGradient(
+                    colors: [CoachColors.accent, CoachColors.accent.opacity(0.85)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: CoachColors.accent.opacity(0.25), radius: 8, y: 3)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var startButtonLabel: String {
+        if let active = data.activeStrengthSession, active.templateId == session.templateId {
+            return "Resume Workout"
+        }
+        if data.activeStrengthSession != nil {
+            return "Start Workout"
+        }
+        return "Start Workout"
     }
 
     // MARK: - Header
@@ -183,26 +258,74 @@ struct PrescribedSessionDetailView: View {
     // MARK: - Exercise list
 
     private func exerciseListCard(_ exercises: [PrescribedExercise]) -> some View {
-        CoachCard {
-            VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
                 CoachLabel(text: "Exercises")
-                ForEach(Array(exercises.enumerated()), id: \.offset) { _, exercise in
-                    exerciseRow(exercise)
-                }
+                Spacer()
+                Text("\(exercises.count) · \(totalSets(exercises)) sets")
+                    .font(CoachFonts.ui(11))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(exercises.enumerated()), id: \.offset) { idx, exercise in
+                exerciseCard(exercise, index: idx)
             }
         }
     }
 
-    private func exerciseRow(_ exercise: PrescribedExercise) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(exercise.name)
-                    .font(CoachFonts.ui(14, weight: .semibold))
+    private func exerciseCard(_ exercise: PrescribedExercise, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(CoachColors.yellow.opacity(0.18))
+                        .frame(width: 32, height: 32)
+                    Text("\(index + 1)")
+                        .font(CoachFonts.mono(13, weight: .bold))
+                        .foregroundStyle(CoachColors.yellow)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(exercise.name)
+                        .font(CoachFonts.ui(15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        CoachPill(text: exercise.exerciseType.label, color: CoachColors.yellow)
+                        if let rest = exercise.rest, rest > 0 {
+                            Text("Rest \(formatRest(rest))")
+                                .font(CoachFonts.ui(11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 Spacer()
-                Text(setsRepsText(exercise))
-                    .font(CoachFonts.mono(13, weight: .semibold))
-                    .foregroundStyle(CoachColors.accent)
             }
+
+            VStack(spacing: 4) {
+                ForEach(0..<(exercise.sets ?? 0), id: \.self) { setIdx in
+                    HStack {
+                        Text("Set \(setIdx + 1)")
+                            .font(CoachFonts.mono(12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 58, alignment: .leading)
+                        Text(setTargetText(exercise))
+                            .font(CoachFonts.mono(13, weight: .medium))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "circle")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                if (exercise.sets ?? 0) == 0 {
+                    HStack {
+                        Text(setsRepsText(exercise))
+                            .font(CoachFonts.mono(13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+            }
+
             if let cue = exercise.notes, !cue.isEmpty {
                 Text(cue)
                     .font(CoachFonts.ui(12))
@@ -210,13 +333,45 @@ struct PrescribedSessionDetailView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let rest = exercise.rest, rest > 0 {
-                Text("\(rest)s rest")
-                    .font(CoachFonts.ui(11))
-                    .foregroundStyle(.secondary)
-            }
         }
-        .padding(.vertical, 4)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+        )
+    }
+
+    private func totalSets(_ exercises: [PrescribedExercise]) -> Int {
+        exercises.reduce(0) { $0 + ($1.sets ?? 0) }
+    }
+
+    private func setTargetText(_ exercise: PrescribedExercise) -> String {
+        if let reps = exercise.reps, reps > 0 {
+            if let weight = exercise.weight, weight > 0 {
+                let w = weight == weight.rounded() ? "\(Int(weight))" : String(format: "%.1f", weight)
+                return "\(w) lb × \(reps)"
+            }
+            return "\(reps) reps"
+        }
+        if let d = exercise.duration, d > 0 {
+            return "\(Int(d))s"
+        }
+        if let band = exercise.band, !band.isEmpty {
+            return "\(band.capitalized) band"
+        }
+        return "—"
+    }
+
+    private func formatRest(_ seconds: Int) -> String {
+        if seconds >= 60 {
+            let m = seconds / 60
+            let s = seconds % 60
+            return s == 0 ? "\(m)m" : "\(m)m \(s)s"
+        }
+        return "\(seconds)s"
     }
 
     private func setsRepsText(_ exercise: PrescribedExercise) -> String {
