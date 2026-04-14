@@ -245,7 +245,7 @@ struct PrescribedSessionDetailView: View {
     // MARK: - Collapsible: Coach notes
 
     private func coachNotesSection(_ notes: String) -> some View {
-        collapsibleCard(
+        CollapsibleCard(
             icon: "sparkles",
             iconColor: CoachColors.purple,
             title: "Coach notes",
@@ -271,7 +271,7 @@ struct PrescribedSessionDetailView: View {
     // MARK: - Collapsible: Nutrition
 
     private func nutritionSection(_ fuel: SessionFuel) -> some View {
-        collapsibleCard(
+        CollapsibleCard(
             icon: "fork.knife",
             iconColor: CoachColors.accent,
             title: "Nutrition",
@@ -309,53 +309,4 @@ struct PrescribedSessionDetailView: View {
             (fuel.post?.isEmpty == false)
     }
 
-    // MARK: - Collapsible card wrapper
-
-    @ViewBuilder
-    private func collapsibleCard<Inner: View>(
-        icon: String,
-        iconColor: Color,
-        title: String,
-        isExpanded: Bool,
-        toggle: @escaping () -> Void,
-        @ViewBuilder content: () -> Inner
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    toggle()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: icon)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(iconColor)
-                    Text(title)
-                        .font(CoachFonts.ui(13, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                }
-                .padding(14)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                content()
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 14)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
-        )
-    }
 }

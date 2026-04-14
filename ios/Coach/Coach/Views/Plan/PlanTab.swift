@@ -228,7 +228,7 @@ private struct CurrentPhaseCard: View {
                 phaseProgress
 
                 if let dist = phase.intensityDistribution {
-                    intensityMini(dist)
+                    IntensityBar(distribution: dist, size: .mini)
                 }
 
                 HStack {
@@ -301,17 +301,6 @@ private struct CurrentPhaseCard: View {
         }
     }
 
-    private func intensityMini(_ d: IntensityDistribution) -> some View {
-        let total = max(1, d.easy + d.tempo + d.threshold + d.vo2max)
-        return HStack(spacing: 2) {
-            Rectangle().fill(CoachColors.green).frame(maxWidth: .infinity).layoutPriority(Double(d.easy) / Double(total))
-            Rectangle().fill(CoachColors.yellow).frame(maxWidth: .infinity).layoutPriority(Double(d.tempo) / Double(total))
-            Rectangle().fill(CoachColors.accent).frame(maxWidth: .infinity).layoutPriority(Double(d.threshold) / Double(total))
-            Rectangle().fill(CoachColors.red).frame(maxWidth: .infinity).layoutPriority(Double(d.vo2max) / Double(total))
-        }
-        .frame(height: 5)
-        .clipShape(RoundedRectangle(cornerRadius: 2))
-    }
 }
 
 // MARK: - Plan Overview Card

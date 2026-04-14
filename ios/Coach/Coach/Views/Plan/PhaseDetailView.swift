@@ -26,18 +26,32 @@ struct PhaseDetailView: View {
 struct PhaseDetailContent: View {
     let plan: TrainingPlan
     let phase: TrainingPhase
+    /// When true, renders the phase header (badge + name + dates). Set to
+    /// false when embedding inside an `ExpandablePhaseSection`, which draws
+    /// its own collapsible header.
+    var showHeader: Bool = true
 
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
-            if let philosophy = phase.philosophy, !philosophy.isEmpty {
-                paragraphBlock(title: "Philosophy", body: philosophy)
+            if showHeader {
+                header
             }
-            if let goals = phase.physiologicalGoals, !goals.isEmpty {
-                bulletBlock(title: "What we're targeting", items: goals)
+
+            // THE GOAL — why this phase exists
+            if hasGoalContent {
+                groupLabel("The goal")
+                if let philosophy = phase.philosophy, !philosophy.isEmpty {
+                    paragraphBlock(title: "Philosophy", body: philosophy)
+                }
+                if let goals = phase.physiologicalGoals, !goals.isEmpty {
+                    bulletBlock(title: "What we're targeting", items: goals)
+                }
             }
+
+            // THE WORK — what you'll actually do
+            groupLabel("The work")
             volumeIntensityBlock
             if let workouts = phase.keyWorkouts, !workouts.isEmpty {
                 keyWorkoutsBlock(workouts: workouts)
@@ -45,13 +59,30 @@ struct PhaseDetailContent: View {
             if let strength = phase.strengthFocus, !strength.isEmpty {
                 paragraphBlock(title: "Strength focus", body: strength)
             }
-            if let progression = phase.progressionRules, !progression.isEmpty {
-                paragraphBlock(title: "Progression", body: progression)
-            }
-            if let race = phase.raceSpecificNotes, !race.isEmpty {
-                paragraphBlock(title: "Race-specific notes", body: race)
+
+            // THE ARC — how it progresses + race specifics
+            if hasArcContent {
+                groupLabel("The arc")
+                if let progression = phase.progressionRules, !progression.isEmpty {
+                    paragraphBlock(title: "Progression", body: progression)
+                }
+                if let race = phase.raceSpecificNotes, !race.isEmpty {
+                    paragraphBlock(title: "Race-specific notes", body: race)
+                }
             }
         }
+    }
+
+    private var hasGoalContent: Bool {
+        let hasPhilosophy = (phase.philosophy?.isEmpty == false)
+        let hasGoals = (phase.physiologicalGoals?.isEmpty == false)
+        return hasPhilosophy || hasGoals
+    }
+
+    private var hasArcContent: Bool {
+        let hasProgression = (phase.progressionRules?.isEmpty == false)
+        let hasRace = (phase.raceSpecificNotes?.isEmpty == false)
+        return hasProgression || hasRace
     }
 
     // MARK: header
@@ -83,6 +114,25 @@ struct PhaseDetailContent: View {
         .padding(.bottom, 4)
     }
 
+    // MARK: group divider
+
+    @ViewBuilder
+    private func groupLabel(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(phase.accentColor.opacity(0.35))
+                .frame(width: 12, height: 2)
+            Text(text.uppercased())
+                .font(CoachFonts.ui(10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .tracking(1.0)
+            Rectangle()
+                .fill((colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder))
+                .frame(height: 1)
+        }
+        .padding(.top, 4)
+    }
+
     // MARK: volume + intensity
 
     private var volumeIntensityBlock: some View {
@@ -90,55 +140,19 @@ struct PhaseDetailContent: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 24) {
                     if let v = phase.weeklyVolumeRange {
-                        statColumn(label: "Weekly volume", value: "\(formatVolume(v.min))–\(formatVolume(v.max))", unit: v.unit)
+                        statColumn(label: "Weekly volume", value: "\(formatVolumeValue(v.min))–\(formatVolumeValue(v.max))", unit: v.unit)
                     }
                     if let s = phase.sessionsPerWeek {
                         statColumn(label: "Sessions/wk", value: "\(s)", unit: nil)
                     }
                 }
                 if let dist = phase.intensityDistribution {
-                    intensityBar(dist)
+                    VStack(alignment: .leading, spacing: 6) {
+                        IntensityBar(distribution: dist)
+                        IntensityLegend(distribution: dist)
+                    }
                 }
             }
-        }
-    }
-
-    private func intensityBar(_ d: IntensityDistribution) -> some View {
-        let total = max(1, d.easy + d.tempo + d.threshold + d.vo2max)
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 2) {
-                segment(label: "Easy", pct: d.easy, total: total, color: CoachColors.green)
-                segment(label: "Tempo", pct: d.tempo, total: total, color: CoachColors.yellow)
-                segment(label: "Thresh", pct: d.threshold, total: total, color: CoachColors.accent)
-                segment(label: "VO2", pct: d.vo2max, total: total, color: CoachColors.red)
-            }
-            .frame(height: 22)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            HStack(spacing: 12) {
-                legend("Easy", pct: d.easy, color: CoachColors.green)
-                legend("Tempo", pct: d.tempo, color: CoachColors.yellow)
-                legend("Thresh", pct: d.threshold, color: CoachColors.accent)
-                legend("VO2", pct: d.vo2max, color: CoachColors.red)
-            }
-        }
-    }
-
-    private func segment(label: String, pct: Int, total: Int, color: Color) -> some View {
-        let frac = Double(pct) / Double(total)
-        return Rectangle()
-            .fill(color)
-            .frame(maxWidth: .infinity)
-            .layoutPriority(frac)
-            .opacity(pct > 0 ? 1 : 0)
-    }
-
-    private func legend(_ label: String, pct: Int, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text("\(label) \(pct)%")
-                .font(CoachFonts.ui(11))
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -154,10 +168,6 @@ struct PhaseDetailContent: View {
                 if let unit { Text(unit).font(CoachFonts.ui(11)).foregroundStyle(.secondary) }
             }
         }
-    }
-
-    private func formatVolume(_ v: Double) -> String {
-        v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", v)
     }
 
     // MARK: key workouts
@@ -225,4 +235,10 @@ struct PhaseDetailContent: View {
                 .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
         )
     }
+}
+
+// MARK: - Helpers used by PhaseDetailContent and PlanReviewView
+
+func formatVolumeValue(_ v: Double) -> String {
+    v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", v)
 }
