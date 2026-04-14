@@ -83,6 +83,8 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     Strength sessions: MUST include an exercises array with the actual exercises to perform. Each exercise has:
     - name, exerciseType ('weighted'|'bodyweight'|'banded'|'timed'|'cardio-drill'), sets, reps/duration, weight/band, rest, notes
 
+    Rest days: every day with isRest=true must carry a `rest_note` — 1-2 sentences of personalized recovery advice (foam rolling, stretching, sleep, hydration, etc.) drawing on the athlete's recent training load and injury history. Never generic "rest up" filler. If the athlete has an active injury, the rest note should reference it.
+
     SAFETY PROTOCOL:
     Before prescribing any session, check the athlete's coaching record for safety rules and injury state.
     Universal rules: Fever → rest. Sharp joint pain → stop/modify. Chest pain → stop immediately. Sleep < 5h → easy only.

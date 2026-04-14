@@ -117,6 +117,12 @@ enum TrainingPlanGenerator {
                   ]
                 },
                 {
+                  "day": "tuesday",
+                  "isRest": true,
+                  "sessions": [],
+                  "rest_note": "Your left knee was sore after Monday's run — foam roll quads and calves, ice if needed. Light stretching only. Wednesday is your key strength day, so prioritize recovery tonight."
+                },
+                {
                   "day": "wednesday",
                   "isRest": false,
                   "sessions": [
@@ -186,6 +192,7 @@ enum TrainingPlanGenerator {
         18. warning: OMIT this field unless the athlete has an active injury or medical history that affects THIS specific session. When present, it must name the modification ("Skip X if Y", "Substitute A for B") — this renders as a yellow callout above the exercise list.
         19. fuel: REQUIRED on every non-rest session. pre = macro targets + timing + 2-3 specific food options. during = carbs/hour + hydration for sessions over 60min, "water only" for shorter. post = protein/carb grams + recovery window + 2-3 food options.
         20. exercises: REQUIRED on every strength session. Each exercise has name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets, reps (or duration for timed), weight/band, rest (seconds), notes (form cue specific to this athlete).
+        21. rest_note: REQUIRED on every day with isRest=true. 1-2 sentences of personalized recovery advice drawing on the athlete's profile, recent training load, injuries, and what's coming next in the week. Never generic "rest up" filler. Examples: "Your knee was flagged last week — foam roll and ice if needed. Tomorrow's long run is the key session of the week, prioritize sleep tonight.", "You put down a big threshold day yesterday. Light walk OK if you want movement, otherwise sit still and eat."
         """
 
         let body: [String: Any] = [

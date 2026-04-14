@@ -185,16 +185,7 @@ struct PrescribedSessionDetailView: View {
     private func exerciseListCard(_ exercises: [PrescribedExercise]) -> some View {
         CoachCard {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    CoachLabel(text: "Exercises")
-                    Spacer()
-                    // Start → link. StrengthTracker flow isn't wired from plan detail yet;
-                    // leaving visual affordance as a hook for future logging entry point.
-                    Text("Start →")
-                        .font(CoachFonts.ui(13, weight: .semibold))
-                        .foregroundStyle(CoachColors.green)
-                        .opacity(0.4)  // visually muted until wired
-                }
+                CoachLabel(text: "Exercises")
                 ForEach(Array(exercises.enumerated()), id: \.offset) { _, exercise in
                     exerciseRow(exercise)
                 }
@@ -245,12 +236,15 @@ struct PrescribedSessionDetailView: View {
     // MARK: - Collapsible: Coach notes
 
     private func coachNotesSection(_ notes: String) -> some View {
-        CollapsibleCard(
+        let hasWarning = session.warning?.isEmpty == false
+        return CollapsibleCard(
             icon: "sparkles",
             iconColor: CoachColors.purple,
             title: "Coach notes",
             isExpanded: showNotes,
-            toggle: { showNotes.toggle() }
+            toggle: { showNotes.toggle() },
+            accessoryIcon: hasWarning ? "exclamationmark.triangle.fill" : nil,
+            accessoryColor: CoachColors.yellow
         ) {
             HStack(spacing: 0) {
                 Rectangle()

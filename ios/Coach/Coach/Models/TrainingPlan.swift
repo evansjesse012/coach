@@ -155,6 +155,13 @@ struct DayPlan: Codable, Identifiable {
     var day: String
     var isRest: Bool?
     var sessions: [PrescribedSession]
+    var restNote: String?   // Personalized coach note for rest days (AI-generated)
+
+    enum CodingKeys: String, CodingKey {
+        case day, sessions
+        case isRest
+        case restNote = "rest_note"
+    }
 }
 
 // MARK: - Weekly Plan

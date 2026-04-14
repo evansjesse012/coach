@@ -56,12 +56,20 @@ extension CollapsibleCard where Header == _CollapsibleIconTitleHeader {
         title: String,
         isExpanded: Bool,
         toggle: @escaping () -> Void,
+        accessoryIcon: String? = nil,
+        accessoryColor: Color = CoachColors.yellow,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.isExpanded = isExpanded
         self.toggle = toggle
         self.header = {
-            _CollapsibleIconTitleHeader(icon: icon, iconColor: iconColor, title: title)
+            _CollapsibleIconTitleHeader(
+                icon: icon,
+                iconColor: iconColor,
+                title: title,
+                accessoryIcon: accessoryIcon,
+                accessoryColor: accessoryColor
+            )
         }
         self.content = content
     }
@@ -71,6 +79,8 @@ struct _CollapsibleIconTitleHeader: View {
     let icon: String
     let iconColor: Color
     let title: String
+    var accessoryIcon: String? = nil
+    var accessoryColor: Color = CoachColors.yellow
 
     var body: some View {
         HStack(spacing: 10) {
@@ -80,6 +90,11 @@ struct _CollapsibleIconTitleHeader: View {
             Text(title)
                 .font(CoachFonts.ui(13, weight: .semibold))
                 .foregroundStyle(.primary)
+            if let accessoryIcon {
+                Image(systemName: accessoryIcon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(accessoryColor)
+            }
         }
     }
 }

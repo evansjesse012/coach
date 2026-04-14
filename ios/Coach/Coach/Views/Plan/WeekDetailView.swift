@@ -98,14 +98,21 @@ struct WeekDetailView: View {
     private func sessionsList(plan: TrainingPlan, weeklyPlan: WeeklyPlan) -> some View {
         VStack(spacing: 12) {
             ForEach(Array(weeklyPlan.sessions.enumerated()), id: \.offset) { dayIdx, dayPlan in
-                ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { sessionIdx, session in
-                    SessionCard(
-                        session: session,
-                        dateString: dateString(plan: plan, dayIdx: dayIdx),
-                        weekNum: weekNum,
-                        dayIdx: dayIdx,
-                        sessionIdx: sessionIdx
+                if dayPlan.isRest == true {
+                    RestDayCard(
+                        dayPlan: dayPlan,
+                        dateString: dateString(plan: plan, dayIdx: dayIdx)
                     )
+                } else {
+                    ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { sessionIdx, session in
+                        SessionCard(
+                            session: session,
+                            dateString: dateString(plan: plan, dayIdx: dayIdx),
+                            weekNum: weekNum,
+                            dayIdx: dayIdx,
+                            sessionIdx: sessionIdx
+                        )
+                    }
                 }
             }
         }
@@ -233,5 +240,56 @@ private struct SessionCard: View {
             return "\(lo)m - \(hi)m"
         }
         return nil
+    }
+}
+
+// MARK: - Rest Day Card
+
+private struct RestDayCard: View {
+    let dayPlan: DayPlan
+    let dateString: String
+
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        HStack(spacing: 0) {
+            EffortCategory.rest.gradient
+                .frame(width: 6)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "moon.zzz.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Rest Day")
+                        .font(CoachFonts.ui(16, weight: .bold))
+                        .foregroundStyle(.primary)
+                }
+
+                if !dateString.isEmpty {
+                    Text(formatDayLong(dateString))
+                        .font(CoachFonts.ui(12))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let note = dayPlan.restNote, !note.isEmpty {
+                    Text(note)
+                        .font(CoachFonts.ui(12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.vertical, 12)
+            .padding(.trailing, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+        )
     }
 }
