@@ -15,7 +15,11 @@ struct WeekDetailView: View {
 
                 if let plan = data.trainingPlan,
                    let wp = plan.weeklyPlans[String(weekNum)] {
-                    sessionsList(plan: plan, weeklyPlan: wp)
+                    if wp.isStub {
+                        StubWeekCard(plan: plan, weeklyPlan: wp)
+                    } else {
+                        sessionsList(plan: plan, weeklyPlan: wp)
+                    }
                 } else {
                     Text("No data for this week")
                         .font(CoachFonts.ui(13))
@@ -413,5 +417,104 @@ private struct RestDayCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Stub Week Card
+
+/// Shown when the athlete opens a week that only has a focus/phase stored
+/// (no daily sessions yet). Explains the lazy-generation model and offers
+/// a one-tap button to run the generator for this week.
+private struct StubWeekCard: View {
+    let plan: TrainingPlan
+    let weeklyPlan: WeeklyPlan
+
+    @Environment(DataService.self) var data
+    @Environment(\.colorScheme) var colorScheme
+    @State private var isGenerating = false
+    @State private var generationError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(CoachColors.accent)
+                    Text("Not yet planned")
+                        .font(CoachFonts.ui(14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
+
+                if let phaseNum = weeklyPlan.phase,
+                   let phase = plan.phases.first(where: { $0.number == phaseNum }) {
+                    Text("Phase \(phaseNum) — \(phase.name)")
+                        .font(CoachFonts.ui(11, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let focus = weeklyPlan.focusOfWeek, !focus.isEmpty {
+                    Text(focus)
+                        .font(CoachFonts.ui(13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
+                }
+            }
+
+            Divider()
+
+            Text("Your coach shapes each week closer to its start so it can adapt to how the prior weeks actually went. You can generate it now if you want to see what's coming.")
+                .font(CoachFonts.ui(12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await generate() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isGenerating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    Text(isGenerating ? "Generating…" : "Generate this week now")
+                        .font(CoachFonts.ui(14, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(CoachColors.accent.opacity(isGenerating ? 0.5 : 1.0))
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .disabled(isGenerating)
+
+            if let err = generationError {
+                Text(err)
+                    .font(CoachFonts.ui(11))
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(16)
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+        )
+    }
+
+    private func generate() async {
+        isGenerating = true
+        generationError = nil
+        do {
+            try await data.generateWeek(weeklyPlan.weekNumber)
+        } catch {
+            generationError = error.localizedDescription
+        }
+        isGenerating = false
     }
 }

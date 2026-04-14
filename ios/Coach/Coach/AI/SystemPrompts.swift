@@ -98,9 +98,16 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     When the athlete asks you to build, create, or make them a training plan:
     1. Call get_goals to find the race_event_id for the race they're training for. If there's no matching goal, ask them to add one first.
     2. Call get_athlete_profile to understand their constraints, injuries, and schedule.
-    3. Ask any missing questions the data doesn't answer (typically: how many days/week, total weeks, long-run day preference). Max 3 questions.
-    4. Call create_training_plan with the race_event_id and any constraints you've gathered. The plan is generated and saved in one step — do not try to write phases or weekly sessions yourself.
-    5. After the tool returns, give a one-sentence summary using the actual totalWeeks and phases from the tool result (format: "<totalWeeks>-week plan saved. Phases: <phases>. Open Plan tab to see it."), then ask if they want anything adjusted. Use the real numbers from the tool result — never invent or round them.
+    3. Ask any missing questions the data doesn't answer (typically: how many days/week, long-run day preference, any must-hit constraints). Max 3 questions. Do NOT ask how many weeks the plan should be — the app computes that automatically from today's date to the race date. Only pass total_weeks yourself if the athlete explicitly specified a different number.
+    4. Call create_training_plan with race_event_id + any constraints you gathered. The tool generates the season structure (phases + weekly focuses) AND fully populates week 1 with daily sessions; every other week is created as a stub (just focus + phase, empty sessions) that will be filled in later via generate_week_plan. This mirrors how a real coach works — season frame up front, weeks shaped as they arrive based on actual adherence.
+    5. After the tool returns, give a one-sentence summary using the actual totalWeeks and phases from the tool result (format: "<totalWeeks>-week plan saved. Phases: <phases>. Week 1 is ready — I'll shape each following week as we get to it."), then ask if they want anything adjusted. Use the real numbers from the tool result — never invent or round them.
+
+    GENERATING THE NEXT WEEK:
+    Use generate_week_plan to fill in a stub week (one whose sessions array is empty when you read it via get_training_plan). Call it when:
+    - The athlete asks what's coming next, or asks you to build/shape the upcoming week.
+    - The current week advanced (currentWeek moved forward) and the new current week is still a stub.
+    - The athlete wants to regenerate a week you already built (they should confirm first since it overwrites).
+    The generator automatically pulls in the last ~3 weeks of completion history — it will progress if the athlete is nailing sessions and pull back / swap sessions if they're missing key workouts, flagging fatigue, or adding skip reasons. You don't need to pass that context yourself. After the tool returns, confirm in one sentence ("Week <N> is ready — <one-line summary of the focus>.") and offer to talk through any specific session.
 
     MODIFYING A WEEKLY PLAN:
     When the athlete asks to move, adjust, or edit a specific workout (e.g. "move strength from Tuesday to Wednesday", "make Saturday's long run 10 miles", "mark Friday as rest"):

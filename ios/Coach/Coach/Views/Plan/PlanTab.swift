@@ -565,7 +565,10 @@ private struct WeekCard: View {
     let plan: TrainingPlan
     let weeklyPlan: WeeklyPlan
 
+    @Environment(DataService.self) var data
     @Environment(\.colorScheme) var colorScheme
+    @State private var isGenerating = false
+    @State private var generationError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -578,27 +581,10 @@ private struct WeekCard: View {
                     .font(CoachFonts.display(20, weight: .bold))
             }
 
-            ProgressSegments(total: totalSessions, completed: completedSessions)
-
-            HStack(spacing: 16) {
-                Label("Total Workouts: \(totalSessions)", systemImage: "checklist")
-                    .font(CoachFonts.ui(12))
-                    .foregroundStyle(.secondary)
-                if totalDistance > 0 {
-                    Label(String(format: "Distance: %.2fmi", totalDistance), systemImage: "ruler")
-                        .font(CoachFonts.ui(12))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(weeklyPlan.sessions.enumerated()), id: \.offset) { _, dayPlan in
-                    if dayPlan.isRest != true && !dayPlan.sessions.isEmpty {
-                        DayRow(dayPlan: dayPlan)
-                    }
-                }
+            if weeklyPlan.isStub {
+                stubBody
+            } else {
+                populatedBody
             }
         }
         .padding(16)
@@ -609,6 +595,93 @@ private struct WeekCard: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var populatedBody: some View {
+        ProgressSegments(total: totalSessions, completed: completedSessions)
+
+        HStack(spacing: 16) {
+            Label("Total Workouts: \(totalSessions)", systemImage: "checklist")
+                .font(CoachFonts.ui(12))
+                .foregroundStyle(.secondary)
+            if totalDistance > 0 {
+                Label(String(format: "Distance: %.2fmi", totalDistance), systemImage: "ruler")
+                    .font(CoachFonts.ui(12))
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        Divider()
+
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(weeklyPlan.sessions.enumerated()), id: \.offset) { _, dayPlan in
+                if dayPlan.isRest != true && !dayPlan.sessions.isEmpty {
+                    DayRow(dayPlan: dayPlan)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var stubBody: some View {
+        if let focus = weeklyPlan.focusOfWeek, !focus.isEmpty {
+            Text(focus)
+                .font(CoachFonts.ui(13))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Divider()
+
+        HStack(spacing: 10) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text("Details will be shaped closer to this week, based on how the prior weeks go.")
+                .font(CoachFonts.ui(11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Button {
+            Task { await generate() }
+        } label: {
+            HStack(spacing: 6) {
+                if isGenerating {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                Text(isGenerating ? "Generating…" : "Generate this week now")
+                    .font(CoachFonts.ui(13, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(CoachColors.accent.opacity(isGenerating ? 0.5 : 1.0))
+            .foregroundStyle(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .disabled(isGenerating)
+
+        if let err = generationError {
+            Text(err)
+                .font(CoachFonts.ui(11))
+                .foregroundStyle(.red)
+        }
+    }
+
+    private func generate() async {
+        isGenerating = true
+        generationError = nil
+        do {
+            try await data.generateWeek(weeklyPlan.weekNumber)
+        } catch {
+            generationError = error.localizedDescription
+        }
+        isGenerating = false
     }
 
     private var allSessions: [PrescribedSession] { weeklyPlan.sessions.flatMap(\.sessions) }

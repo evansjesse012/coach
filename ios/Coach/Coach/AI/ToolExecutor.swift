@@ -242,7 +242,20 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             return ToolResult(summary: #"{"error":"A training plan already exists. Ask the athlete to confirm replacement, then call again with confirm_overwrite: true."}"#)
         }
 
-        let totalWeeks = input["total_weeks"] as? Int ?? 12
+        // Prefer an explicit total_weeks from the model (if the athlete asked
+        // for a specific length). Otherwise compute it from today → race date.
+        // Clamp to a reasonable band so a bad date doesn't produce a 1-week
+        // plan or a 200-week plan.
+        let computedWeeks = weeksBetweenTodayAnd(event.date)
+        let totalWeeks: Int
+        if let explicit = input["total_weeks"] as? Int, explicit > 0 {
+            totalWeeks = explicit
+        } else if let weeks = computedWeeks {
+            totalWeeks = min(52, max(4, weeks))
+        } else {
+            // No race date on the event — last-resort fallback.
+            totalWeeks = 12
+        }
         let trainingDays = input["training_days_per_week"] as? Int
         let volumeHours = input["weekly_volume_hours"] as? Double
         let longRunDay = input["long_run_day"] as? String
@@ -274,6 +287,40 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             )
         } catch {
             return ToolResult(summary: jsonString(["error": "Plan generation failed: \(error.localizedDescription)"]))
+        }
+
+    // MARK: generate_week_plan (NEW — lazy per-week generation)
+    case "generate_week_plan":
+        guard let plan = dataService.trainingPlan else {
+            return ToolResult(summary: jsonString(["error": "No training plan to generate a week for. Create one first with create_training_plan."]))
+        }
+        guard let weekNum = input["weekNumber"] as? Int, weekNum >= 1, weekNum <= plan.totalWeeks else {
+            return ToolResult(summary: jsonString(["error": "weekNumber must be between 1 and \(plan.totalWeeks)."]))
+        }
+        guard let goalId = plan.goalId,
+              let event = dataService.events.first(where: { $0.id == goalId }) else {
+            return ToolResult(summary: jsonString(["error": "Couldn't find the race event this plan is anchored to."]))
+        }
+        do {
+            let week = try await TrainingPlanGenerator.generateWeek(
+                weekNumber: weekNum,
+                in: plan,
+                event: event,
+                athleteMemory: dataService.memory,
+                dataService: dataService
+            )
+            let dayCount = week.sessions.count
+            return ToolResult(
+                summary: jsonString([
+                    "generated": true,
+                    "weekNumber": weekNum,
+                    "focusOfWeek": week.focusOfWeek ?? "",
+                    "daysPopulated": dayCount,
+                ]),
+                effects: [.weekUpdated(weekNumber: weekNum, weekPlan: week)]
+            )
+        } catch {
+            return ToolResult(summary: jsonString(["error": "Week generation failed: \(error.localizedDescription)"]))
         }
 
     // MARK: save_training_plan (legacy — kept for compat, no-op effect)
@@ -734,6 +781,19 @@ private func jsonString(_ value: Any) -> String {
         return "{}"
     }
     return str
+}
+
+/// Whole weeks between today and a "yyyy-MM-dd" date string, rounded up so
+/// race weeks are never shorted. Returns nil if the date string is missing or
+/// malformed.
+private func weeksBetweenTodayAnd(_ dateStr: String?) -> Int? {
+    guard let dateStr, !dateStr.isEmpty else { return nil }
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    guard let target = formatter.date(from: dateStr) else { return nil }
+    let days = Calendar.current.dateComponents([.day], from: Date(), to: target).day ?? 0
+    guard days > 0 else { return nil }
+    return Int(ceil(Double(days) / 7.0))
 }
 
 // MARK: - Patch support

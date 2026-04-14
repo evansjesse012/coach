@@ -550,6 +550,30 @@ final class DataService {
         try await client.from("training_plans").upsert(plan).execute()
     }
 
+    /// Generate full daily detail for a stub week and splice it into the
+    /// current plan. Thin wrapper around TrainingPlanGenerator.generateWeek
+    /// so any view (not just the chat) can trigger lazy generation.
+    func generateWeek(_ weekNum: Int) async throws {
+        guard let plan = trainingPlan else { return }
+        guard let goalId = plan.goalId,
+              let event = events.first(where: { $0.id == goalId }) else {
+            throw NSError(
+                domain: "DataService", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "This plan isn't linked to a race event."]
+            )
+        }
+        let week = try await TrainingPlanGenerator.generateWeek(
+            weekNumber: weekNum,
+            in: plan,
+            event: event,
+            athleteMemory: memory,
+            dataService: self
+        )
+        var updated = plan
+        updated.weeklyPlans[String(weekNum)] = week
+        try await savePlan(updated)
+    }
+
     /// Toggles the explicit `completed` flag on a single prescribed session and persists the plan.
     func toggleSessionCompleted(weekNum: Int, dayIdx: Int, sessionIdx: Int) async throws {
         try await updateSessionCompletion(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx) { session in

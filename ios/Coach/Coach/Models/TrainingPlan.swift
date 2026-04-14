@@ -18,6 +18,25 @@ struct IntensityDistribution: Codable {
         case easy, tempo, threshold
         case vo2max = "vo2_max"
     }
+
+    init(easy: Int, tempo: Int, threshold: Int, vo2max: Int) {
+        self.easy = easy
+        self.tempo = tempo
+        self.threshold = threshold
+        self.vo2max = vo2max
+    }
+
+    /// Tolerant decoder: accepts vo2_max / vo2max / vo2Max and defaults any
+    /// missing field to 0 so a slightly-miscased field from the model doesn't
+    /// kill the whole plan generation. Encoding still uses the CodingKeys
+    /// (`vo2_max`) via the auto-synthesized encoder.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode([String: Int].self)
+        easy = raw["easy"] ?? 0
+        tempo = raw["tempo"] ?? 0
+        threshold = raw["threshold"] ?? 0
+        vo2max = raw["vo2_max"] ?? raw["vo2max"] ?? raw["vo2Max"] ?? 0
+    }
 }
 
 struct KeyWorkout: Codable, Identifiable {
@@ -246,6 +265,13 @@ struct WeeklyPlan: Codable, Identifiable {
     var phase: Int?
     var focusOfWeek: String?
     var sessions: [DayPlan]
+
+    /// A stub week has only a focus + phase recorded — no actual daily
+    /// sessions yet. Created by plan generation for every week past the
+    /// current one, then filled in lazily via TrainingPlanGenerator.generateWeek.
+    var isStub: Bool {
+        sessions.isEmpty
+    }
 }
 
 // MARK: - Training Plan

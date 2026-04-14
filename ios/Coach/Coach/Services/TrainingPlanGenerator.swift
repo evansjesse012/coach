@@ -2,24 +2,24 @@ import Foundation
 import Supabase
 import Functions
 
-/// Generates a full periodized TrainingPlan by calling the chat Edge Function
-/// in multiple focused stages:
+/// Generates a periodized TrainingPlan the way a real coach would:
 ///
-///   1. **Skeleton call** — phases + a one-line focus per week.
-///   2. **Week batch calls** — daily session details for 2 weeks at a time.
+///   1. **Skeleton call** — phases + a one-line focus per week (season plan).
+///   2. **Week 1 generation** — full daily detail for the current week only.
+///   3. **Stubs** — every other week is stored with just its focus/phase and
+///      an empty sessions array, ready to be filled in later via
+///      `generateWeek(weekNumber:...)` when it's time to run that week.
 ///
-/// This keeps every HTTP call under iOS's default 60s URLSession timeout and
-/// Deno Deploy's per-request wall-clock limit, both of which were being blown
-/// by the previous single 16k-token generation for complex (triathlon) plans.
+/// This mirrors how human coaches work: set the season-level structure up
+/// front, then shape each week in detail based on how the athlete actually
+/// responds to the work. It also sidesteps the upfront cost of generating
+/// 20+ weeks of session detail (13+ API calls, 5–8 minutes of wall clock)
+/// that gets overwritten anyway as reality diverges from the plan.
+///
 /// Each stage reports progress through DataService.activeToolProgress so the
 /// chat UI can show what's happening instead of just "Thinking…".
 @MainActor
 enum TrainingPlanGenerator {
-    /// Number of weeks generated per week-batch call. 2 keeps each call's
-    /// response well under 5k tokens (~45s of Anthropic generation time) even
-    /// for detail-heavy triathlon weeks.
-    private static let weeksPerBatch = 2
-
     static func generate(
         for event: Event,
         athleteMemory: CoachingMemory,
@@ -52,31 +52,30 @@ enum TrainingPlanGenerator {
             trainingDaysPerWeek: trainingDaysPerWeek
         )
 
-        // MARK: Stage 2 — week batches
-        var weeklyPlans: [String: WeeklyPlan] = [:]
-        var cursor = 1
-        while cursor <= totalWeeks {
-            let batchEnd = min(cursor + weeksPerBatch - 1, totalWeeks)
-            let label: String
-            if cursor == batchEnd {
-                label = "Generating week \(cursor) of \(totalWeeks)…"
-            } else {
-                label = "Generating weeks \(cursor)–\(batchEnd) of \(totalWeeks)…"
-            }
-            updateProgress(dataService, label)
+        // MARK: Stage 2 — current week full detail
+        updateProgress(dataService, "Generating week 1 of \(totalWeeks)…")
+        let weekOne = try await generateWeekBatch(
+            weekNums: [1],
+            event: event,
+            profile: profile,
+            constraintsBlock: constraintsBlock,
+            skeleton: skeleton,
+            totalWeeks: totalWeeks,
+            recentAdherenceContext: nil
+        )
 
-            let batch = try await generateWeekBatch(
-                weekNums: Array(cursor...batchEnd),
-                event: event,
-                profile: profile,
-                constraintsBlock: constraintsBlock,
-                skeleton: skeleton,
-                totalWeeks: totalWeeks
+        // MARK: Stage 3 — stub remaining weeks
+        var weeklyPlans: [String: WeeklyPlan] = [:]
+        for wp in weekOne {
+            weeklyPlans[String(wp.weekNumber)] = wp
+        }
+        for wn in 2...max(2, totalWeeks) where wn <= totalWeeks {
+            weeklyPlans[String(wn)] = WeeklyPlan(
+                weekNumber: wn,
+                phase: skeleton.weekPhases[wn],
+                focusOfWeek: skeleton.weekFocuses[wn],
+                sessions: [] // stub — filled in via generateWeek later
             )
-            for wp in batch {
-                weeklyPlans[String(wp.weekNumber)] = wp
-            }
-            cursor = batchEnd + 1
         }
 
         updateProgress(dataService, "Finalizing your plan…")
@@ -95,9 +94,117 @@ enum TrainingPlanGenerator {
             weeklyPlans: weeklyPlans
         )
 
-        // Clear the progress string so the next chat turn doesn't inherit it.
         dataService?.activeToolProgress = nil
         return plan
+    }
+
+    // MARK: - Lazy: generate one week
+
+    /// Generates full daily detail for a single week of an existing plan,
+    /// reusing the plan's stored phases + weekly focuses (the original
+    /// skeleton) and pulling in recent adherence history so the model can
+    /// adapt — progress, back off, or swap sessions based on what actually
+    /// happened in the preceding weeks. Returns the new WeeklyPlan; the
+    /// caller is responsible for splicing it into `plan.weeklyPlans` and
+    /// persisting.
+    static func generateWeek(
+        weekNumber: Int,
+        in plan: TrainingPlan,
+        event: Event,
+        athleteMemory: CoachingMemory,
+        dataService: DataService? = nil
+    ) async throws -> WeeklyPlan {
+        guard weekNumber >= 1, weekNumber <= plan.totalWeeks else {
+            throw NSError(
+                domain: "TrainingPlanGenerator", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Week \(weekNumber) is outside the plan's \(plan.totalWeeks)-week range."]
+            )
+        }
+
+        // Reconstruct the in-memory skeleton from the stored plan.
+        var focuses: [Int: String] = [:]
+        var weekPhases: [Int: Int] = [:]
+        for (weekNumStr, wp) in plan.weeklyPlans {
+            guard let wn = Int(weekNumStr) else { continue }
+            if let f = wp.focusOfWeek { focuses[wn] = f }
+            if let p = wp.phase { weekPhases[wn] = p }
+        }
+        let skeleton = PlanSkeleton(
+            phases: plan.phases,
+            weekFocuses: focuses,
+            weekPhases: weekPhases
+        )
+
+        let profile = buildAthleteContext(memory: athleteMemory)
+        let constraintsBlock = buildConstraintsBlock(
+            trainingDaysPerWeek: plan.trainingDaysPerWeek,
+            weeklyVolumeHours: nil,
+            longRunDay: nil,
+            strengthDays: nil,
+            notes: nil
+        )
+        let adherence = buildRecentAdherenceContext(plan: plan, weekNumber: weekNumber)
+
+        updateProgress(dataService, "Shaping week \(weekNumber) of \(plan.totalWeeks)…")
+        let weeks = try await generateWeekBatch(
+            weekNums: [weekNumber],
+            event: event,
+            profile: profile,
+            constraintsBlock: constraintsBlock,
+            skeleton: skeleton,
+            totalWeeks: plan.totalWeeks,
+            recentAdherenceContext: adherence
+        )
+
+        dataService?.activeToolProgress = nil
+        guard let week = weeks.first else {
+            throw NSError(
+                domain: "TrainingPlanGenerator", code: 7,
+                userInfo: [NSLocalizedDescriptionKey: "Model returned no week in the batch response."]
+            )
+        }
+        return week
+    }
+
+    /// Summarizes up to the last 3 completed weeks so the prompt can tell the
+    /// model how the athlete is actually doing. Empty string if there's no
+    /// history yet (e.g. generating week 2 of a fresh plan).
+    private static func buildRecentAdherenceContext(plan: TrainingPlan, weekNumber: Int) -> String? {
+        let lookback = 3
+        let startWeek = max(1, weekNumber - lookback)
+        guard startWeek < weekNumber else { return nil }
+
+        var lines: [String] = []
+        for w in startWeek..<weekNumber {
+            guard let wp = plan.weeklyPlans[String(w)], !wp.sessions.isEmpty else { continue }
+            let allSessions = wp.sessions.flatMap(\.sessions)
+            guard !allSessions.isEmpty else { continue }
+            let total = allSessions.count
+            let done = allSessions.filter {
+                switch $0.displayState {
+                case .completed, .modified, .needsReview: return true
+                default: return false
+                }
+            }.count
+            let skipped = allSessions.filter { $0.displayState == .skipped }.map(\.label)
+            let swapped = allSessions.filter { $0.displayState == .swapped }.map(\.label)
+            var line = "- Week \(w): \(done)/\(total) sessions completed"
+            if !skipped.isEmpty { line += "; skipped: \(skipped.joined(separator: ", "))" }
+            if !swapped.isEmpty { line += "; swapped: \(swapped.joined(separator: ", "))" }
+            // Surface notable completion notes so the model sees the "why".
+            let notes = allSessions.compactMap(\.completionNote).filter { !$0.isEmpty }
+            if !notes.isEmpty {
+                line += "; notes: " + notes.prefix(2).joined(separator: " | ")
+            }
+            lines.append(line)
+        }
+
+        guard !lines.isEmpty else { return nil }
+        return """
+        RECENT HISTORY (use this to adapt this week — progress if the athlete is \
+        nailing sessions, pull back if they're missing key workouts or flagging fatigue):
+        \(lines.joined(separator: "\n"))
+        """
     }
 
     // MARK: - Stage 1: Skeleton
@@ -216,6 +323,26 @@ enum TrainingPlanGenerator {
             focuses[wf.weekNumber] = wf.focus
             weekPhases[wf.weekNumber] = wf.phase
         }
+
+        // Sanity check — the model occasionally forgets a week. Fill in any
+        // gap with the neighboring week's phase and a generic focus so the
+        // rest of the pipeline doesn't blow up. Log so we can see when the
+        // model is drifting.
+        var filled = 0
+        for wn in 1...totalWeeks {
+            if focuses[wn] == nil {
+                focuses[wn] = "Continue progression from the previous week."
+                filled += 1
+            }
+            if weekPhases[wn] == nil {
+                let neighbor = weekPhases[wn - 1] ?? weekPhases[wn + 1] ?? 1
+                weekPhases[wn] = neighbor
+            }
+        }
+        if filled > 0 {
+            NSLog("[plan-skeleton] filled \(filled) missing weekFocus entries out of \(totalWeeks)")
+        }
+
         return PlanSkeleton(phases: decoded.phases, weekFocuses: focuses, weekPhases: weekPhases)
     }
 
@@ -231,7 +358,8 @@ enum TrainingPlanGenerator {
         profile: String,
         constraintsBlock: String,
         skeleton: PlanSkeleton,
-        totalWeeks: Int
+        totalWeeks: Int,
+        recentAdherenceContext: String? = nil
     ) async throws -> [WeeklyPlan] {
         // Compact context about just the phases these weeks touch, so the
         // model has the intensity/volume/focus cues without seeing every phase.
@@ -262,6 +390,7 @@ enum TrainingPlanGenerator {
         }.joined(separator: "\n")
 
         let firstWeek = weekNums.first ?? 1
+        let adherenceBlock = recentAdherenceContext.map { "\n\n\($0)" } ?? ""
         let prompt = """
         Generate the daily sessions for these weeks of a \(totalWeeks)-week plan.
 
@@ -272,7 +401,7 @@ enum TrainingPlanGenerator {
         \(constraintsBlock)
 
         PHASE CONTEXT:
-        \(phaseContext)
+        \(phaseContext)\(adherenceBlock)
 
         WEEKS TO GENERATE:
         \(weekBriefs)
