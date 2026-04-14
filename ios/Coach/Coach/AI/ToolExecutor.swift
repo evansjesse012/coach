@@ -77,53 +77,14 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             }
         }
 
-        if let wp = plan.weeklyPlans[String(weekNum)] {
-            let days: [[String: Any]] = wp.sessions.map { dp in
-                var day: [String: Any] = ["day": dp.day]
-                if dp.isRest == true {
-                    day["isRest"] = true
-                    if let note = dp.restNote, !note.isEmpty {
-                        day["restNote"] = note
-                    }
-                } else if !dp.sessions.isEmpty {
-                    day["sessions"] = dp.sessions.map { sess -> [String: Any] in
-                        var s: [String: Any] = [
-                            "type": sess.type,
-                            "label": sess.label,
-                        ]
-                        if let d = sess.duration {
-                            s["duration"] = d
-                        } else if let lo = sess.estimatedDurationMin, let hi = sess.estimatedDurationMax {
-                            s["durationRange"] = "\(lo)-\(hi)m"
-                        }
-                        if let mi = sess.distanceMiles { s["distanceMiles"] = mi }
-                        if let ec = sess.effortCategory { s["effortCategory"] = ec.rawValue }
-                        if let zone = sess.zone, !zone.isEmpty { s["zone"] = zone }
-                        if let pace = sess.paceRange, !pace.isEmpty { s["paceRange"] = pace }
-                        if let pri = sess.priority { s["priority"] = pri.rawValue }
-                        if let completed = sess.completed { s["completed"] = completed }
-                        if let purpose = sess.purpose, !purpose.isEmpty { s["purpose"] = purpose }
-                        if let workout = sess.workout, !workout.isEmpty { s["workout"] = workout }
-                        if let notes = sess.notes, !notes.isEmpty { s["notes"] = notes }
-                        if let warning = sess.warning, !warning.isEmpty { s["warning"] = warning }
-                        if let legs = sess.legs, !legs.isEmpty {
-                            s["legs"] = legs.map { leg -> [String: Any] in
-                                var l: [String: Any] = ["sport": leg.sport.rawValue]
-                                if let d = leg.duration { l["duration"] = d }
-                                if let z = leg.zone, !z.isEmpty { l["zone"] = z }
-                                return l
-                            }
-                        }
-                        return s
-                    }
-                }
-                return day
-            }
-            result["weekPlan"] = [
-                "weekNumber": wp.weekNumber,
-                "focusOfWeek": wp.focusOfWeek ?? "",
-                "days": days,
-            ] as [String: Any]
+        // Encode the WeeklyPlan via JSONEncoder so the LLM receives the exact
+        // Codable shape it must send back to save_weekly_plan. Read/write are
+        // symmetric — the LLM can read, edit, and write without format churn.
+        if let wp = plan.weeklyPlans[String(weekNum)],
+           let data = try? JSONEncoder().encode(wp),
+           let obj = try? JSONSerialization.jsonObject(with: data),
+           let dict = obj as? [String: Any] {
+            result["weekPlan"] = dict
         }
 
         return ToolResult(summary: jsonString(result))
@@ -320,7 +281,28 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
 
     // MARK: save_weekly_plan
     case "save_weekly_plan":
-        return ToolResult(summary: jsonString(["saved": true, "weekPlan": input]))
+        // Replace (or insert) a single week's plan. Input must match the
+        // WeeklyPlan Codable shape — which is exactly what get_training_plan
+        // returns under "weekPlan". The LLM reads, edits, and sends back.
+        guard dataService.trainingPlan != nil else {
+            return ToolResult(summary: #"{"error":"No training plan to modify. Create one first with create_training_plan."}"#)
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: input)
+            let wp = try JSONDecoder().decode(WeeklyPlan.self, from: data)
+            return ToolResult(
+                summary: jsonString([
+                    "saved": true,
+                    "weekNumber": wp.weekNumber,
+                    "dayCount": wp.sessions.count,
+                ]),
+                effects: [.weekUpdated(weekNumber: wp.weekNumber, weekPlan: wp)]
+            )
+        } catch {
+            return ToolResult(summary: jsonString([
+                "error": "Invalid weekPlan shape: \(error.localizedDescription). Expected the same shape returned by get_training_plan under weekPlan.",
+            ]))
+        }
 
     // MARK: update_plan_progress
     case "update_plan_progress":

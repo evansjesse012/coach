@@ -157,14 +157,14 @@ let coachToolDefinitions: [ToolDefinition] = [
     ),
     ToolDefinition(
         name: "save_weekly_plan",
-        description: "Save a generated weekly plan for a specific week.",
+        description: "Replace an existing week's plan or insert a new one. Use this to move sessions between days, adjust duration/distance/pace, change notes or warnings, or mark a day as rest. Call get_training_plan first to read the current week, edit the returned weekPlan object, then pass it back here as the full input. This REPLACES the whole week — include every day and every field you read, don't just send the delta.",
         inputSchema: ToolInputSchema(
             type: "object",
             properties: [
-                "weekNumber": ToolProperty(type: "number", description: nil, enum: nil),
-                "phase": ToolProperty(type: "number", description: nil, enum: nil),
-                "focusOfWeek": ToolProperty(type: "string", description: nil, enum: nil),
-                "sessions": ToolProperty(type: "array", description: "Array of 7 day objects (Mon-Sun)", enum: nil),
+                "weekNumber": ToolProperty(type: "number", description: "Week index to save (1-based). Must match an existing week for an edit, or the next week for an insert.", enum: nil),
+                "phase": ToolProperty(type: "number", description: "Phase number this week belongs to.", enum: nil),
+                "focusOfWeek": ToolProperty(type: "string", description: "Human-readable focus for the week (e.g. 'Aerobic base, long run progression').", enum: nil),
+                "sessions": ToolProperty(type: "array", description: "Array of 7 day objects in Monday-Sunday order. Each day is { day: 'monday'|'tuesday'|..., isRest: bool?, rest_note: string?, sessions: [prescribed session objects] }. Prescribed session fields match exactly what get_training_plan returns (type, label, duration, distance_miles, effort_category, zone, pace_range, priority, purpose, workout, notes, warning, etc.). Preserve every field you read — missing fields are treated as removed.", enum: nil),
             ],
             required: ["weekNumber", "phase", "focusOfWeek", "sessions"]
         )

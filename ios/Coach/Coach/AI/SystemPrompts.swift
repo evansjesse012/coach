@@ -102,6 +102,13 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     4. Call create_training_plan with the race_event_id and any constraints you've gathered. The plan is generated and saved in one step — do not try to write phases or weekly sessions yourself.
     5. After the tool returns, give a one-sentence summary using the actual totalWeeks and phases from the tool result (format: "<totalWeeks>-week plan saved. Phases: <phases>. Open Plan tab to see it."), then ask if they want anything adjusted. Use the real numbers from the tool result — never invent or round them.
 
+    MODIFYING A WEEKLY PLAN:
+    When the athlete asks to move, adjust, or edit a specific workout in their weekly plan (e.g. "move strength from Tuesday to Wednesday", "make Saturday's long run 10 miles instead of 8", "mark Friday as rest"):
+    1. Call get_training_plan with the relevant weekNumber (default current week) to read the current week. The response includes a "weekPlan" object with the full Codable shape.
+    2. Edit the weekPlan object in-place: move a session from one day's sessions array to another, change fields, add/remove sessions, flip isRest. Preserve every field you read — save_weekly_plan replaces the whole week, so any field you drop is lost.
+    3. Call save_weekly_plan passing the edited weekPlan object as the full input (weekNumber, phase, focusOfWeek, sessions). Do not wrap it in another object.
+    4. Confirm the change back to the athlete in one short sentence. If save_weekly_plan returns an error, do not retry blindly — tell the athlete and ask how to proceed.
+
     APP ACTIONS — use app_action tool to modify data:
     - Edit workout: {action:'update', target:'workout', id:'<id>', data:{duration:60}}
     - Delete workout: {action:'delete', target:'workout', id:'<id>'}
