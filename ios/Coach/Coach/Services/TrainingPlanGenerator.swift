@@ -3,10 +3,23 @@ import Supabase
 import Functions
 
 /// Generates a full periodized TrainingPlan by calling the chat Edge Function
-/// with a structured prompt. Separate from the agent loop — this is a one-shot
-/// deterministic call that returns JSON matching our TrainingPlan model shape.
+/// in multiple focused stages:
+///
+///   1. **Skeleton call** — phases + a one-line focus per week.
+///   2. **Week batch calls** — daily session details for 2 weeks at a time.
+///
+/// This keeps every HTTP call under iOS's default 60s URLSession timeout and
+/// Deno Deploy's per-request wall-clock limit, both of which were being blown
+/// by the previous single 16k-token generation for complex (triathlon) plans.
+/// Each stage reports progress through DataService.activeToolProgress so the
+/// chat UI can show what's happening instead of just "Thinking…".
 @MainActor
 enum TrainingPlanGenerator {
+    /// Number of weeks generated per week-batch call. 2 keeps each call's
+    /// response well under 5k tokens (~45s of Anthropic generation time) even
+    /// for detail-heavy triathlon weeks.
+    private static let weeksPerBatch = 2
+
     static func generate(
         for event: Event,
         athleteMemory: CoachingMemory,
@@ -15,13 +28,10 @@ enum TrainingPlanGenerator {
         weeklyVolumeHours: Double?,
         longRunDay: String?,
         strengthDays: [String]?,
-        notes: String?
+        notes: String?,
+        dataService: DataService? = nil
     ) async throws -> TrainingPlan {
-        let client = SupabaseService.shared.client
-
-        // Build the athlete profile block so the model can plan around constraints
         let profile = buildAthleteContext(memory: athleteMemory)
-
         let constraintsBlock = buildConstraintsBlock(
             trainingDaysPerWeek: trainingDaysPerWeek,
             weeklyVolumeHours: weeklyVolumeHours,
@@ -29,11 +39,97 @@ enum TrainingPlanGenerator {
             strengthDays: strengthDays,
             notes: notes
         )
-
         let startDate = computeStartDate(for: event, totalWeeks: totalWeeks)
 
-        let userPrompt = """
-        You are an expert coach. Generate a complete periodized training plan for this athlete.
+        // MARK: Stage 1 — skeleton
+        updateProgress(dataService, "Building plan structure…")
+        let skeleton = try await generateSkeleton(
+            event: event,
+            profile: profile,
+            constraintsBlock: constraintsBlock,
+            startDate: startDate,
+            totalWeeks: totalWeeks,
+            trainingDaysPerWeek: trainingDaysPerWeek
+        )
+
+        // MARK: Stage 2 — week batches
+        var weeklyPlans: [String: WeeklyPlan] = [:]
+        var cursor = 1
+        while cursor <= totalWeeks {
+            let batchEnd = min(cursor + weeksPerBatch - 1, totalWeeks)
+            let label: String
+            if cursor == batchEnd {
+                label = "Generating week \(cursor) of \(totalWeeks)…"
+            } else {
+                label = "Generating weeks \(cursor)–\(batchEnd) of \(totalWeeks)…"
+            }
+            updateProgress(dataService, label)
+
+            let batch = try await generateWeekBatch(
+                weekNums: Array(cursor...batchEnd),
+                event: event,
+                profile: profile,
+                constraintsBlock: constraintsBlock,
+                skeleton: skeleton,
+                totalWeeks: totalWeeks
+            )
+            for wp in batch {
+                weeklyPlans[String(wp.weekNumber)] = wp
+            }
+            cursor = batchEnd + 1
+        }
+
+        updateProgress(dataService, "Finalizing your plan…")
+
+        let plan = TrainingPlan(
+            id: UUID().uuidString,
+            goalId: event.id,
+            raceName: event.name,
+            raceDate: event.date,
+            startDate: startDate,
+            totalWeeks: totalWeeks,
+            currentWeek: 1,
+            currentPhase: 1,
+            trainingDaysPerWeek: trainingDaysPerWeek,
+            phases: skeleton.phases,
+            weeklyPlans: weeklyPlans
+        )
+
+        // Clear the progress string so the next chat turn doesn't inherit it.
+        dataService?.activeToolProgress = nil
+        return plan
+    }
+
+    // MARK: - Stage 1: Skeleton
+
+    private struct PlanSkeleton {
+        let phases: [TrainingPhase]
+        /// weekNumber → focusOfWeek
+        let weekFocuses: [Int: String]
+        /// weekNumber → phase number
+        let weekPhases: [Int: Int]
+    }
+
+    private struct SkeletonResponse: Codable {
+        let phases: [TrainingPhase]
+        let weekFocuses: [WeekFocus]
+        struct WeekFocus: Codable {
+            let weekNumber: Int
+            let phase: Int
+            let focus: String
+        }
+    }
+
+    private static func generateSkeleton(
+        event: Event,
+        profile: String,
+        constraintsBlock: String,
+        startDate: String,
+        totalWeeks: Int,
+        trainingDaysPerWeek: Int?
+    ) async throws -> PlanSkeleton {
+        let prompt = """
+        You are designing the structural outline of a \(totalWeeks)-week training plan. Do NOT generate daily sessions yet — those come in later calls.
 
         RACE: "\(event.name)"
         RACE DATE: \(event.date ?? "TBD")
@@ -41,6 +137,7 @@ enum TrainingPlanGenerator {
         GOAL TIME: \(event.goal ?? "finish strong")
         TOTAL WEEKS: \(totalWeeks)
         START DATE: \(startDate)
+        TRAINING DAYS PER WEEK: \(trainingDaysPerWeek ?? 6)
 
         \(profile)
 
@@ -49,15 +146,6 @@ enum TrainingPlanGenerator {
         Return ONLY a JSON object matching this exact shape. No markdown fences, no prose.
 
         {
-          "id": "GENERATE_UUID",
-          "goalId": "\(event.id)",
-          "raceName": "\(event.name)",
-          "raceDate": "\(event.date ?? "")",
-          "startDate": "\(startDate)",
-          "totalWeeks": \(totalWeeks),
-          "currentWeek": 1,
-          "currentPhase": 1,
-          "trainingDaysPerWeek": \(trainingDaysPerWeek ?? 6),
           "phases": [
             {
               "number": 1,
@@ -75,19 +163,128 @@ enum TrainingPlanGenerator {
                 {"name": "Tempo", "description": "3x10min @ tempo"}
               ],
               "strength_focus": "Max strength — heavy 3-5 rep work",
-              "physiological_goals": [
-                "Increase mitochondrial density",
-                "Improve fat oxidation"
-              ],
+              "physiological_goals": ["Increase mitochondrial density", "Improve fat oxidation"],
               "progression_rules": "+10% volume per week for 3 weeks, 30% deload on week 4",
               "race_specific_notes": "Race-specific notes tied to the event"
             }
           ],
-          "weeklyPlans": {
-            "1": {
-              "weekNumber": 1,
+          "weekFocuses": [
+            {"weekNumber": 1, "phase": 1, "focus": "Aerobic base building — first week of progression"},
+            {"weekNumber": 2, "phase": 1, "focus": "..."}
+          ]
+        }
+
+        RULES:
+        1. Generate 2-4 phases that make sense for this race distance and timeline (e.g. Base / Build / Taper, or Base / Build / Peak / Taper).
+        2. Each phase MUST include every field shown — philosophy, weekly_volume_range, sessions_per_week, intensity_distribution, key_workouts, strength_focus, physiological_goals, progression_rules, race_specific_notes.
+        3. Intensity distributions: base ~80/15/5/0, build ~75/10/12/3, peak ~70/10/15/5, taper ~80/10/8/2.
+        4. weekFocuses MUST cover every week from 1 to \(totalWeeks). No gaps.
+        5. Each weekFocus's "phase" must match which phase that week belongs to.
+        6. Each weekFocus's "focus" is ONE sentence naming the adaptation and position in the phase (e.g. "Build threshold — second week of progression, key session is Thursday's 3x10min @ LT").
+        7. Deload weeks should call out the reduced volume explicitly in the focus string.
+        """
+
+        let body: [String: Any] = [
+            "system": "You are an expert endurance coach. You return only valid JSON matching the exact shape requested, with no prose, no markdown fences, and no commentary.",
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": 4000,
+            "model": "claude-sonnet-4-6",
+        ]
+
+        let text = try await callChatWithRetry(body: body, logTag: "plan-skeleton")
+        guard let json = extractJSON(from: text) else {
+            throw NSError(
+                domain: "TrainingPlanGenerator", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Couldn't find skeleton JSON. Preview: \(text.prefix(200))"]
+            )
+        }
+        guard let data = json.data(using: .utf8) else {
+            throw NSError(domain: "TrainingPlanGenerator", code: 2, userInfo: [NSLocalizedDescriptionKey: "JSON encode failed"])
+        }
+
+        let decoded: SkeletonResponse
+        do {
+            decoded = try JSONDecoder().decode(SkeletonResponse.self, from: data)
+        } catch {
+            NSLog("[plan-skeleton] decode error: \(error)\njson preview: \(json.prefix(500))")
+            throw error
+        }
+
+        var focuses: [Int: String] = [:]
+        var weekPhases: [Int: Int] = [:]
+        for wf in decoded.weekFocuses {
+            focuses[wf.weekNumber] = wf.focus
+            weekPhases[wf.weekNumber] = wf.phase
+        }
+        return PlanSkeleton(phases: decoded.phases, weekFocuses: focuses, weekPhases: weekPhases)
+    }
+
+    // MARK: - Stage 2: Week batch
+
+    private struct WeekBatchResponse: Codable {
+        let weeks: [WeeklyPlan]
+    }
+
+    private static func generateWeekBatch(
+        weekNums: [Int],
+        event: Event,
+        profile: String,
+        constraintsBlock: String,
+        skeleton: PlanSkeleton,
+        totalWeeks: Int
+    ) async throws -> [WeeklyPlan] {
+        // Compact context about just the phases these weeks touch, so the
+        // model has the intensity/volume/focus cues without seeing every phase.
+        let relevantPhaseNums = Set(weekNums.compactMap { skeleton.weekPhases[$0] })
+        let phaseContext = skeleton.phases
+            .filter { relevantPhaseNums.contains($0.number) }
+            .map { phase -> String in
+                let dist = phase.intensityDistribution
+                let distLine = dist.map {
+                    "easy \($0.easy)% / tempo \($0.tempo)% / threshold \($0.threshold)% / VO2max \($0.vo2max)%"
+                } ?? "—"
+                let keyNames = (phase.keyWorkouts ?? []).map(\.name).joined(separator: ", ")
+                return """
+                Phase \(phase.number) — \(phase.name):
+                - Philosophy: \(phase.philosophy ?? "")
+                - Intensity mix: \(distLine)
+                - Key workouts: \(keyNames)
+                - Strength focus: \(phase.strengthFocus ?? "")
+                - Progression: \(phase.progressionRules ?? "")
+                """
+            }
+            .joined(separator: "\n\n")
+
+        let weekBriefs = weekNums.map { wn -> String in
+            let phase = skeleton.weekPhases[wn] ?? 1
+            let focus = skeleton.weekFocuses[wn] ?? ""
+            return "- Week \(wn) (phase \(phase)): \(focus)"
+        }.joined(separator: "\n")
+
+        let firstWeek = weekNums.first ?? 1
+        let prompt = """
+        Generate the daily sessions for these weeks of a \(totalWeeks)-week plan.
+
+        RACE: "\(event.name)" on \(event.date ?? "TBD"), goal: \(event.goal ?? "finish strong")
+
+        \(profile)
+
+        \(constraintsBlock)
+
+        PHASE CONTEXT:
+        \(phaseContext)
+
+        WEEKS TO GENERATE:
+        \(weekBriefs)
+
+        Return ONLY a JSON object matching this exact shape. No markdown fences, no prose.
+
+        {
+          "weeks": [
+            {
+              "weekNumber": \(firstWeek),
               "phase": 1,
-              "focusOfWeek": "Aerobic base building — first week of progression",
+              "focusOfWeek": "use the focus from the brief above",
               "sessions": [
                 {
                   "day": "monday",
@@ -104,14 +301,13 @@ enum TrainingPlanGenerator {
                       "zone": "Z2",
                       "pace_range": "10:30-11:00/mi",
                       "priority": "yellow",
-                      "purpose": "Build aerobic base while staying well within comfort zone.",
-                      "workout": "5mi steady at conversational pace. Focus on landing midfoot, relaxed shoulders, consistent breathing rhythm.",
-                      "notes": "If your knee feels tight after 2mi, stop and foam roll. This is a recovery-pace run, not a tempo effort — if pace drifts below 11:00/mi, walk for 60 seconds and restart. You're building a foundation this week, not chasing numbers.",
-                      "warning": "Skip this session and substitute a 20min walk if knee soreness from yesterday's strength work persists.",
+                      "purpose": "one sentence on the adaptation this session builds",
+                      "workout": "1-3 sentences of concrete instructions",
+                      "notes": "2-4 sentence personalized coach note",
                       "fuel": {
-                        "pre": "40g carbs + 15g protein 60min before (banana + peanut butter, or a small bowl of oats with honey).",
-                        "during": "Water only — session is under 60min.",
-                        "post": "25g protein + 40g carbs within 45min (Greek yogurt + berries + granola, or a protein shake with a banana)."
+                        "pre": "macro targets + timing + 2-3 food options",
+                        "during": "water only or specific carb/electrolyte plan for >60min",
+                        "post": "protein + carb targets + 2-3 food options"
                       }
                     }
                   ]
@@ -120,90 +316,73 @@ enum TrainingPlanGenerator {
                   "day": "tuesday",
                   "isRest": true,
                   "sessions": [],
-                  "rest_note": "Your left knee was sore after Monday's run — foam roll quads and calves, ice if needed. Light stretching only. Wednesday is your key strength day, so prioritize recovery tonight."
-                },
-                {
-                  "day": "wednesday",
-                  "isRest": false,
-                  "sessions": [
-                    {
-                      "type": "strength",
-                      "label": "Lower Body Strength",
-                      "duration": 50,
-                      "effort_category": "strength",
-                      "priority": "red",
-                      "purpose": "Build single-leg strength and posterior chain to protect the knee.",
-                      "workout": "45min lower-body session focused on hinge and unilateral work.",
-                      "notes": "Deload sets 1-2 by 10lb if hamstrings are still sore from Monday's run. Form over load today — this is a priority session and you cannot skip it.",
-                      "warning": "Skip single-leg squats if knee uncomfortable. Substitute with glute bridges or hip thrusts.",
-                      "exercises": [
-                        {
-                          "name": "Romanian Deadlift",
-                          "exerciseType": "weighted",
-                          "sets": 3,
-                          "reps": 8,
-                          "weight": 135,
-                          "rest": 90,
-                          "notes": "Focus on hamstring engagement. 2-second hold at top."
-                        },
-                        {
-                          "name": "Bulgarian Split Squat",
-                          "exerciseType": "weighted",
-                          "sets": 3,
-                          "reps": 10,
-                          "weight": 25,
-                          "rest": 60,
-                          "notes": "Use chair for balance if needed. Skip if knee uncomfortable."
-                        }
-                      ],
-                      "fuel": {
-                        "pre": "30g carbs + 20g protein 45min before (toast + eggs, or a protein shake with oats).",
-                        "during": "Water + electrolytes if sweating heavily.",
-                        "post": "30g protein within 30min (shake or chicken + rice)."
-                      }
-                    }
-                  ]
+                  "rest_note": "1-2 sentence personalized recovery advice"
                 }
               ]
             }
-          }
+          ]
         }
 
-        RULES FOR THE PLAN:
-        1. Generate ALL \(totalWeeks) weekly plans keyed "1" through "\(totalWeeks)".
-        2. Each weeklyPlan.sessions MUST be an array of exactly 7 day objects in order: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-        3. Rest days use "isRest": true with an empty sessions array.
-        4. Generate 2-4 phases that make sense for the race (e.g., Base / Build / Taper or Base / Build / Peak / Taper).
-        5. Each phase must include ALL fields shown in the example — philosophy, weekly_volume_range, sessions_per_week, intensity_distribution, key_workouts, strength_focus, physiological_goals, progression_rules, race_specific_notes.
-        6. effort_category must be one of: easy, recovery, tempo, threshold, long_endurance, vo2max, strength, race, rest.
-        7. For the "id" field, use any random string — the app will replace it.
-        8. session.type must be one of: run, bike, swim, strength, brick, hike, other.
-        9. distance_miles and duration are both numbers, not strings.
-        10. Populate every week, every day. No placeholders.
-        11. Long runs progress week-over-week within a phase. Deload weeks cut volume ~30%.
-        12. Match the intensity_distribution to the phase: base is ~80/15/5/0, build is ~75/10/12/3, taper is ~80/10/8/2.
-
-        SESSION-LEVEL FIELD RULES (apply to every non-rest session):
-        13. purpose: one sentence explaining what adaptation this session builds and why it matters this week. Plain language, not jargon.
-        14. workout: 1-3 sentences of concrete, actionable instructions — exact structure, form cues, pacing strategy. This is what the athlete reads to know what to do.
-        15. pace_range: compute from the athlete's recent benchmarks combined with the session's zone. For runs use min/mi, for bikes use watts or mph, for swims use /100m. If the athlete has no benchmark for this sport, OMIT the field rather than guessing.
-        16. priority: "red" for key workouts (long run, race-pace intervals, threshold work, key strength) that cannot be skipped. "yellow" for flexible sessions that can be moved or shortened. Every week must have 2-3 red-priority sessions.
-        17. notes: A PERSONALIZED coach note, not tactical "do X if fatigued" filler. Draw on the athlete's profile, injuries, benchmarks, and where this session fits in the week. Reference specific things (e.g. "your knee from last week", "building on Saturday's long run"). If there's no personal context for this session, write a short form cue or mental anchor — but never boilerplate. Never say "have a great workout". 2-4 sentences.
-        18. warning: OMIT this field unless the athlete has an active injury or medical history that affects THIS specific session. When present, it must name the modification ("Skip X if Y", "Substitute A for B") — this renders as a yellow callout above the exercise list.
-        19. fuel: REQUIRED on every non-rest session. pre = macro targets + timing + 2-3 specific food options. during = carbs/hour + hydration for sessions over 60min, "water only" for shorter. post = protein/carb grams + recovery window + 2-3 food options.
-        20. exercises: REQUIRED on every strength session. Each exercise has name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets, reps (or duration for timed), weight/band, rest (seconds), notes (form cue specific to this athlete).
-        21. rest_note: REQUIRED on every day with isRest=true. 1-2 sentences of personalized recovery advice drawing on the athlete's profile, recent training load, injuries, and what's coming next in the week. Never generic "rest up" filler. Examples: "Your knee was flagged last week — foam roll and ice if needed. Tomorrow's long run is the key session of the week, prioritize sleep tonight.", "You put down a big threshold day yesterday. Light walk OK if you want movement, otherwise sit still and eat."
+        RULES:
+        1. Generate ALL \(weekNums.count) week(s) listed, each with all 7 days in order: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+        2. Rest days use "isRest": true, empty sessions array, and REQUIRED "rest_note" (1-2 personalized sentences).
+        3. effort_category must be one of: easy, recovery, tempo, threshold, long_endurance, vo2max, strength, race, rest.
+        4. session.type must be one of: run, bike, swim, strength, brick, hike, other.
+        5. distance_miles and duration are numbers, not strings.
+        6. Every non-rest session REQUIRES purpose (one sentence), workout (1-3 sentences), notes (2-4 sentence personalized coach note — never boilerplate), and fuel (pre/during/post).
+        7. pace_range: compute from athlete benchmarks + zone when a benchmark exists. OMIT if no benchmark.
+        8. priority: "red" for 2-3 key workouts per week that cannot be skipped, "yellow" for flexible sessions.
+        9. warning: OMIT unless the athlete has an active injury affecting THIS specific session. When present, name the modification ("Skip X if Y", "Substitute A for B").
+        10. Every strength session REQUIRES an "exercises" array. Each exercise: name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets, reps (or duration for timed), weight/band, rest (seconds), notes (form cue specific to this athlete).
+        11. Long runs progress week-over-week within a phase. Deload weeks drop volume ~30%.
+        12. Use the phase context above to match intensity distribution and key workout placement. A tempo/threshold session in a build week should align with the phase's key workout list.
         """
 
         let body: [String: Any] = [
-            "system": "You are an expert endurance coach. When asked for a training plan, you return only valid JSON matching the exact shape requested, with no prose, no markdown fences, and no commentary before or after. Every field in every object must be populated.",
-            "messages": [
-                ["role": "user", "content": userPrompt]
-            ],
-            "max_tokens": 16000,
+            "system": "You are an expert endurance coach. You return only valid JSON matching the exact shape requested, with no prose, no markdown fences, and no commentary. Every field must be populated for every session.",
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": 6000,
             "model": "claude-sonnet-4-6",
         ]
 
+        let logTag = "plan-week-batch-\(weekNums.first ?? 0)-\(weekNums.last ?? 0)"
+        let text = try await callChatWithRetry(body: body, logTag: logTag)
+        guard let json = extractJSON(from: text) else {
+            throw NSError(
+                domain: "TrainingPlanGenerator", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Couldn't find week-batch JSON. Preview: \(text.prefix(200))"]
+            )
+        }
+        guard let data = json.data(using: .utf8) else {
+            throw NSError(domain: "TrainingPlanGenerator", code: 4, userInfo: [NSLocalizedDescriptionKey: "JSON encode failed"])
+        }
+
+        do {
+            let decoded = try JSONDecoder().decode(WeekBatchResponse.self, from: data)
+            return decoded.weeks
+        } catch {
+            NSLog("[\(logTag)] decode error: \(error)\njson preview: \(json.prefix(500))")
+            throw error
+        }
+    }
+
+    // MARK: - Edge function call + retry
+
+    /// One retry with a 2s delay before giving up. Transient 429/529s are
+    /// already retried inside the edge function; this handles the rarer case
+    /// where a response decodes malformed or the network blips on one batch.
+    private static func callChatWithRetry(body: [String: Any], logTag: String) async throws -> String {
+        do {
+            return try await callChat(body: body, logTag: logTag)
+        } catch {
+            NSLog("[\(logTag)] first attempt failed: \(error.localizedDescription) — retrying once")
+            try? await Task.sleep(for: .seconds(2))
+            return try await callChat(body: body, logTag: logTag)
+        }
+    }
+
+    private static func callChat(body: [String: Any], logTag: String) async throws -> String {
+        let client = SupabaseService.shared.client
         let bodyData = try JSONSerialization.data(withJSONObject: body)
 
         let response: PlanChatResponse = try await client.functions.invoke(
@@ -212,48 +391,22 @@ enum TrainingPlanGenerator {
         ) { data, response in
             guard 200..<300 ~= response.statusCode else {
                 let preview = String(data: data, encoding: .utf8) ?? ""
-                NSLog("[plan-generator] HTTP \(response.statusCode): \(preview)")
+                NSLog("[\(logTag)] HTTP \(response.statusCode): \(preview)")
                 throw FunctionsError.httpError(code: response.statusCode, data: data)
             }
             return try JSONDecoder().decode(PlanChatResponse.self, from: data)
         }
 
-        let text = response.content
+        return response.content
             .filter { $0.type == "text" }
             .compactMap(\.text)
             .joined(separator: "\n")
+    }
 
-        guard let json = extractJSON(from: text) else {
-            throw NSError(
-                domain: "TrainingPlanGenerator", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Couldn't find JSON in model output. Preview: \(text.prefix(200))"]
-            )
-        }
-        guard let jsonData = json.data(using: .utf8) else {
-            throw NSError(domain: "TrainingPlanGenerator", code: 2, userInfo: [NSLocalizedDescriptionKey: "JSON encode failed"])
-        }
+    // MARK: - Progress
 
-        do {
-            var plan = try JSONDecoder().decode(TrainingPlan.self, from: jsonData)
-            // Always assign a fresh id — the model often returns the placeholder.
-            plan = TrainingPlan(
-                id: UUID().uuidString,
-                goalId: plan.goalId ?? event.id,
-                raceName: plan.raceName ?? event.name,
-                raceDate: plan.raceDate ?? event.date,
-                startDate: plan.startDate ?? startDate,
-                totalWeeks: plan.totalWeeks,
-                currentWeek: plan.currentWeek,
-                currentPhase: plan.currentPhase,
-                trainingDaysPerWeek: plan.trainingDaysPerWeek,
-                phases: plan.phases,
-                weeklyPlans: plan.weeklyPlans
-            )
-            return plan
-        } catch {
-            NSLog("[plan-generator] decode error: \(error)\njson preview: \(json.prefix(500))")
-            throw error
-        }
+    private static func updateProgress(_ dataService: DataService?, _ message: String) {
+        dataService?.activeToolProgress = message
     }
 
     // MARK: - Context builders

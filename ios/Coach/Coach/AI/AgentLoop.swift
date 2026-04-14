@@ -172,6 +172,7 @@ func runAgentLoop(
             }
 
             dataService.activeToolName = nil
+            dataService.activeToolProgress = nil
 
             // Encode assistant content for the chain
             let assistantContent: [[String: Any]] = response.content.map { block in

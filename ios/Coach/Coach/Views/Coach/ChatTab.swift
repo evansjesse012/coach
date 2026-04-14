@@ -74,6 +74,13 @@ struct ChatTab: View {
     }
 
     private var loadingLabel: String {
+        // Long-running tools can publish a free-form progress string (e.g.
+        // "Generating weeks 3–4 of 12…") via DataService.activeToolProgress.
+        // Prefer that when it's set so the user sees real progress instead of
+        // the generic "Building your plan…" fallback.
+        if let progress = data.activeToolProgress, !progress.isEmpty {
+            return progress
+        }
         switch data.activeToolName {
         case "create_training_plan": return "Building your plan…"
         case "get_workouts", "get_training_stats", "get_week_review", "get_plan_history":

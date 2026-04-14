@@ -40,6 +40,11 @@ final class DataService {
     /// Used by ChatTab to show custom loading states (e.g. "Building your plan…").
     var activeToolName: String?
 
+    /// Free-form progress message for long-running tools that want to report
+    /// stages (e.g. "Generating weeks 3–4 of 12…"). Takes precedence over the
+    /// static activeToolName mapping in ChatTab's loading label when set.
+    var activeToolProgress: String?
+
     /// Pre-seeded prompt for the chat tab set by other tabs (e.g. Plan tab's
     /// "Build with your coach" button). Consumed on next chat appear.
     var pendingChatPrompt: String?

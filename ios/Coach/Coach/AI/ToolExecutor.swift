@@ -258,7 +258,8 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                 weeklyVolumeHours: volumeHours,
                 longRunDay: longRunDay,
                 strengthDays: strengthDays,
-                notes: planNotes
+                notes: planNotes,
+                dataService: dataService
             )
             let phasesSummary = plan.phases.map { "\($0.name) (\($0.weeks)w)" }.joined(separator: ", ")
             return ToolResult(
