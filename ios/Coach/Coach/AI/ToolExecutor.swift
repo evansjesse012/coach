@@ -78,7 +78,52 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
         }
 
         if let wp = plan.weeklyPlans[String(weekNum)] {
-            result["weekPlan"] = ["weekNumber": wp.weekNumber, "focusOfWeek": wp.focusOfWeek ?? ""]
+            let days: [[String: Any]] = wp.sessions.map { dp in
+                var day: [String: Any] = ["day": dp.day]
+                if dp.isRest == true {
+                    day["isRest"] = true
+                    if let note = dp.restNote, !note.isEmpty {
+                        day["restNote"] = note
+                    }
+                } else if !dp.sessions.isEmpty {
+                    day["sessions"] = dp.sessions.map { sess -> [String: Any] in
+                        var s: [String: Any] = [
+                            "type": sess.type,
+                            "label": sess.label,
+                        ]
+                        if let d = sess.duration {
+                            s["duration"] = d
+                        } else if let lo = sess.estimatedDurationMin, let hi = sess.estimatedDurationMax {
+                            s["durationRange"] = "\(lo)-\(hi)m"
+                        }
+                        if let mi = sess.distanceMiles { s["distanceMiles"] = mi }
+                        if let ec = sess.effortCategory { s["effortCategory"] = ec.rawValue }
+                        if let zone = sess.zone, !zone.isEmpty { s["zone"] = zone }
+                        if let pace = sess.paceRange, !pace.isEmpty { s["paceRange"] = pace }
+                        if let pri = sess.priority { s["priority"] = pri.rawValue }
+                        if let completed = sess.completed { s["completed"] = completed }
+                        if let purpose = sess.purpose, !purpose.isEmpty { s["purpose"] = purpose }
+                        if let workout = sess.workout, !workout.isEmpty { s["workout"] = workout }
+                        if let notes = sess.notes, !notes.isEmpty { s["notes"] = notes }
+                        if let warning = sess.warning, !warning.isEmpty { s["warning"] = warning }
+                        if let legs = sess.legs, !legs.isEmpty {
+                            s["legs"] = legs.map { leg -> [String: Any] in
+                                var l: [String: Any] = ["sport": leg.sport.rawValue]
+                                if let d = leg.duration { l["duration"] = d }
+                                if let z = leg.zone, !z.isEmpty { l["zone"] = z }
+                                return l
+                            }
+                        }
+                        return s
+                    }
+                }
+                return day
+            }
+            result["weekPlan"] = [
+                "weekNumber": wp.weekNumber,
+                "focusOfWeek": wp.focusOfWeek ?? "",
+                "days": days,
+            ] as [String: Any]
         }
 
         return ToolResult(summary: jsonString(result))
