@@ -376,6 +376,23 @@ struct TrainingPlan: Codable, Identifiable {
         }
     }
 
+    /// Phase number that contains the given 1-based plan week, walking
+    /// phases in `number` order and summing `weeks`. Returns nil when the
+    /// week is outside the plan's range.
+    func phaseNumber(forWeek weekNumber: Int) -> Int? {
+        guard weekNumber >= 1 else { return nil }
+        var cursor = 0
+        for phase in phases.sorted(by: { $0.number < $1.number }) {
+            let phaseStart = cursor + 1
+            let phaseEnd = cursor + phase.weeks
+            if weekNumber >= phaseStart && weekNumber <= phaseEnd {
+                return phase.number
+            }
+            cursor = phaseEnd
+        }
+        return nil
+    }
+
     /// Counts weeks in a phase that have at least one explicitly-completed session.
     func completedWeeks(in phase: TrainingPhase) -> Int {
         let start = startWeek(for: phase)

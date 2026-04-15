@@ -17,12 +17,21 @@ struct PlanTab: View {
             .sheet(isPresented: $showPlanChat) {
                 PlanCreationChatSheet()
             }
+            .task {
+                // Auto-advance currentWeek and pre-generate upcoming weeks.
+                // Safe to call repeatedly — deduped internally.
+                await data.ensurePlanPreGenerated()
+            }
         }
     }
 
     private func content(plan: TrainingPlan) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             CompactGoalHeader(plan: plan)
+            if let freshWeek = data.recentlyPregeneratedWeek,
+               freshWeek <= plan.totalWeeks {
+                FreshlyGeneratedBanner(weekNumber: freshWeek)
+            }
             FullPlanTimeline(plan: plan)
             phaseStack(plan: plan)
             thisWeekSection(plan: plan)
@@ -110,6 +119,71 @@ struct PlanTab: View {
         let race = plan.raceName ?? "my race"
         data.pendingChatPrompt = "I want to modify my current training plan for \(race). I'm in week \(plan.currentWeek) of \(plan.totalWeeks). What would you like to change?"
         data.selectedTab = "coach"
+    }
+}
+
+// MARK: - Freshly Generated Banner
+
+/// Shown at the top of the Plan tab when `data.recentlyPregeneratedWeek`
+/// is set — i.e. the background pre-generation just wrote a future week
+/// while the athlete wasn't looking. Tapping navigates into that week and
+/// clears the flag, so the banner auto-dismisses on interaction.
+private struct FreshlyGeneratedBanner: View {
+    let weekNumber: Int
+
+    @Environment(DataService.self) var data
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        NavigationLink {
+            WeekDetailView(initialWeekNum: weekNumber)
+                .onAppear {
+                    // Dismiss the cue as soon as the athlete acts on it.
+                    data.recentlyPregeneratedWeek = nil
+                }
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(CoachColors.accent.opacity(0.18))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(CoachColors.accent)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Your coach wrote week \(weekNumber)")
+                        .font(CoachFonts.ui(14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("Tap to preview what's coming up next.")
+                        .font(CoachFonts.ui(12))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [CoachColors.accent.opacity(0.14), CoachColors.accent.opacity(0.04)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(CoachColors.accent.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .transition(.asymmetric(
+            insertion: .scale(scale: 0.96).combined(with: .opacity),
+            removal: .opacity
+        ))
     }
 }
 

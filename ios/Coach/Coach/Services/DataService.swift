@@ -45,6 +45,18 @@ final class DataService {
     /// static activeToolName mapping in ChatTab's loading label when set.
     var activeToolProgress: String?
 
+    /// Weeks currently being generated in the background by
+    /// `ensurePlanPreGenerated`. Used as a de-dup set so a second trigger
+    /// (e.g. app launch then Plan tab appear within a few seconds) doesn't
+    /// kick off a second generation of the same week. In-memory only.
+    var pregeneratingWeeks: Set<Int> = []
+
+    /// The week number that was most recently pre-generated in the
+    /// background. The Plan tab reads this to show a small "Your coach just
+    /// wrote next week" banner, and clears it when the athlete taps through
+    /// or navigates to the week.
+    var recentlyPregeneratedWeek: Int?
+
     /// Pre-seeded prompt for the chat tab set by other tabs (e.g. Plan tab's
     /// "Build with your coach" button). Consumed on next chat appear.
     var pendingChatPrompt: String?
@@ -121,6 +133,13 @@ final class DataService {
             self.error = error.localizedDescription
         }
         isLoading = false
+
+        // Fire-and-forget plan auto-advance + pre-generation. Runs after
+        // loadAll has returned so it never blocks launch, and the nested
+        // awaits inside release the main actor so the UI isn't stuck.
+        Task { [weak self] in
+            await self?.ensurePlanPreGenerated()
+        }
     }
 
     // MARK: - Cardio CRUD
@@ -572,6 +591,109 @@ final class DataService {
         var updated = plan
         updated.weeklyPlans[String(weekNum)] = week
         try await savePlan(updated)
+    }
+
+    // MARK: - Plan auto-progression & pre-generation
+
+    /// Called on app launch and whenever the Plan tab appears. Does two
+    /// things in order:
+    ///
+    ///   1. **Advances `currentWeek`** based on the calendar — computes
+    ///      how many whole weeks have elapsed since `startDate` and moves
+    ///      `currentWeek` / `currentPhase` forward if it's behind.
+    ///   2. **Pre-generates upcoming weeks** the way a real coach would —
+    ///      Thursday-ish of the current week (~50%+ through), if next
+    ///      week is still a stub, kick off a silent background generation
+    ///      so the athlete opens the app Monday to a ready-to-train week.
+    ///      Also handles phase-transition lookahead: when next week begins
+    ///      a new phase, the week after it is pre-generated too so the
+    ///      athlete has mental runway for the transition.
+    ///
+    /// Safe to call multiple times — the `pregeneratingWeeks` de-dup set
+    /// prevents duplicate work.
+    func ensurePlanPreGenerated() async {
+        guard var plan = trainingPlan else { return }
+
+        // Calendar math. Both dates at day granularity.
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let startStr = plan.startDate,
+              let start = formatter.date(from: startStr) else { return }
+
+        let calendar = Calendar.current
+        let startDay = calendar.startOfDay(for: start)
+        let todayDay = calendar.startOfDay(for: Date())
+        let daysSinceStart = calendar.dateComponents([.day], from: startDay, to: todayDay).day ?? 0
+        guard daysSinceStart >= 0 else { return } // plan hasn't started yet
+
+        let calendarWeek = min(plan.totalWeeks, (daysSinceStart / 7) + 1)
+
+        // 1) Advance currentWeek / currentPhase if the calendar moved past us.
+        if calendarWeek > plan.currentWeek {
+            plan.currentWeek = calendarWeek
+            if let phaseNum = plan.phaseNumber(forWeek: calendarWeek) {
+                plan.currentPhase = phaseNum
+            }
+            try? await savePlan(plan)
+        }
+
+        // 2) Safety net: if the current week is somehow still a stub
+        //    (e.g. initial creation failed mid-flight, or the athlete let
+        //    a week pass without opening the app), generate it now so
+        //    they have something to train with TODAY.
+        if let currentWp = plan.weeklyPlans[String(calendarWeek)], currentWp.isStub {
+            await pregenerateWeek(calendarWeek, surfaceInUI: false)
+        }
+
+        // 3) Pre-generate next week if we're past day 3 (Thursday) of the
+        //    Mon-Sun week. Matches when a real coach sits down to write
+        //    next week — see the design in the "what would an expert coach
+        //    do" discussion.
+        let dayWithinWeek = daysSinceStart % 7
+        guard dayWithinWeek >= 3 else { return }
+
+        let nextWeek = calendarWeek + 1
+        guard nextWeek <= plan.totalWeeks else { return }
+
+        // Reload plan — step 2 may have updated it in-memory already.
+        guard let freshPlan = trainingPlan else { return }
+
+        if let nextWp = freshPlan.weeklyPlans[String(nextWeek)], nextWp.isStub {
+            await pregenerateWeek(nextWeek, surfaceInUI: true)
+        }
+
+        // 4) Phase-transition lookahead: if next week starts a new phase,
+        //    also pre-generate the week after it so the athlete has mental
+        //    runway for the transition. Silent — no UI banner for the
+        //    lookahead week, only for the immediately-next week.
+        if let nextPhase = freshPlan.phaseNumber(forWeek: nextWeek),
+           let currentPhase = freshPlan.phaseNumber(forWeek: calendarWeek),
+           nextPhase != currentPhase {
+            let weekAfter = nextWeek + 1
+            if weekAfter <= freshPlan.totalWeeks,
+               let wpAfter = freshPlan.weeklyPlans[String(weekAfter)],
+               wpAfter.isStub {
+                await pregenerateWeek(weekAfter, surfaceInUI: false)
+            }
+        }
+    }
+
+    /// Generates a single week in the background with de-duplication via
+    /// `pregeneratingWeeks`. Set `surfaceInUI: true` to poke
+    /// `recentlyPregeneratedWeek` on success so the Plan tab can show the
+    /// "your coach just wrote next week" banner.
+    private func pregenerateWeek(_ weekNum: Int, surfaceInUI: Bool) async {
+        guard !pregeneratingWeeks.contains(weekNum) else { return }
+        pregeneratingWeeks.insert(weekNum)
+        do {
+            try await generateWeek(weekNum)
+            if surfaceInUI {
+                recentlyPregeneratedWeek = weekNum
+            }
+        } catch {
+            NSLog("[plan-pregen] week \(weekNum) failed: \(error.localizedDescription)")
+        }
+        pregeneratingWeeks.remove(weekNum)
     }
 
     /// Toggles the explicit `completed` flag on a single prescribed session and persists the plan.
