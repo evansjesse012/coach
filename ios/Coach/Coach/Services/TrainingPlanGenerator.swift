@@ -335,7 +335,7 @@ enum TrainingPlanGenerator {
         let text = try await streamingCallWithRetry(
             system: "You are an expert endurance coach. You return only valid JSON matching the exact shape requested — no prose, no markdown fences, no commentary.",
             prompt: prompt,
-            maxTokens: 8000,
+            maxTokens: 40_000,
             logTag: "plan-skeleton",
             dataService: dataService
         )
