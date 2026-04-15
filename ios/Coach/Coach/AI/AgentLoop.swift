@@ -127,7 +127,7 @@ func runAgentLoop(
             system: buildSystemPrompt(personality: personality, customText: customText),
             messages: chain,
             tools: coachToolDefinitions,
-            maxTokens: 2048
+            maxTokens: 4096
         )
 
         if response.stopReason == "end_turn" {
@@ -262,4 +262,126 @@ private func callEdgeFunction(
             ]
         )
     }
+}
+
+// MARK: - Streaming Edge Function Call
+
+/// Streaming variant that consumes Anthropic's SSE response through the chat
+/// edge function and returns the fully assembled text content. Uses a raw
+/// URLSession so we can read the response body incrementally via
+/// `URLSession.bytes(for:)` — `supabase-js`'s `functions.invoke` doesn't
+/// expose the stream, so we bypass it and hit the edge function directly.
+///
+/// Streaming removes the wall-clock cliff for long generations: each SSE
+/// chunk resets iOS URLSession's internal read timer, so a 90-second
+/// generation that would otherwise hit the 60s `timeoutIntervalForRequest`
+/// completes without issue.
+///
+/// `onChunk` is invoked with the accumulated text periodically (throttled
+/// so we don't flood the main actor) so callers can surface live progress
+/// in the UI. It is also called once after the final chunk arrives.
+@MainActor
+func callEdgeFunctionStreaming(
+    system: String,
+    messages: [[String: Any]],
+    maxTokens: Int,
+    model: String = "claude-sonnet-4-6",
+    onChunk: @MainActor @Sendable (String) -> Void = { _ in }
+) async throws -> String {
+    // Grab the current access token so the edge function's JWT check passes.
+    let session = try await SupabaseService.shared.client.auth.session
+    let accessToken = session.accessToken
+
+    // These match SupabaseService.swift — safe to embed (RLS protects data).
+    let supabaseURL = "https://pfbcsdkbrjdwvrckcnbg.supabase.co"
+    let supabaseAnonKey = "sb_publishable_83nhtrTXoM1SvHMrV9BvMA_zIK7rkh0"
+
+    guard let url = URL(string: "\(supabaseURL)/functions/v1/chat") else {
+        throw URLError(.badURL)
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+    // Generous outer ceiling; the stream itself is what actually keeps the
+    // connection alive beyond the default 60s.
+    request.timeoutInterval = 600
+
+    let body: [String: Any] = [
+        "model": model,
+        "system": system,
+        "messages": messages,
+        "max_tokens": maxTokens,
+        "stream": true,
+    ]
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+    guard let http = response as? HTTPURLResponse else {
+        throw URLError(.badServerResponse)
+    }
+
+    if !(200..<300 ~= http.statusCode) {
+        // Drain the body so we can surface a useful error message.
+        var errData = Data()
+        for try await byte in bytes { errData.append(byte) }
+        let preview = String(data: errData, encoding: .utf8) ?? "<non-utf8>"
+        NSLog("[chat-stream] HTTP \(http.statusCode): \(preview)")
+        throw NSError(
+            domain: "ChatStream",
+            code: http.statusCode,
+            userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode): \(preview.prefix(300))"]
+        )
+    }
+
+    var accumulated = ""
+    var lastReportedCount = 0
+    let reportThreshold = 120 // characters between progress callbacks
+
+    for try await line in bytes.lines {
+        // SSE frames look like:
+        //
+        //     event: content_block_delta
+        //     data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+        //
+        // Blank lines separate events. We only need the `data:` lines —
+        // the JSON body already carries its own `type` field.
+        guard line.hasPrefix("data: ") else { continue }
+        let payload = String(line.dropFirst("data: ".count))
+        guard !payload.isEmpty, payload != "[DONE]" else { continue }
+
+        guard let data = payload.data(using: .utf8),
+              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = event["type"] as? String else {
+            continue
+        }
+
+        switch type {
+        case "content_block_delta":
+            if let delta = event["delta"] as? [String: Any],
+               let text = delta["text"] as? String {
+                accumulated += text
+                if accumulated.count - lastReportedCount >= reportThreshold {
+                    lastReportedCount = accumulated.count
+                    onChunk(accumulated)
+                }
+            }
+        case "message_stop":
+            if accumulated.count != lastReportedCount {
+                onChunk(accumulated)
+            }
+            return accumulated
+        default:
+            continue
+        }
+    }
+
+    // Stream ended without an explicit message_stop — still return what we
+    // gathered. Callers will fail to decode if the JSON is truncated and
+    // surface a helpful error.
+    return accumulated
 }

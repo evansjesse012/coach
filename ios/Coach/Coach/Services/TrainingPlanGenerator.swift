@@ -2,22 +2,25 @@ import Foundation
 import Supabase
 import Functions
 
-/// Generates a periodized TrainingPlan the way a real coach would:
+/// Builds a periodized TrainingPlan in the way a real coach would:
 ///
-///   1. **Skeleton call** — phases + a one-line focus per week (season plan).
-///   2. **Week 1 generation** — full daily detail for the current week only.
-///   3. **Stubs** — every other week is stored with just its focus/phase and
-///      an empty sessions array, ready to be filled in later via
-///      `generateWeek(weekNumber:...)` when it's time to run that week.
+///   1. **Skeleton call** — phases only. Rich detail per phase (philosophy,
+///      volume, intensity, key workouts, strength focus, progression rules).
+///      No per-week focuses are generated — skeleton output size is fixed
+///      regardless of plan length, so a 12-week plan and a 78-week plan
+///      both generate structure in roughly the same time.
+///   2. **Week 1 generation** — full daily detail for the current week
+///      only. The athlete has something to train with today.
+///   3. **Stubs** — every other week is stored with just its phase number
+///      and an empty sessions array. `TrainingPlanGenerator.generateWeek`
+///      fills them in later, leaning on the phase's stored context plus
+///      recent adherence history.
 ///
-/// This mirrors how human coaches work: set the season-level structure up
-/// front, then shape each week in detail based on how the athlete actually
-/// responds to the work. It also sidesteps the upfront cost of generating
-/// 20+ weeks of session detail (13+ API calls, 5–8 minutes of wall clock)
-/// that gets overwritten anyway as reality diverges from the plan.
-///
-/// Each stage reports progress through DataService.activeToolProgress so the
-/// chat UI can show what's happening instead of just "Thinking…".
+/// Both model calls use SSE streaming via `callEdgeFunctionStreaming` — the
+/// connection stays alive as long as chunks flow, so we don't hit the iOS
+/// URLSession 60s cliff or Deno Deploy's wall-clock limit even for long
+/// plans. Non-streaming callers (the agent loop, one-shot generators) are
+/// unaffected — they still hit the edge function's non-streaming path.
 @MainActor
 enum TrainingPlanGenerator {
     static func generate(
@@ -42,18 +45,19 @@ enum TrainingPlanGenerator {
         let startDate = computeStartDate(for: event, totalWeeks: totalWeeks)
 
         // MARK: Stage 1 — skeleton
-        updateProgress(dataService, "Building plan structure…")
+        updateProgress(dataService, "Designing your season structure…")
         let skeleton = try await generateSkeleton(
             event: event,
             profile: profile,
             constraintsBlock: constraintsBlock,
             startDate: startDate,
             totalWeeks: totalWeeks,
-            trainingDaysPerWeek: trainingDaysPerWeek
+            trainingDaysPerWeek: trainingDaysPerWeek,
+            dataService: dataService
         )
 
         // MARK: Stage 2 — current week full detail
-        updateProgress(dataService, "Generating week 1 of \(totalWeeks)…")
+        updateProgress(dataService, "Writing week 1 in detail…")
         let weekOne = try await generateWeekBatch(
             weekNums: [1],
             event: event,
@@ -61,10 +65,12 @@ enum TrainingPlanGenerator {
             constraintsBlock: constraintsBlock,
             skeleton: skeleton,
             totalWeeks: totalWeeks,
-            recentAdherenceContext: nil
+            recentAdherenceContext: nil,
+            dataService: dataService
         )
 
         // MARK: Stage 3 — stub remaining weeks
+        updateProgress(dataService, "Finalizing your plan…")
         var weeklyPlans: [String: WeeklyPlan] = [:]
         for wp in weekOne {
             weeklyPlans[String(wp.weekNumber)] = wp
@@ -72,13 +78,11 @@ enum TrainingPlanGenerator {
         for wn in 2...max(2, totalWeeks) where wn <= totalWeeks {
             weeklyPlans[String(wn)] = WeeklyPlan(
                 weekNumber: wn,
-                phase: skeleton.weekPhases[wn],
-                focusOfWeek: skeleton.weekFocuses[wn],
-                sessions: [] // stub — filled in via generateWeek later
+                phase: phaseForWeek(wn, in: skeleton.phases)?.number,
+                focusOfWeek: nil, // filled in by generateWeek when the week is close
+                sessions: []
             )
         }
-
-        updateProgress(dataService, "Finalizing your plan…")
 
         let plan = TrainingPlan(
             id: UUID().uuidString,
@@ -101,12 +105,11 @@ enum TrainingPlanGenerator {
     // MARK: - Lazy: generate one week
 
     /// Generates full daily detail for a single week of an existing plan,
-    /// reusing the plan's stored phases + weekly focuses (the original
-    /// skeleton) and pulling in recent adherence history so the model can
-    /// adapt — progress, back off, or swap sessions based on what actually
-    /// happened in the preceding weeks. Returns the new WeeklyPlan; the
-    /// caller is responsible for splicing it into `plan.weeklyPlans` and
-    /// persisting.
+    /// reconstructing the skeleton from the stored plan's phases and pulling
+    /// in recent adherence history so the coach can adapt — progress, back
+    /// off, or swap sessions based on what actually happened in the
+    /// preceding weeks. The caller splices the returned WeeklyPlan into
+    /// `plan.weeklyPlans` and persists.
     static func generateWeek(
         weekNumber: Int,
         in plan: TrainingPlan,
@@ -121,20 +124,7 @@ enum TrainingPlanGenerator {
             )
         }
 
-        // Reconstruct the in-memory skeleton from the stored plan.
-        var focuses: [Int: String] = [:]
-        var weekPhases: [Int: Int] = [:]
-        for (weekNumStr, wp) in plan.weeklyPlans {
-            guard let wn = Int(weekNumStr) else { continue }
-            if let f = wp.focusOfWeek { focuses[wn] = f }
-            if let p = wp.phase { weekPhases[wn] = p }
-        }
-        let skeleton = PlanSkeleton(
-            phases: plan.phases,
-            weekFocuses: focuses,
-            weekPhases: weekPhases
-        )
-
+        let skeleton = PlanSkeleton(phases: plan.phases)
         let profile = buildAthleteContext(memory: athleteMemory)
         let constraintsBlock = buildConstraintsBlock(
             trainingDaysPerWeek: plan.trainingDaysPerWeek,
@@ -153,7 +143,8 @@ enum TrainingPlanGenerator {
             constraintsBlock: constraintsBlock,
             skeleton: skeleton,
             totalWeeks: plan.totalWeeks,
-            recentAdherenceContext: adherence
+            recentAdherenceContext: adherence,
+            dataService: dataService
         )
 
         dataService?.activeToolProgress = nil
@@ -166,9 +157,9 @@ enum TrainingPlanGenerator {
         return week
     }
 
-    /// Summarizes up to the last 3 completed weeks so the prompt can tell the
-    /// model how the athlete is actually doing. Empty string if there's no
-    /// history yet (e.g. generating week 2 of a fresh plan).
+    /// Summarizes up to the last 3 completed weeks so the prompt can tell
+    /// the model how the athlete is actually doing. Empty when there's no
+    /// history yet.
     private static func buildRecentAdherenceContext(plan: TrainingPlan, weekNumber: Int) -> String? {
         let lookback = 3
         let startWeek = max(1, weekNumber - lookback)
@@ -191,7 +182,6 @@ enum TrainingPlanGenerator {
             var line = "- Week \(w): \(done)/\(total) sessions completed"
             if !skipped.isEmpty { line += "; skipped: \(skipped.joined(separator: ", "))" }
             if !swapped.isEmpty { line += "; swapped: \(swapped.joined(separator: ", "))" }
-            // Surface notable completion notes so the model sees the "why".
             let notes = allSessions.compactMap(\.completionNote).filter { !$0.isEmpty }
             if !notes.isEmpty {
                 line += "; notes: " + notes.prefix(2).joined(separator: " | ")
@@ -207,25 +197,55 @@ enum TrainingPlanGenerator {
         """
     }
 
-    // MARK: - Stage 1: Skeleton
+    // MARK: - Skeleton data structures
 
+    /// Minimal skeleton — phases only. Week → phase mapping is derived at
+    /// call sites via `phaseForWeek(_:in:)` rather than stored redundantly.
     private struct PlanSkeleton {
         let phases: [TrainingPhase]
-        /// weekNumber → focusOfWeek
-        let weekFocuses: [Int: String]
-        /// weekNumber → phase number
-        let weekPhases: [Int: Int]
     }
 
     private struct SkeletonResponse: Codable {
         let phases: [TrainingPhase]
-        let weekFocuses: [WeekFocus]
-        struct WeekFocus: Codable {
-            let weekNumber: Int
-            let phase: Int
-            let focus: String
-        }
     }
+
+    // MARK: - Phase-from-week helpers
+
+    /// The phase that contains a given 1-based week number, assuming phases
+    /// are laid out contiguously in `number` order starting at week 1.
+    /// Returns nil if the week number is outside the phase range.
+    private static func phaseForWeek(_ weekNumber: Int, in phases: [TrainingPhase]) -> TrainingPhase? {
+        let sorted = phases.sorted { $0.number < $1.number }
+        var cursor = 0
+        for phase in sorted {
+            let phaseStart = cursor + 1
+            let phaseEnd = cursor + phase.weeks
+            if weekNumber >= phaseStart && weekNumber <= phaseEnd {
+                return phase
+            }
+            cursor = phaseEnd
+        }
+        return nil
+    }
+
+    /// 1-based position of the given plan-week within its phase.
+    /// (e.g. week 15 of a 12-week base + 6-week build is week 3 of the
+    /// build phase.)
+    private static func weekPositionInPhase(_ weekNumber: Int, phases: [TrainingPhase]) -> Int {
+        let sorted = phases.sorted { $0.number < $1.number }
+        var cursor = 0
+        for phase in sorted {
+            let phaseStart = cursor + 1
+            let phaseEnd = cursor + phase.weeks
+            if weekNumber >= phaseStart && weekNumber <= phaseEnd {
+                return weekNumber - phaseStart + 1
+            }
+            cursor = phaseEnd
+        }
+        return 1
+    }
+
+    // MARK: - Stage 1: Skeleton
 
     private static func generateSkeleton(
         event: Event,
@@ -233,24 +253,51 @@ enum TrainingPlanGenerator {
         constraintsBlock: String,
         startDate: String,
         totalWeeks: Int,
-        trainingDaysPerWeek: Int?
+        trainingDaysPerWeek: Int?,
+        dataService: DataService?
     ) async throws -> PlanSkeleton {
         let prompt = """
-        You are designing the structural outline of a \(totalWeeks)-week training plan. Do NOT generate daily sessions yet — those come in later calls.
+        You are an expert endurance coach designing the season-level structure of a training plan. This is the same judgment call you'd make sitting down with a new client — treat it that way. Use your experience, not a template.
 
         RACE: "\(event.name)"
         RACE DATE: \(event.date ?? "TBD")
-        LOCATION: \(event.location ?? "TBD")
+        DISTANCE: \(event.distance ?? "unspecified")
         GOAL TIME: \(event.goal ?? "finish strong")
-        TOTAL WEEKS: \(totalWeeks)
-        START DATE: \(startDate)
+        LOCATION: \(event.location ?? "unspecified")
+
+        PLAN LENGTH: \(totalWeeks) weeks
+        PLAN START DATE: \(startDate)
         TRAINING DAYS PER WEEK: \(trainingDaysPerWeek ?? 6)
 
         \(profile)
 
         \(constraintsBlock)
 
-        Return ONLY a JSON object matching this exact shape. No markdown fences, no prose.
+        YOUR JOB
+        Design the phase structure you'd use for this athlete and this race. You have full latitude on:
+        - How many phases (typically 2–5, but use whatever the runway demands)
+        - Phase names (Base / Build / Peak / Taper are common but use what fits)
+        - How many weeks each phase runs — they MUST sum to exactly \(totalWeeks)
+        - Physiological target per phase
+        - Weekly intensity distribution for each phase (easy / tempo / threshold / VO2 max %)
+        - Volume progression rules (week-over-week % change, deload cadence)
+        - Key workouts that define each phase
+        - Strength focus that complements each phase
+        - Deload week positioning within the phase
+
+        RUNWAY HANDLING
+        - **Long runway (> 6 months / ~26 weeks):** Most of the plan should be base building and general prep — uniform weekly structures, gradual volume progression, mileposts along the way. Reserve the specific-prep / peak / taper work for the final 16–24 weeks before race day. Do NOT compress a long plan into "a short plan + a long taper" — that wastes the runway. A real coach spends the early months building the engine, even if nothing "race-specific" is happening yet.
+        - **Medium runway (12–26 weeks):** Conventional periodization — Base → Build → Peak → Taper, roughly proportional to the time available.
+        - **Short runway (< 12 weeks):** Skip or compress base. Prioritize race-specific adaptations, peak, and taper. Accept that fitness gains will be limited and shape expectations around that.
+
+        ATHLETE-SPECIFIC DESIGN
+        - If the athlete has active injuries, soften progressions and reflect modifications in the phase notes.
+        - If there are equipment or facility constraints, work within them.
+        - If a benchmark exists (FTP, threshold pace, recent race time), anchor volume and intensity targets to it.
+        - If skip patterns or recovery notes exist, plan conservatively around them.
+
+        OUTPUT FORMAT
+        Return ONLY a JSON object — no markdown fences, no prose, no commentary, no additional fields. Match this shape exactly:
 
         {
           "phases": [
@@ -259,46 +306,40 @@ enum TrainingPlanGenerator {
               "name": "Base",
               "startDate": "YYYY-MM-DD",
               "endDate": "YYYY-MM-DD",
-              "weeks": 6,
+              "weeks": 12,
               "deloadWeek": 4,
-              "philosophy": "1-2 sentences on what this phase accomplishes",
-              "weekly_volume_range": {"min": 6.0, "max": 8.0, "unit": "hours"},
-              "sessions_per_week": 6,
-              "intensity_distribution": {"easy": 80, "tempo": 15, "threshold": 5, "vo2_max": 0},
+              "philosophy": "2–3 sentences on what this phase builds and why it matters for THIS athlete and THIS race. Specific, not generic.",
+              "weekly_volume_range": {"min": 5.0, "max": 8.0, "unit": "hours"},
+              "sessions_per_week": 5,
+              "intensity_distribution": {"easy": 82, "tempo": 12, "threshold": 6, "vo2_max": 0},
               "key_workouts": [
-                {"name": "Long Run", "description": "Progressive Z2 long run"},
-                {"name": "Tempo", "description": "3x10min @ tempo"}
+                {"name": "Long Run", "description": "Progressive Z2 long run, building 10% per week within the phase"},
+                {"name": "Tempo", "description": "3x10min @ LT effort, one session per week"}
               ],
-              "strength_focus": "Max strength — heavy 3-5 rep work",
-              "physiological_goals": ["Increase mitochondrial density", "Improve fat oxidation"],
-              "progression_rules": "+10% volume per week for 3 weeks, 30% deload on week 4",
-              "race_specific_notes": "Race-specific notes tied to the event"
+              "strength_focus": "Max strength — heavy compound lifts 2x/week, 3–5 rep range",
+              "physiological_goals": ["Aerobic capacity", "Mitochondrial density", "Running economy"],
+              "progression_rules": "+10% volume/week for 3 weeks, -25% deload on week 4. Long run progression: starts at X, ends at Y.",
+              "race_specific_notes": "Anything tying this phase to the specific race — terrain, climate, pacing, nutrition strategy"
             }
-          ],
-          "weekFocuses": [
-            {"weekNumber": 1, "phase": 1, "focus": "Aerobic base building — first week of progression"},
-            {"weekNumber": 2, "phase": 1, "focus": "..."}
           ]
         }
 
-        RULES:
-        1. Generate 2-4 phases that make sense for this race distance and timeline (e.g. Base / Build / Taper, or Base / Build / Peak / Taper).
-        2. Each phase MUST include every field shown — philosophy, weekly_volume_range, sessions_per_week, intensity_distribution, key_workouts, strength_focus, physiological_goals, progression_rules, race_specific_notes.
-        3. Intensity distributions: base ~80/15/5/0, build ~75/10/12/3, peak ~70/10/15/5, taper ~80/10/8/2.
-        4. weekFocuses MUST cover every week from 1 to \(totalWeeks). No gaps.
-        5. Each weekFocus's "phase" must match which phase that week belongs to.
-        6. Each weekFocus's "focus" is ONE sentence naming the adaptation and position in the phase (e.g. "Build threshold — second week of progression, key session is Thursday's 3x10min @ LT").
-        7. Deload weeks should call out the reduced volume explicitly in the focus string.
+        REQUIREMENTS
+        1. Every phase MUST include every field shown — no omissions, no nulls on required fields.
+        2. Phase weeks MUST sum to exactly \(totalWeeks).
+        3. startDate / endDate on each phase MUST be contiguous — phase 2 begins the day after phase 1 ends, etc. First phase begins \(startDate).
+        4. Do NOT generate a weekFocuses array. Do NOT generate daily sessions. Only phases.
+        5. Write philosophy, progression_rules, and race_specific_notes specifically for this athlete and race — avoid boilerplate like "build aerobic base". Reference the athlete's profile, recent benchmarks, or race-specific demands.
         """
 
-        let body: [String: Any] = [
-            "system": "You are an expert endurance coach. You return only valid JSON matching the exact shape requested, with no prose, no markdown fences, and no commentary.",
-            "messages": [["role": "user", "content": prompt]],
-            "max_tokens": 4000,
-            "model": "claude-sonnet-4-6",
-        ]
+        let text = try await streamingCallWithRetry(
+            system: "You are an expert endurance coach. You return only valid JSON matching the exact shape requested — no prose, no markdown fences, no commentary.",
+            prompt: prompt,
+            maxTokens: 8000,
+            logTag: "plan-skeleton",
+            dataService: dataService
+        )
 
-        let text = try await callChatWithRetry(body: body, logTag: "plan-skeleton")
         guard let json = extractJSON(from: text) else {
             throw NSError(
                 domain: "TrainingPlanGenerator", code: 1,
@@ -317,33 +358,14 @@ enum TrainingPlanGenerator {
             throw error
         }
 
-        var focuses: [Int: String] = [:]
-        var weekPhases: [Int: Int] = [:]
-        for wf in decoded.weekFocuses {
-            focuses[wf.weekNumber] = wf.focus
-            weekPhases[wf.weekNumber] = wf.phase
+        // Sanity check — phase weeks must sum to totalWeeks. If the coach
+        // came up short or over, log it but trust the phase structure.
+        let sum = decoded.phases.reduce(0) { $0 + $1.weeks }
+        if sum != totalWeeks {
+            NSLog("[plan-skeleton] phase weeks sum to \(sum), expected \(totalWeeks) — trusting model")
         }
 
-        // Sanity check — the model occasionally forgets a week. Fill in any
-        // gap with the neighboring week's phase and a generic focus so the
-        // rest of the pipeline doesn't blow up. Log so we can see when the
-        // model is drifting.
-        var filled = 0
-        for wn in 1...totalWeeks {
-            if focuses[wn] == nil {
-                focuses[wn] = "Continue progression from the previous week."
-                filled += 1
-            }
-            if weekPhases[wn] == nil {
-                let neighbor = weekPhases[wn - 1] ?? weekPhases[wn + 1] ?? 1
-                weekPhases[wn] = neighbor
-            }
-        }
-        if filled > 0 {
-            NSLog("[plan-skeleton] filled \(filled) missing weekFocus entries out of \(totalWeeks)")
-        }
-
-        return PlanSkeleton(phases: decoded.phases, weekFocuses: focuses, weekPhases: weekPhases)
+        return PlanSkeleton(phases: decoded.phases)
     }
 
     // MARK: - Stage 2: Week batch
@@ -359,11 +381,12 @@ enum TrainingPlanGenerator {
         constraintsBlock: String,
         skeleton: PlanSkeleton,
         totalWeeks: Int,
-        recentAdherenceContext: String? = nil
+        recentAdherenceContext: String? = nil,
+        dataService: DataService?
     ) async throws -> [WeeklyPlan] {
-        // Compact context about just the phases these weeks touch, so the
-        // model has the intensity/volume/focus cues without seeing every phase.
-        let relevantPhaseNums = Set(weekNums.compactMap { skeleton.weekPhases[$0] })
+        // Compact context about just the phases these weeks touch — don't
+        // dump every phase in the plan when we're only writing 1–2 weeks.
+        let relevantPhaseNums = Set(weekNums.compactMap { phaseForWeek($0, in: skeleton.phases)?.number })
         let phaseContext = skeleton.phases
             .filter { relevantPhaseNums.contains($0.number) }
             .map { phase -> String in
@@ -371,30 +394,49 @@ enum TrainingPlanGenerator {
                 let distLine = dist.map {
                     "easy \($0.easy)% / tempo \($0.tempo)% / threshold \($0.threshold)% / VO2max \($0.vo2max)%"
                 } ?? "—"
-                let keyNames = (phase.keyWorkouts ?? []).map(\.name).joined(separator: ", ")
+                let volume = phase.weeklyVolumeRange.map {
+                    "\($0.min)–\($0.max) \($0.unit)/wk"
+                } ?? "—"
+                let keyWorkouts = (phase.keyWorkouts ?? [])
+                    .map { "    • \($0.name): \($0.description)" }
+                    .joined(separator: "\n")
+                let goals = (phase.physiologicalGoals ?? []).joined(separator: ", ")
                 return """
-                Phase \(phase.number) — \(phase.name):
-                - Philosophy: \(phase.philosophy ?? "")
+                Phase \(phase.number) — \(phase.name) (\(phase.weeks) weeks, deload week \(phase.deloadWeek ?? 0)):
+                - Philosophy: \(phase.philosophy ?? "—")
+                - Weekly volume: \(volume)
+                - Sessions/week: \(phase.sessionsPerWeek ?? 0)
                 - Intensity mix: \(distLine)
-                - Key workouts: \(keyNames)
-                - Strength focus: \(phase.strengthFocus ?? "")
-                - Progression: \(phase.progressionRules ?? "")
+                - Key workouts:
+                \(keyWorkouts)
+                - Strength focus: \(phase.strengthFocus ?? "—")
+                - Physiological targets: \(goals)
+                - Progression: \(phase.progressionRules ?? "—")
+                - Race-specific notes: \(phase.raceSpecificNotes ?? "—")
                 """
             }
             .joined(separator: "\n\n")
 
+        // Per-week briefs describing where each week sits inside its phase.
         let weekBriefs = weekNums.map { wn -> String in
-            let phase = skeleton.weekPhases[wn] ?? 1
-            let focus = skeleton.weekFocuses[wn] ?? ""
-            return "- Week \(wn) (phase \(phase)): \(focus)"
+            let phase = phaseForWeek(wn, in: skeleton.phases)
+            let phaseNum = phase?.number ?? 1
+            let phaseName = phase?.name ?? "phase"
+            let phaseWeeks = phase?.weeks ?? 0
+            let position = weekPositionInPhase(wn, phases: skeleton.phases)
+            let isDeload = phase?.deloadWeek.map { $0 == position } ?? false
+            let deloadTag = isDeload ? " · DELOAD WEEK — cut volume ~25-30%" : ""
+            return "- Week \(wn) of \(totalWeeks): week \(position) of \(phaseWeeks) in \(phaseName) (phase \(phaseNum))\(deloadTag)"
         }.joined(separator: "\n")
 
         let firstWeek = weekNums.first ?? 1
         let adherenceBlock = recentAdherenceContext.map { "\n\n\($0)" } ?? ""
-        let prompt = """
-        Generate the daily sessions for these weeks of a \(totalWeeks)-week plan.
 
-        RACE: "\(event.name)" on \(event.date ?? "TBD"), goal: \(event.goal ?? "finish strong")
+        let prompt = """
+        You are an expert endurance coach writing the daily sessions for a specific week (or two) of a training plan. Use your judgment — you're not filling in a template, you're prescribing work for a real athlete based on where they are in the plan and how they're actually doing.
+
+        RACE: "\(event.name)" on \(event.date ?? "TBD")
+        GOAL: \(event.goal ?? "finish strong")
 
         \(profile)
 
@@ -406,14 +448,18 @@ enum TrainingPlanGenerator {
         WEEKS TO GENERATE:
         \(weekBriefs)
 
-        Return ONLY a JSON object matching this exact shape. No markdown fences, no prose.
+        YOUR JOB
+        For each week listed, write 7 days of sessions (Monday through Sunday). Draw on the phase context for volume, intensity, and key workout placement. Progress the work week-over-week within the phase. Adapt to any adherence history above — if the athlete is missing key sessions, pull back; if they're nailing everything, progress. Be specific, not generic.
+
+        OUTPUT FORMAT
+        Return ONLY a JSON object — no markdown fences, no prose, no commentary. Match this shape exactly:
 
         {
           "weeks": [
             {
               "weekNumber": \(firstWeek),
               "phase": 1,
-              "focusOfWeek": "use the focus from the brief above",
+              "focusOfWeek": "ONE sentence naming the adaptation and position in the phase (e.g. 'Threshold build — second week of progression, key session is Thursday's 3x10min @ LT')",
               "sessions": [
                 {
                   "day": "monday",
@@ -431,11 +477,11 @@ enum TrainingPlanGenerator {
                       "pace_range": "10:30-11:00/mi",
                       "priority": "yellow",
                       "purpose": "one sentence on the adaptation this session builds",
-                      "workout": "1-3 sentences of concrete instructions",
-                      "notes": "2-4 sentence personalized coach note",
+                      "workout": "1–3 sentences of concrete instructions",
+                      "notes": "2–4 sentence personalized coach note",
                       "fuel": {
                         "pre": "macro targets + timing + 2-3 food options",
-                        "during": "water only or specific carb/electrolyte plan for >60min",
+                        "during": "water only, or specific carb/electrolyte plan for sessions > 60min",
                         "post": "protein + carb targets + 2-3 food options"
                       }
                     }
@@ -445,37 +491,37 @@ enum TrainingPlanGenerator {
                   "day": "tuesday",
                   "isRest": true,
                   "sessions": [],
-                  "rest_note": "1-2 sentence personalized recovery advice"
+                  "rest_note": "1–2 sentence personalized recovery advice"
                 }
               ]
             }
           ]
         }
 
-        RULES:
+        REQUIREMENTS
         1. Generate ALL \(weekNums.count) week(s) listed, each with all 7 days in order: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-        2. Rest days use "isRest": true, empty sessions array, and REQUIRED "rest_note" (1-2 personalized sentences).
-        3. effort_category must be one of: easy, recovery, tempo, threshold, long_endurance, vo2max, strength, race, rest.
-        4. session.type must be one of: run, bike, swim, strength, brick, hike, other.
-        5. distance_miles and duration are numbers, not strings.
-        6. Every non-rest session REQUIRES purpose (one sentence), workout (1-3 sentences), notes (2-4 sentence personalized coach note — never boilerplate), and fuel (pre/during/post).
-        7. pace_range: compute from athlete benchmarks + zone when a benchmark exists. OMIT if no benchmark.
-        8. priority: "red" for 2-3 key workouts per week that cannot be skipped, "yellow" for flexible sessions.
-        9. warning: OMIT unless the athlete has an active injury affecting THIS specific session. When present, name the modification ("Skip X if Y", "Substitute A for B").
-        10. Every strength session REQUIRES an "exercises" array. Each exercise: name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets, reps (or duration for timed), weight/band, rest (seconds), notes (form cue specific to this athlete).
-        11. Long runs progress week-over-week within a phase. Deload weeks drop volume ~30%.
-        12. Use the phase context above to match intensity distribution and key workout placement. A tempo/threshold session in a build week should align with the phase's key workout list.
+        2. Rest days: `isRest: true`, empty `sessions` array, REQUIRED `rest_note` (1–2 personalized sentences).
+        3. `effort_category` must be one of: easy, recovery, tempo, threshold, long_endurance, vo2max, strength, race, rest.
+        4. `session.type` must be one of: run, bike, swim, strength, brick, hike, other.
+        5. `distance_miles` and `duration` are numbers, not strings.
+        6. Every non-rest session REQUIRES `purpose` (one sentence), `workout` (1–3 sentences), `notes` (2–4 sentence personalized coach note — never boilerplate), and `fuel` (pre/during/post).
+        7. `pace_range`: compute from athlete benchmarks + zone when a benchmark exists. OMIT the field if no benchmark — don't guess.
+        8. `priority`: "red" for 2–3 key workouts per week that cannot be skipped, "yellow" for flexible sessions.
+        9. `warning`: OMIT unless the athlete has an active injury affecting THIS specific session. When present, name the modification ("Skip X if Y", "Substitute A for B").
+        10. Every strength session REQUIRES an `exercises` array. Each exercise: name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets, reps (or duration for timed), weight/band, rest (seconds), notes (form cue specific to this athlete).
+        11. Long runs progress week-over-week within the phase. Deload weeks drop volume ~25-30%.
+        12. Use the phase context and week position above to pick the right intensity, volume, and key-workout placement. A tempo/threshold session in a build week should align with that phase's listed key workouts.
         """
 
-        let body: [String: Any] = [
-            "system": "You are an expert endurance coach. You return only valid JSON matching the exact shape requested, with no prose, no markdown fences, and no commentary. Every field must be populated for every session.",
-            "messages": [["role": "user", "content": prompt]],
-            "max_tokens": 6000,
-            "model": "claude-sonnet-4-6",
-        ]
-
         let logTag = "plan-week-batch-\(weekNums.first ?? 0)-\(weekNums.last ?? 0)"
-        let text = try await callChatWithRetry(body: body, logTag: logTag)
+        let text = try await streamingCallWithRetry(
+            system: "You are an expert endurance coach. You return only valid JSON matching the exact shape requested — no prose, no markdown fences, no commentary. Every field is populated for every session.",
+            prompt: prompt,
+            maxTokens: 10_000,
+            logTag: logTag,
+            dataService: dataService
+        )
+
         guard let json = extractJSON(from: text) else {
             throw NSError(
                 domain: "TrainingPlanGenerator", code: 3,
@@ -495,41 +541,37 @@ enum TrainingPlanGenerator {
         }
     }
 
-    // MARK: - Edge function call + retry
+    // MARK: - Streaming call wrapper
 
-    /// One retry with a 2s delay before giving up. Transient 429/529s are
-    /// already retried inside the edge function; this handles the rarer case
-    /// where a response decodes malformed or the network blips on one batch.
-    private static func callChatWithRetry(body: [String: Any], logTag: String) async throws -> String {
+    /// Wraps `callEdgeFunctionStreaming` with one retry on transient failure.
+    /// Streaming doesn't resume mid-flight, so a retry restarts the whole
+    /// call — fine for our ~30-60s skeleton/week generations.
+    private static func streamingCallWithRetry(
+        system: String,
+        prompt: String,
+        maxTokens: Int,
+        logTag: String,
+        dataService: DataService?
+    ) async throws -> String {
+        let messages: [[String: Any]] = [
+            ["role": "user", "content": prompt]
+        ]
+
         do {
-            return try await callChat(body: body, logTag: logTag)
+            return try await callEdgeFunctionStreaming(
+                system: system,
+                messages: messages,
+                maxTokens: maxTokens
+            )
         } catch {
-            NSLog("[\(logTag)] first attempt failed: \(error.localizedDescription) — retrying once")
+            NSLog("[\(logTag)] first streaming attempt failed: \(error.localizedDescription) — retrying once")
             try? await Task.sleep(for: .seconds(2))
-            return try await callChat(body: body, logTag: logTag)
+            return try await callEdgeFunctionStreaming(
+                system: system,
+                messages: messages,
+                maxTokens: maxTokens
+            )
         }
-    }
-
-    private static func callChat(body: [String: Any], logTag: String) async throws -> String {
-        let client = SupabaseService.shared.client
-        let bodyData = try JSONSerialization.data(withJSONObject: body)
-
-        let response: PlanChatResponse = try await client.functions.invoke(
-            "chat",
-            options: .init(body: bodyData)
-        ) { data, response in
-            guard 200..<300 ~= response.statusCode else {
-                let preview = String(data: data, encoding: .utf8) ?? ""
-                NSLog("[\(logTag)] HTTP \(response.statusCode): \(preview)")
-                throw FunctionsError.httpError(code: response.statusCode, data: data)
-            }
-            return try JSONDecoder().decode(PlanChatResponse.self, from: data)
-        }
-
-        return response.content
-            .filter { $0.type == "text" }
-            .compactMap(\.text)
-            .joined(separator: "\n")
     }
 
     // MARK: - Progress
@@ -620,15 +662,5 @@ enum TrainingPlanGenerator {
               let end = s.lastIndex(of: "}"),
               start <= end else { return nil }
         return String(s[start...end])
-    }
-}
-
-// MARK: - Minimal local chat response shape
-
-private struct PlanChatResponse: Codable {
-    let content: [Block]
-    struct Block: Codable {
-        let type: String
-        let text: String?
     }
 }

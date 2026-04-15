@@ -69,7 +69,7 @@ enum RaceConditionsGenerator {
             "messages": [
                 ["role": "user", "content": userPrompt]
             ],
-            "max_tokens": 2048,
+            "max_tokens": 4096,
         ]
         if isRace {
             body["tools"] = [

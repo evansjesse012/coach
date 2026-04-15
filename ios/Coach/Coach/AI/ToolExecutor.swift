@@ -244,14 +244,15 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
 
         // Prefer an explicit total_weeks from the model (if the athlete asked
         // for a specific length). Otherwise compute it from today → race date.
-        // Clamp to a reasonable band so a bad date doesn't produce a 1-week
-        // plan or a 200-week plan.
+        // No upper cap — a far-out race still gets a plan. The coach will
+        // spend the early weeks in base building and shape specific prep
+        // later, just like a real coach would.
         let computedWeeks = weeksBetweenTodayAnd(event.date)
         let totalWeeks: Int
         if let explicit = input["total_weeks"] as? Int, explicit > 0 {
             totalWeeks = explicit
         } else if let weeks = computedWeeks {
-            totalWeeks = min(52, max(4, weeks))
+            totalWeeks = max(4, weeks)
         } else {
             // No race date on the event — last-resort fallback.
             totalWeeks = 12
