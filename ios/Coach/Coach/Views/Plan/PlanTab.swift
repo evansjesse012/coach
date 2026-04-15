@@ -3,6 +3,10 @@ import SwiftUI
 struct PlanTab: View {
     @Environment(DataService.self) var data
     @State private var showPlanChat = false
+    /// Phase number whose detail panel is currently expanded below the row
+    /// list. nil means "use plan.currentPhase as the default" — set on first
+    /// load so a fresh plan always opens to the active phase.
+    @State private var selectedPhaseNumber: Int?
 
     var body: some View {
         NavigationStack {
@@ -26,32 +30,41 @@ struct PlanTab: View {
     }
 
     private func content(plan: TrainingPlan) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        let activePhase = selectedPhase(in: plan)
+        return VStack(alignment: .leading, spacing: 18) {
             CompactGoalHeader(plan: plan)
             if let freshWeek = data.recentlyPregeneratedWeek,
                freshWeek <= plan.totalWeeks {
                 FreshlyGeneratedBanner(weekNumber: freshWeek)
             }
             FullPlanTimeline(plan: plan)
-            phaseStack(plan: plan)
+            PhaseRowList(
+                plan: plan,
+                selectedPhaseNumber: Binding(
+                    get: { selectedPhaseNumber ?? plan.currentPhase },
+                    set: { selectedPhaseNumber = $0 }
+                )
+            )
+            if let phase = activePhase {
+                PhaseDetailPanel(plan: plan, phase: phase)
+                    .id(phase.number) // re-render with a transition when selection changes
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
+            }
             thisWeekSection(plan: plan)
             modifyWithCoachButton
         }
         .padding()
+        .animation(.easeInOut(duration: 0.22), value: selectedPhaseNumber ?? plan.currentPhase)
     }
 
-    private func phaseStack(plan: TrainingPlan) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(plan.phases.sorted(by: { $0.number < $1.number }), id: \.number) { phase in
-                PhaseCard(plan: plan, phase: phase, status: cardStatus(for: phase, plan: plan))
-            }
-        }
-    }
-
-    private func cardStatus(for phase: TrainingPhase, plan: TrainingPlan) -> PhaseCardStatus {
-        if phase.number < plan.currentPhase { return .completed }
-        if phase.number == plan.currentPhase { return .current }
-        return .upcoming
+    /// Phase whose details are currently expanded. Defaults to the plan's
+    /// current phase when the user hasn't picked one explicitly.
+    private func selectedPhase(in plan: TrainingPlan) -> TrainingPhase? {
+        let target = selectedPhaseNumber ?? plan.currentPhase
+        return plan.phases.first { $0.number == target }
     }
 
     @ViewBuilder
@@ -269,7 +282,7 @@ private struct FullPlanTimeline: View {
         GeometryReader { geo in
             timelineContent(totalWidth: geo.size.width)
         }
-        .frame(height: 24)
+        .frame(height: 18)
     }
 
     private func timelineContent(totalWidth: CGFloat) -> some View {
@@ -278,14 +291,14 @@ private struct FullPlanTimeline: View {
         // Put marker mid-column so week 1 isn't clipped and week N sits inside its own segment.
         let markerFraction = (CGFloat(plan.currentWeek) - 0.5) / CGFloat(totalWeeks)
         let rawMarkerX = totalWidth * markerFraction
-        let markerX = max(8, min(totalWidth - 8, rawMarkerX))
+        let markerX = max(7, min(totalWidth - 7, rawMarkerX))
 
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 ForEach(segments, id: \.phase.number) { entry in
                     Rectangle()
                         .fill(segmentFill(phase: entry.phase))
-                        .frame(width: totalWidth * CGFloat(entry.fraction), height: 14)
+                        .frame(width: totalWidth * CGFloat(entry.fraction), height: 8)
                 }
             }
             .clipShape(Capsule())
@@ -296,18 +309,18 @@ private struct FullPlanTimeline: View {
                         lineWidth: 0.5
                     )
             )
-            .frame(height: 14)
+            .frame(height: 8)
             .offset(y: 5)
 
             Circle()
                 .fill(Color.white)
                 .overlay(
                     Circle()
-                        .stroke(CoachColors.accent, lineWidth: 2.5)
+                        .stroke(CoachColors.accent, lineWidth: 2)
                 )
-                .frame(width: 16, height: 16)
+                .frame(width: 14, height: 14)
                 .shadow(color: Color.black.opacity(0.15), radius: 1.5, x: 0, y: 1)
-                .position(x: markerX, y: 12)
+                .position(x: markerX, y: 9)
         }
     }
 
@@ -325,223 +338,298 @@ private struct FullPlanTimeline: View {
     }
 }
 
-// MARK: - Phase Card
+// MARK: - Phase status
 
-private enum PhaseCardStatus {
+private enum PhaseStatus {
     case completed
     case current
     case upcoming
 }
 
-private struct PhaseCard: View {
+private func phaseStatus(for phase: TrainingPhase, in plan: TrainingPlan) -> PhaseStatus {
+    if phase.number < plan.currentPhase { return .completed }
+    if phase.number == plan.currentPhase { return .current }
+    return .upcoming
+}
+
+// MARK: - Phase Row List
+
+/// Compact vertical list of every phase in the plan. Tapping any row
+/// updates `selectedPhaseNumber`, which the parent view uses to swap the
+/// detail panel below. The current phase is highlighted with its accent
+/// color and a CURRENT chip.
+private struct PhaseRowList: View {
+    let plan: TrainingPlan
+    @Binding var selectedPhaseNumber: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("SEASON PHASES")
+                .font(CoachFonts.ui(11, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                ForEach(plan.phases.sorted(by: { $0.number < $1.number }), id: \.number) { phase in
+                    PhaseRow(
+                        plan: plan,
+                        phase: phase,
+                        isSelected: selectedPhaseNumber == phase.number
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            selectedPhaseNumber = phase.number
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct PhaseRow: View {
     let plan: TrainingPlan
     let phase: TrainingPhase
-    let status: PhaseCardStatus
+    let isSelected: Bool
+    let onTap: () -> Void
 
     @Environment(\.colorScheme) var colorScheme
 
+    private var status: PhaseStatus { phaseStatus(for: phase, in: plan) }
+
     var body: some View {
-        NavigationLink {
-            PhaseDetailView(plan: plan, phase: phase)
-        } label: {
-            variant
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                statusPip
+                    .frame(width: 14, height: 14)
+
+                Text("\(phase.number)")
+                    .font(CoachFonts.mono(14, weight: .bold))
+                    .foregroundStyle(phase.accentColor)
+                    .frame(width: 16, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(phase.name)
+                        .font(CoachFonts.ui(14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(weekRange)
+                        .font(CoachFonts.ui(11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                if status == .current {
+                    Text("CURRENT")
+                        .font(CoachFonts.ui(9, weight: .bold))
+                        .tracking(0.6)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(phase.accentColor))
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(rowBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(rowBorder, lineWidth: isSelected ? 1.5 : 1)
+            )
         }
         .buttonStyle(.plain)
     }
 
     @ViewBuilder
-    private var variant: some View {
+    private var statusPip: some View {
         switch status {
-        case .completed: completedCard
-        case .current:   currentCard
-        case .upcoming:  upcomingCard
-        }
-    }
-
-    // MARK: Completed — small, muted row
-
-    private var completedCard: some View {
-        HStack(spacing: 12) {
+        case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text("PHASE \(phase.number)")
-                        .font(CoachFonts.ui(10, weight: .semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(.secondary)
-                    Text(phase.name)
-                        .font(CoachFonts.ui(14, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 6) {
-                    Text(weekRangeLine)
-                        .font(CoachFonts.ui(11))
-                        .foregroundStyle(.tertiary)
-                    if let stats = volumeSessionsLine {
-                        Text("·")
-                            .font(CoachFonts.ui(11))
-                            .foregroundStyle(.tertiary)
-                        Text(stats)
-                            .font(CoachFonts.ui(11))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.tertiary)
+        case .current:
+            Circle()
+                .fill(phase.accentColor)
+                .frame(width: 11, height: 11)
+        case .upcoming:
+            Circle()
+                .stroke(phase.accentColor.opacity(0.55), lineWidth: 1.5)
+                .frame(width: 11, height: 11)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(colorScheme == .dark ? CoachColors.darkCard.opacity(0.6) : CoachColors.lightCard.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke((colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder).opacity(0.6), lineWidth: 1)
-        )
     }
 
-    // MARK: Current — hero card
-
-    private var currentCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text("PHASE \(phase.number) OF \(plan.phases.count)")
-                    .font(CoachFonts.ui(11, weight: .semibold))
-                    .tracking(0.8)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(phase.accentColor.opacity(0.2))
-                    .foregroundStyle(phase.accentColor)
-                    .clipShape(Capsule())
-                Text("CURRENT")
-                    .font(CoachFonts.ui(10, weight: .semibold))
-                    .tracking(0.8)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(phase.accentColor)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                Spacer()
-                if let days = plan.daysRemainingInPhase(phase) {
-                    Text("\(days) days left")
-                        .font(CoachFonts.mono(12))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Text(phase.name)
-                .font(CoachFonts.display(22, weight: .bold))
-                .foregroundStyle(.primary)
-
-            Text("Week \(plan.weekIndexInPhase(phase)) of \(phase.weeks) in this phase")
-                .font(CoachFonts.ui(12, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            if let philosophy = phase.philosophy {
-                Text(philosophy)
-                    .font(CoachFonts.ui(13))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-            }
-
-            statsRow
-
-            phaseProgressBar
-
-            if let dist = phase.intensityDistribution {
-                IntensityBar(distribution: dist, size: .mini)
-            }
-
-            if let keyWorkouts = phase.keyWorkouts, !keyWorkouts.isEmpty {
-                keyWorkoutsPreview(keyWorkouts)
-            }
-
-            HStack {
-                Spacer()
-                Text("View phase details →")
-                    .font(CoachFonts.ui(12, weight: .semibold))
-                    .foregroundStyle(phase.accentColor)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [phase.accentColor.opacity(0.12), phase.accentColor.opacity(0.03)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(phase.accentColor.opacity(0.6), lineWidth: 2)
-        )
-    }
-
-    // MARK: Upcoming — outlined preview
-
-    private var upcomingCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("PHASE \(phase.number)")
-                    .font(CoachFonts.ui(10, weight: .semibold))
-                    .tracking(0.6)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(phase.accentColor.opacity(0.15))
-                    .foregroundStyle(phase.accentColor)
-                    .clipShape(Capsule())
-                Text(phase.name)
-                    .font(CoachFonts.ui(15, weight: .bold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            Text(weekRangeLine)
-                .font(CoachFonts.ui(11, weight: .medium))
-                .foregroundStyle(.secondary)
-            statsRow
-            if let dist = phase.intensityDistribution {
-                IntensityBar(distribution: dist, size: .mini)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(phase.accentColor.opacity(0.35), lineWidth: 1)
-        )
-    }
-
-    // MARK: Shared helpers
-
-    private var weekRangeLine: String {
+    private var weekRange: String {
         let start = plan.startWeek(for: phase)
         let end = plan.endWeek(for: phase)
-        return "Weeks \(start)–\(end)"
+        return "Weeks \(start)–\(end) · \(phase.weeks)w"
     }
 
-    private var volumeSessionsLine: String? {
-        var parts: [String] = []
-        if let v = phase.weeklyVolumeRange {
-            parts.append("\(formatVol(v.min))–\(formatVol(v.max)) \(v.unit)")
+    private var rowBackground: Color {
+        if isSelected {
+            return phase.accentColor.opacity(0.12)
         }
-        if let s = phase.sessionsPerWeek {
-            parts.append("\(s)/wk")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return colorScheme == .dark ? CoachColors.darkCard.opacity(0.5) : CoachColors.lightCard.opacity(0.7)
     }
+
+    private var rowBorder: Color {
+        if isSelected {
+            return phase.accentColor.opacity(0.65)
+        }
+        return colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder
+    }
+}
+
+// MARK: - Phase Detail Panel
+
+/// Shows the full detail card for whichever phase is currently selected in
+/// the row list above. The card body is the same for current / upcoming /
+/// completed phases — what changes is the `positionLine` and a few subtle
+/// affordances (only show the in-progress week bar when this is the
+/// athlete's current phase).
+private struct PhaseDetailPanel: View {
+    let plan: TrainingPlan
+    let phase: TrainingPhase
+
+    @Environment(\.colorScheme) var colorScheme
+
+    private var status: PhaseStatus { phaseStatus(for: phase, in: plan) }
+
+    var body: some View {
+        NavigationLink {
+            PhaseDetailView(plan: plan, phase: phase)
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                statusHeader
+
+                Text(phase.name)
+                    .font(CoachFonts.display(22, weight: .bold))
+                    .foregroundStyle(.primary)
+
+                Text(positionLine)
+                    .font(CoachFonts.ui(12, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                if let philosophy = phase.philosophy, !philosophy.isEmpty {
+                    Text(philosophy)
+                        .font(CoachFonts.ui(13))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+
+                statsRow
+
+                if status == .current {
+                    phaseProgressBar
+                }
+
+                if let dist = phase.intensityDistribution {
+                    IntensityBar(distribution: dist, size: .mini)
+                }
+
+                if let keyWorkouts = phase.keyWorkouts, !keyWorkouts.isEmpty {
+                    keyWorkoutsPreview(keyWorkouts)
+                }
+
+                HStack {
+                    Spacer()
+                    Text("View phase details →")
+                        .font(CoachFonts.ui(12, weight: .semibold))
+                        .foregroundStyle(phase.accentColor)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [phase.accentColor.opacity(0.12), phase.accentColor.opacity(0.03)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(phase.accentColor.opacity(0.55), lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Header / position line
+
+    private var statusHeader: some View {
+        HStack(spacing: 8) {
+            Text("PHASE \(phase.number) OF \(plan.phases.count)")
+                .font(CoachFonts.ui(11, weight: .semibold))
+                .tracking(0.8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(phase.accentColor.opacity(0.2))
+                .foregroundStyle(phase.accentColor)
+                .clipShape(Capsule())
+
+            statusBadge
+
+            Spacer()
+
+            if status == .current, let days = plan.daysRemainingInPhase(phase) {
+                Text("\(days) days left")
+                    .font(CoachFonts.mono(12))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch status {
+        case .current:
+            Text("CURRENT")
+                .font(CoachFonts.ui(10, weight: .semibold))
+                .tracking(0.8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(phase.accentColor)
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
+        case .upcoming:
+            Text("UPCOMING")
+                .font(CoachFonts.ui(10, weight: .semibold))
+                .tracking(0.8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(phase.accentColor.opacity(0.18))
+                .foregroundStyle(phase.accentColor)
+                .clipShape(Capsule())
+        case .completed:
+            Text("COMPLETED")
+                .font(CoachFonts.ui(10, weight: .semibold))
+                .tracking(0.8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.secondary.opacity(0.18))
+                .foregroundStyle(.secondary)
+                .clipShape(Capsule())
+        }
+    }
+
+    private var positionLine: String {
+        switch status {
+        case .current:
+            return "Week \(plan.weekIndexInPhase(phase)) of \(phase.weeks) in this phase"
+        case .completed:
+            return "Weeks \(plan.startWeek(for: phase))–\(plan.endWeek(for: phase)) · Done"
+        case .upcoming:
+            let startWeek = plan.startWeek(for: phase)
+            return "Starts week \(startWeek) · \(phase.weeks) weeks long"
+        }
+    }
+
+    // MARK: Body sections (shared with the old PhaseCard)
 
     @ViewBuilder
     private var statsRow: some View {
