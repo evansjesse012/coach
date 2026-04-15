@@ -119,6 +119,49 @@ struct PrescribedExercise: Codable {
     var band: String?
     var rest: Int?
     var notes: String?
+
+    init(
+        name: String,
+        exerciseType: ExerciseType,
+        sets: Int? = nil,
+        reps: Int? = nil,
+        weight: Double? = nil,
+        duration: Double? = nil,
+        band: String? = nil,
+        rest: Int? = nil,
+        notes: String? = nil
+    ) {
+        self.name = name
+        self.exerciseType = exerciseType
+        self.sets = sets
+        self.reps = reps
+        self.weight = weight
+        self.duration = duration
+        self.band = band
+        self.rest = rest
+        self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, exerciseType, sets, reps, weight, duration, band, rest, notes
+    }
+
+    /// Tolerant decoder: the plan generator's model sometimes emits numeric
+    /// fields as strings ("35" or "35 lb" instead of 35). Accept either and
+    /// parse as best we can. encode(to:) stays auto-synthesized so we keep
+    /// writing numbers as numbers.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        exerciseType = try c.decode(ExerciseType.self, forKey: .exerciseType)
+        sets = c.decodeTolerantInt(forKey: .sets)
+        reps = c.decodeTolerantInt(forKey: .reps)
+        weight = c.decodeTolerantDouble(forKey: .weight)
+        duration = c.decodeTolerantDouble(forKey: .duration)
+        band = try c.decodeIfPresent(String.self, forKey: .band)
+        rest = c.decodeTolerantInt(forKey: .rest)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+    }
 }
 
 // MARK: - Brick Leg
@@ -401,5 +444,49 @@ struct TrainingPlan: Codable, Identifiable {
             guard let wp = weeklyPlans[String(weekNum)] else { return false }
             return wp.sessions.flatMap(\.sessions).contains(where: { $0.completed == true })
         }.count
+    }
+}
+
+// MARK: - Tolerant decoders for model-generated numeric fields
+
+/// When Claude generates plan JSON it occasionally wraps numeric fields in
+/// quotes (e.g. `"weight": "35"` or `"weight": "35 lb"` instead of
+/// `"weight": 35`). These helpers accept both shapes so a single field slip
+/// doesn't blow up the whole decode and force a retry.
+extension KeyedDecodingContainer {
+    /// Decode a Double-valued optional field, tolerating:
+    ///   - `"weight": 35` (number)
+    ///   - `"weight": 35.5` (fractional number)
+    ///   - `"weight": "35"` (quoted number)
+    ///   - `"weight": "35 lb"` (number with trailing unit)
+    ///   - key missing / null / wrong type → `nil`
+    func decodeTolerantDouble(forKey key: Key) -> Double? {
+        if let d = try? decode(Double.self, forKey: key) { return d }
+        if let i = try? decode(Int.self, forKey: key) { return Double(i) }
+        if let s = try? decode(String.self, forKey: key) {
+            let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleaned.isEmpty { return nil }
+            if let d = Double(cleaned) { return d }
+            // Strip trailing units like " lb" / "kg".
+            let numericPart = cleaned.prefix { $0.isNumber || $0 == "." || $0 == "-" }
+            return Double(numericPart)
+        }
+        return nil
+    }
+
+    /// Decode an Int-valued optional field with the same tolerance rules.
+    /// Fractional numbers are truncated toward zero.
+    func decodeTolerantInt(forKey key: Key) -> Int? {
+        if let i = try? decode(Int.self, forKey: key) { return i }
+        if let d = try? decode(Double.self, forKey: key) { return Int(d) }
+        if let s = try? decode(String.self, forKey: key) {
+            let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleaned.isEmpty { return nil }
+            if let i = Int(cleaned) { return i }
+            if let d = Double(cleaned) { return Int(d) }
+            let numericPart = cleaned.prefix { $0.isNumber || $0 == "-" }
+            return Int(numericPart)
+        }
+        return nil
     }
 }

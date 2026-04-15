@@ -503,12 +503,12 @@ enum TrainingPlanGenerator {
         2. Rest days: `isRest: true`, empty `sessions` array, REQUIRED `rest_note` (1–2 personalized sentences).
         3. `effort_category` must be one of: easy, recovery, tempo, threshold, long_endurance, vo2max, strength, race, rest.
         4. `session.type` must be one of: run, bike, swim, strength, brick, hike, other.
-        5. `distance_miles` and `duration` are numbers, not strings.
+        5. **Numeric fields MUST be JSON numbers, never quoted strings.** That applies to every one of `duration`, `estimated_duration_min`, `estimated_duration_max`, `distance_miles`, `weight`, `reps`, `sets`, `rest`. Write `"weight": 35` and `"duration": 45`, NEVER `"weight": "35"`, `"weight": "35 lb"`, or `"duration": "45m"`. If you want to note a unit, put it in the exercise or session `notes` field — the numeric field itself is just a number.
         6. Every non-rest session REQUIRES `purpose` (one sentence), `workout` (1–3 sentences), `notes` (2–4 sentence personalized coach note — never boilerplate), and `fuel` (pre/during/post).
         7. `pace_range`: compute from athlete benchmarks + zone when a benchmark exists. OMIT the field if no benchmark — don't guess.
         8. `priority`: "red" for 2–3 key workouts per week that cannot be skipped, "yellow" for flexible sessions.
         9. `warning`: OMIT unless the athlete has an active injury affecting THIS specific session. When present, name the modification ("Skip X if Y", "Substitute A for B").
-        10. Every strength session REQUIRES an `exercises` array. Each exercise: name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets, reps (or duration for timed), weight/band, rest (seconds), notes (form cue specific to this athlete).
+        10. Every strength session REQUIRES an `exercises` array. Each exercise: name, exerciseType ("weighted"|"bodyweight"|"banded"|"timed"|"cardio-drill"), sets (number), reps (number, or duration (number) for timed), weight (number, in the athlete's weight unit), band (string — "light"|"medium"|"heavy"), rest (number of seconds), notes (form cue specific to this athlete). All numeric fields are JSON numbers; only `band` and `notes` are strings.
         11. Long runs progress week-over-week within the phase. Deload weeks drop volume ~25-30%.
         12. Use the phase context and week position above to pick the right intensity, volume, and key-workout placement. A tempo/threshold session in a build week should align with that phase's listed key workouts.
         """
