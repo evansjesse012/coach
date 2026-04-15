@@ -2,7 +2,7 @@ import SwiftUI
 
 struct PlanTab: View {
     @Environment(DataService.self) var data
-    @State private var showGoalPicker = false
+    @State private var showPlanChat = false
 
     var body: some View {
         NavigationStack {
@@ -14,10 +14,8 @@ struct PlanTab: View {
                 }
             }
             .navigationTitle("Plan")
-            .sheet(isPresented: $showGoalPicker) {
-                GoalPickerSheet(isPresented: $showGoalPicker) { event in
-                    routeToCoach(for: event, modify: false)
-                }
+            .sheet(isPresented: $showPlanChat) {
+                PlanCreationChatSheet()
             }
         }
     }
@@ -73,7 +71,7 @@ struct PlanTab: View {
                 description: Text("Your coach can build one around any goal you've added.")
             )
             Button {
-                showGoalPicker = true
+                showPlanChat = true
             } label: {
                 Label("Build a plan with your coach", systemImage: "sparkles")
                     .font(CoachFonts.ui(15, weight: .semibold))
@@ -106,20 +104,6 @@ struct PlanTab: View {
         }
         .buttonStyle(.plain)
         .padding(.top, 8)
-    }
-
-    private func routeToCoach(for event: Event, modify: Bool) {
-        let dateClause = event.date.map { " on \($0)" } ?? ""
-        let goalClause = event.goal.map { ". Goal: \($0)." } ?? "."
-        let weeksClause = event.date.flatMap { dateStr -> String? in
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            guard let d = formatter.date(from: dateStr) else { return nil }
-            let days = Calendar.current.dateComponents([.day], from: Date(), to: d).day ?? 0
-            return days > 7 ? " I have \(days / 7) weeks." : nil
-        } ?? ""
-        data.pendingChatPrompt = "Build me a training plan for \(event.name)\(dateClause)\(goalClause)\(weeksClause) Let's do it together."
-        data.selectedTab = "coach"
     }
 
     private func routeToCoachForModify(plan: TrainingPlan) {
