@@ -38,6 +38,15 @@ struct CollapsibleCard<Header: View, Content: View>: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        // Lock the card to its parent's proposed width. Without this, an
+        // expanded `content()` whose children have wide intrinsic ideal
+        // widths (e.g. an HStack of three `Text`s with `.fixedSize(horizontal:
+        // false, vertical: true)` and long single-line content) propagates
+        // its ideal width up through this VStack, makes the whole card wider
+        // than the screen, and lets the parent ScrollView pan horizontally.
+        // Forcing the VStack to its parent's proposal means children get a
+        // finite width and the inner Texts actually wrap.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
