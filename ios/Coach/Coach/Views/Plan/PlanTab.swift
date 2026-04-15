@@ -30,7 +30,10 @@ struct PlanTab: View {
     }
 
     private func content(plan: TrainingPlan) -> some View {
-        let activePhase = selectedPhase(in: plan)
+        let phaseBinding = Binding<Int?>(
+            get: { selectedPhaseNumber ?? plan.currentPhase },
+            set: { selectedPhaseNumber = $0 }
+        )
         return VStack(alignment: .leading, spacing: 18) {
             CompactGoalHeader(plan: plan)
             if let freshWeek = data.recentlyPregeneratedWeek,
@@ -38,33 +41,20 @@ struct PlanTab: View {
                 FreshlyGeneratedBanner(weekNumber: freshWeek)
             }
             FullPlanTimeline(plan: plan)
-            PhaseRowList(
-                plan: plan,
-                selectedPhaseNumber: Binding(
-                    get: { selectedPhaseNumber ?? plan.currentPhase },
-                    set: { selectedPhaseNumber = $0 }
-                )
-            )
-            if let phase = activePhase {
-                PhaseDetailPanel(plan: plan, phase: phase)
-                    .id(phase.number) // re-render with a transition when selection changes
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity
-                    ))
-            }
+            PhaseRowList(plan: plan, selectedPhaseNumber: phaseBinding)
+            PhaseDetailCarousel(plan: plan, selectedPhaseNumber: phaseBinding)
             thisWeekSection(plan: plan)
             modifyWithCoachButton
         }
         .padding()
-        .animation(.easeInOut(duration: 0.22), value: selectedPhaseNumber ?? plan.currentPhase)
-    }
-
-    /// Phase whose details are currently expanded. Defaults to the plan's
-    /// current phase when the user hasn't picked one explicitly.
-    private func selectedPhase(in plan: TrainingPlan) -> TrainingPhase? {
-        let target = selectedPhaseNumber ?? plan.currentPhase
-        return plan.phases.first { $0.number == target }
+        .onAppear {
+            // Default the selection to the plan's current phase the first
+            // time we render, so the carousel scrolls to the right card on
+            // initial appearance instead of starting at phase 1.
+            if selectedPhaseNumber == nil {
+                selectedPhaseNumber = plan.currentPhase
+            }
+        }
     }
 
     @ViewBuilder
@@ -360,7 +350,9 @@ private func phaseStatus(for phase: TrainingPhase, in plan: TrainingPlan) -> Pha
 /// color and a CURRENT chip.
 private struct PhaseRowList: View {
     let plan: TrainingPlan
-    @Binding var selectedPhaseNumber: Int
+    /// Optional so it can share the same binding the carousel's
+    /// `scrollPosition(id:)` needs. nil means no row is highlighted.
+    @Binding var selectedPhaseNumber: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -376,7 +368,7 @@ private struct PhaseRowList: View {
                         phase: phase,
                         isSelected: selectedPhaseNumber == phase.number
                     ) {
-                        withAnimation(.easeInOut(duration: 0.22)) {
+                        withAnimation(.easeInOut(duration: 0.32)) {
                             selectedPhaseNumber = phase.number
                         }
                     }
@@ -478,6 +470,40 @@ private struct PhaseRow: View {
             return phase.accentColor.opacity(0.65)
         }
         return colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder
+    }
+}
+
+// MARK: - Phase Detail Carousel
+
+/// Horizontally-pageable carousel of `PhaseDetailPanel` cards. The user can
+/// swipe left/right between phases, and selection stays in two-way sync with
+/// the phase row list above via `selectedPhaseNumber`:
+///
+/// - Tapping a row in `PhaseRowList` updates the binding → the carousel
+///   scrolls (animated) to that phase.
+/// - Swiping the carousel snaps to the next phase → the binding updates →
+///   the row list re-highlights.
+///
+/// Built on iOS 17+'s `scrollPosition(id:)` + `scrollTargetBehavior(.viewAligned)`
+/// + `containerRelativeFrame(.horizontal)` for native paging behavior.
+private struct PhaseDetailCarousel: View {
+    let plan: TrainingPlan
+    @Binding var selectedPhaseNumber: Int?
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(plan.phases.sorted(by: { $0.number < $1.number }), id: \.number) { phase in
+                    PhaseDetailPanel(plan: plan, phase: phase)
+                        .containerRelativeFrame(.horizontal)
+                        .id(phase.number)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollPosition(id: $selectedPhaseNumber)
+        .scrollTargetBehavior(.viewAligned)
+        .scrollIndicators(.hidden)
     }
 }
 
