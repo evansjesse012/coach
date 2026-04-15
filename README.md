@@ -1,49 +1,75 @@
 # Coach — iOS App
 
-AI-powered training coach built with Swift/SwiftUI and Supabase. Uses Claude as the coaching engine with 15 agentic tools.
+AI-powered training coach for endurance athletes. Swift/SwiftUI on the
+client, Supabase (Postgres + edge functions) on the backend, Claude
+Sonnet 4.6 driving the coaching intelligence.
+
+## Documentation
+
+- **[FEATURES.md](./FEATURES.md)** — plain-English walkthrough of what
+  the app does. Start here if you want to understand the product.
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — how the app is built, layer
+  by layer. Start here if you're onboarding to the codebase.
+
+## At a glance
+
+- 5 tabs: Home, Goals, Plan, Log, Coach
+- Periodized training plans with adherence tracking and lazy per-week
+  generation (the coach shapes next week closer to when it starts, not
+  months in advance)
+- Multi-sport workout logging (run, bike, swim, strength, brick)
+- Live strength workout tracker with rest timer and auto PR rolling
+- HealthKit auto-matching — imported workouts pair to prescribed
+  sessions by sport, duration, time-of-day, and HR zone
+- AI coach chat with 17 tools and a tiered memory system that
+  remembers injuries, benchmarks, and patterns across conversations
+- Sign in with Apple authentication
+- 4 coaching personalities (Head Coach, Goggins, Hype, Custom)
 
 ## Setup
 
 ### Prerequisites
-- Xcode 15+ (iOS 17 deployment target)
+- Xcode 26+ (iOS 26 deployment target)
 - Supabase project (free tier works)
 - Anthropic API key
 
 ### Supabase
-1. Create a project at [supabase.com](https://supabase.com)
-2. Run `supabase/migrations/001_initial_schema.sql` in the SQL Editor
-3. Deploy the Edge Function:
+1. Create a project at [supabase.com](https://supabase.com).
+2. Apply the migrations: `supabase db push` (requires `supabase` CLI
+   and a linked project).
+3. Set the Anthropic key and deploy the chat function:
    ```bash
    supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-   supabase functions deploy chat
+   supabase functions deploy chat --no-verify-jwt
    ```
+   The `--no-verify-jwt` flag is intentional: the function verifies the
+   JWT itself via a direct call to `/auth/v1/user`, which works with
+   projects that use ES256 asymmetric signing keys where supabase-js's
+   Deno build falls over.
 
 ### Xcode
 1. Open `ios/Coach/Coach.xcodeproj`
-2. Add `supabase-swift` package (File > Add Package Dependencies)
-3. Update credentials in `Services/SupabaseService.swift`
+2. Add the `supabase-swift` Swift Package dependency if not resolved
+3. Update the URL + anon key in `Services/SupabaseService.swift` to
+   match your Supabase project (both are public identifiers — RLS is
+   what protects data)
 4. Build and run (Cmd+R)
 
-## Project Structure
+## Project structure
 
 ```
 ios/Coach/Coach/
 ├── CoachApp.swift              # App entry point, auth state
-├── Models/                     # Codable data models (14 types)
-├── Services/                   # Supabase, Data, Weather, HealthKit
-├── AI/                         # Tool definitions, agent loop, prompts, memory
-├── Views/                      # SwiftUI views (Auth, Home, Goals, Plan, Log, Coach)
-├── Utilities/                  # Helpers (adherence, exercise, dates)
+├── Models/                     # Codable data models
+├── Services/                   # Supabase, Data, Weather, HealthKit, plan generator
+├── AI/                         # Tool definitions, agent loop, prompts, memory extraction
+├── Views/                      # SwiftUI views (Auth, Home, Goals, Plan, Log, Coach, Strength, Exercises, Settings, Shared)
+└── Utilities/                  # Helpers (adherence, exercise, dates, formatting)
+
 supabase/
-├── migrations/                 # Database schema (14 tables with RLS)
-├── functions/chat/             # Anthropic API proxy Edge Function
+├── migrations/                 # Postgres schema (15 tables with RLS + a 234-exercise catalog)
+└── functions/chat/             # Anthropic API proxy Edge Function
 ```
 
-## Features
-
-- Periodized training plans with adherence tracking
-- Multi-sport workout logging (run, bike, swim, strength, brick)
-- AI coaching with 15 tools and tiered memory system
-- HealthKit integration for Apple Watch data
-- Sign in with Apple authentication
-- 4 coaching personalities (Head Coach, Goggins, Hype, Custom)
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the layer-by-layer
+breakdown and [FEATURES.md](./FEATURES.md) for the product walkthrough.
