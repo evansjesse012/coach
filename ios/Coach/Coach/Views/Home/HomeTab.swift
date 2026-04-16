@@ -1503,12 +1503,17 @@ private struct TomorrowPreview: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        if let session = resolvedSession() {
-            card(session)
+        if let (session, dateStr) = resolvedSession() {
+            NavigationLink {
+                PrescribedSessionDetailView(session: session, dateString: dateStr)
+            } label: {
+                card(session)
+            }
+            .buttonStyle(.plain)
         }
     }
 
-    private func resolvedSession() -> PrescribedSession? {
+    private func resolvedSession() -> (PrescribedSession, String)? {
         guard let plan = data.trainingPlan else { return nil }
         let todayDayIdx = (Calendar.current.component(.weekday, from: Date()) + 5) % 7
 
@@ -1525,7 +1530,16 @@ private struct TomorrowPreview: View {
         }
 
         guard let dp = dayPlan, dp.isRest != true, !dp.sessions.isEmpty else { return nil }
-        return dp.sessions.first(where: { $0.priority == .red }) ?? dp.sessions.first
+        let session = dp.sessions.first(where: { $0.priority == .red }) ?? dp.sessions.first
+        guard let session else { return nil }
+
+        // Compute tomorrow's date string for the detail view.
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = formatter.string(from: tomorrow)
+
+        return (session, dateStr)
     }
 
     private func card(_ session: PrescribedSession) -> some View {
