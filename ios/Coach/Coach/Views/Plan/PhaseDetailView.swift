@@ -193,11 +193,50 @@ struct PhaseDetailContent: View {
     // MARK: text + bullet blocks
 
     private func paragraphBlock(title: String, body: String) -> some View {
-        sectionCard(title: title) {
-            Text(body)
-                .font(CoachFonts.ui(13))
-                .fixedSize(horizontal: false, vertical: true)
+        let sentences = splitSentences(body)
+        return sectionCard(title: title) {
+            if sentences.count > 1 {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(sentences.enumerated()), id: \.offset) { _, sentence in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Circle()
+                                .fill(phase.accentColor.opacity(0.4))
+                                .frame(width: 4, height: 4)
+                            Text(sentence)
+                                .font(CoachFonts.ui(13))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            } else {
+                Text(body)
+                    .font(CoachFonts.ui(13))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// Splits a block of text into individual sentences for easier scanning.
+    private func splitSentences(_ text: String) -> [String] {
+        var sentences: [String] = []
+        var current = ""
+        let chars = Array(text)
+        var i = 0
+        while i < chars.count {
+            current.append(chars[i])
+            // Split on ". " followed by an uppercase letter (new sentence)
+            if chars[i] == "." && i + 2 < chars.count && chars[i + 1] == " " && chars[i + 2].isUppercase {
+                let trimmed = current.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty { sentences.append(trimmed) }
+                current = ""
+                i += 2 // skip the space, loop will pick up the uppercase char
+                continue
+            }
+            i += 1
+        }
+        let trimmed = current.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { sentences.append(trimmed) }
+        return sentences
     }
 
     private func bulletBlock(title: String, items: [String]) -> some View {
