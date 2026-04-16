@@ -423,7 +423,9 @@ struct AthleteMemoryView: View {
                             Spacer()
                             Button {
                                 withAnimation(.easeInOut(duration: 0.2)) {
-                                    items.wrappedValue.remove(at: index)
+                                    var arr = items.wrappedValue
+                                    arr.remove(at: index)
+                                    items.wrappedValue = arr
                                 }
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
