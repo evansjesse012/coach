@@ -49,6 +49,13 @@ enum CoachNoteGenerator {
         9. If today is a rest day, acknowledge it and frame it as part of the plan — not a day off. Tell them what the rest is setting up.
         10. Never repeat the full workout details — they'll see those in the plan. Give the coaching FRAME, not the prescription.
 
+        FORMATTING:
+        - The FIRST PARAGRAPH is the headline — one punchy sentence that captures today's story. No markdown in the headline. Example: "Threshold day — this is the session that moves the needle this week."
+        - Then a blank line.
+        - Then 2-4 SHORT paragraphs for the body, each separated by a blank line. Each paragraph is 1-2 sentences max. Do NOT write a single block of text.
+        - Use **bold** for the key directive, typically in its own paragraph.
+        - The last paragraph is forward-looking (what's tomorrow, what this sets up).
+
         CONTEXT:
         Today: \(today) (\(dayName))
 

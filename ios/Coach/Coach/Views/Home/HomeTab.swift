@@ -91,7 +91,9 @@ private struct CoachMessageCard: View {
     }
 
     private func card(msg: PushMessage) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let (headline, body) = splitNote(msg.text)
+        return VStack(alignment: .leading, spacing: 12) {
+            // Header row — icon + label + navigate button
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
@@ -108,7 +110,7 @@ private struct CoachMessageCard: View {
                         .foregroundStyle(.white)
                 }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("MESSAGE FROM COACH")
+                    Text("YOUR COACH")
                         .font(CoachFonts.ui(10, weight: .semibold))
                         .tracking(0.8)
                         .foregroundStyle(.secondary)
@@ -129,12 +131,24 @@ private struct CoachMessageCard: View {
                 .buttonStyle(.plain)
             }
 
-            Text(renderedText(msg.text))
-                .font(CoachFonts.ui(14))
+            // Headline — the first paragraph, rendered bold and slightly larger
+            Text(headline)
+                .font(CoachFonts.ui(16, weight: .bold))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
-                .multilineTextAlignment(.leading)
 
+            // Body — remaining paragraphs with markdown rendering and
+            // generous line spacing so each thought breathes
+            if let body, !body.isEmpty {
+                Text(renderedMarkdown(body))
+                    .font(CoachFonts.ui(14))
+                    .foregroundStyle(.primary.opacity(0.85))
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+
+            // Action buttons — contextual quick-taps
             if let actions = msg.actions, !actions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -146,7 +160,7 @@ private struct CoachMessageCard: View {
                                 Text(action)
                                     .font(CoachFonts.ui(12, weight: .semibold))
                                     .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
+                                    .padding(.vertical, 7)
                                     .background(Capsule().fill(CoachColors.accent.opacity(0.15)))
                                     .foregroundStyle(CoachColors.accent)
                             }
@@ -156,7 +170,7 @@ private struct CoachMessageCard: View {
                 }
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             LinearGradient(
@@ -175,7 +189,22 @@ private struct CoachMessageCard: View {
         )
     }
 
-    private func renderedText(_ raw: String) -> AttributedString {
+    /// Split the coach's note into a headline (first paragraph) and body
+    /// (everything after). The prompt instructs the model to put the hook
+    /// on its own line, followed by a blank line, then body paragraphs.
+    private func splitNote(_ text: String) -> (String, String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = trimmed.range(of: "\n\n") {
+            let headline = String(trimmed[trimmed.startIndex..<range.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = String(trimmed[range.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (headline, body.isEmpty ? nil : body)
+        }
+        return (trimmed, nil)
+    }
+
+    private func renderedMarkdown(_ raw: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
