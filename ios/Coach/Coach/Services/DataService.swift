@@ -140,6 +140,36 @@ final class DataService {
         Task { [weak self] in
             await self?.ensurePlanPreGenerated()
         }
+
+        // Refresh the coach's daily note if it's stale (generated on a
+        // previous day or never generated at all). One small Claude call
+        // (~5 seconds) that produces a personalized morning message.
+        Task { [weak self] in
+            await self?.refreshCoachNoteIfNeeded()
+        }
+    }
+
+    /// Generates a fresh coach's note if the current one is from a
+    /// previous day (or missing entirely). Skips if today's note already
+    /// exists so we don't burn a Claude call on every app launch.
+    private func refreshCoachNoteIfNeeded() async {
+        let today = todayString()
+        if let existing = settings.pushMessage, existing.ts == today {
+            return // already generated today
+        }
+        do {
+            let note = try await CoachNoteGenerator.generate(
+                plan: trainingPlan,
+                memory: memory,
+                settings: settings,
+                events: events
+            )
+            var updated = settings
+            updated.pushMessage = note
+            try await saveSettings(updated)
+        } catch {
+            NSLog("[coach-note] refresh failed: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Cardio CRUD

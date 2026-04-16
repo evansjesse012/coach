@@ -129,7 +129,7 @@ private struct CoachMessageCard: View {
                 .buttonStyle(.plain)
             }
 
-            Text(msg.text)
+            Text(renderedText(msg.text))
                 .font(CoachFonts.ui(14))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -173,6 +173,16 @@ private struct CoachMessageCard: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(CoachColors.accent.opacity(0.3), lineWidth: 1)
         )
+    }
+
+    private func renderedText(_ raw: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        if let parsed = try? AttributedString(markdown: raw, options: options) {
+            return parsed
+        }
+        return AttributedString(raw)
     }
 }
 
