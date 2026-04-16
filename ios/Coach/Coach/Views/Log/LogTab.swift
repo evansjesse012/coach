@@ -1,23 +1,96 @@
 import SwiftUI
 
+// MARK: - Unified Activity Item
+
+private enum ActivityItem: Identifiable {
+    case cardio(CardioWorkout)
+    case strength(StrengthSession)
+
+    var id: String {
+        switch self {
+        case .cardio(let w): return "c-\(w.id)"
+        case .strength(let s): return "s-\(s.id)"
+        }
+    }
+
+    var date: String {
+        switch self {
+        case .cardio(let w): return w.date
+        case .strength(let s): return s.date
+        }
+    }
+
+    var sport: Sport {
+        switch self {
+        case .cardio(let w): return w.sport
+        case .strength: return .strength
+        }
+    }
+}
+
+// MARK: - Date Range Filter
+
+private enum DateRange: String, CaseIterable, Identifiable {
+    case allTime = "All Time"
+    case last7Days = "7 Days"
+    case last30Days = "30 Days"
+    case last90Days = "90 Days"
+    case thisYear = "This Year"
+
+    var id: String { rawValue }
+
+    var cutoffDate: Date? {
+        let cal = Calendar.current
+        switch self {
+        case .allTime: return nil
+        case .last7Days: return cal.date(byAdding: .day, value: -7, to: Date())
+        case .last30Days: return cal.date(byAdding: .day, value: -30, to: Date())
+        case .last90Days: return cal.date(byAdding: .day, value: -90, to: Date())
+        case .thisYear: return cal.date(from: cal.dateComponents([.year], from: Date()))
+        }
+    }
+}
+
+// MARK: - Log Tab
+
 struct LogTab: View {
     @Environment(DataService.self) var data
-    @State private var showCardio = true
-    @State private var sportFilter: Sport?
+    @State private var typeFilter: Sport?
+    @State private var dateRange: DateRange = .allTime
     @State private var showWorkoutLogger = false
+
+    private var activities: [ActivityItem] {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        var items: [ActivityItem] = data.cardio.map { .cardio($0) }
+            + data.strength.map { .strength($0) }
+
+        if let typeFilter {
+            items = items.filter { $0.sport == typeFilter }
+        }
+
+        if let cutoff = dateRange.cutoffDate {
+            items = items.filter { item in
+                guard let date = formatter.date(from: item.date) else { return true }
+                return date >= cutoff
+            }
+        }
+
+        return items.sorted { $0.date > $1.date }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    // In-progress workout banner — takes precedence when a
-                    // live session is active so the athlete can jump back in.
+                    // In-progress workout banner or start workout button
                     if data.activeStrengthSession != nil {
                         ActiveWorkoutResumeCard {
                             showWorkoutLogger = true
                         }
                         .padding(.horizontal)
-                    } else if !showCardio {
+                    } else {
                         StartWorkoutButton {
                             data.startStrengthWorkout(StrengthSession.quickStart())
                             showWorkoutLogger = true
@@ -51,36 +124,65 @@ struct LogTab: View {
                     }
                     .buttonStyle(.plain)
 
-                    // Toggle: Workouts / Strength
-                    Picker("View", selection: $showCardio) {
-                        Text("Workouts").tag(true)
-                        Text("Strength").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-
-                    if showCardio {
-                        // Sport filter chips
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                FilterChip(label: "All", isSelected: sportFilter == nil) {
-                                    sportFilter = nil
+                    // Filter dropdowns
+                    HStack(spacing: 10) {
+                        Menu {
+                            Button {
+                                typeFilter = nil
+                            } label: {
+                                if typeFilter == nil {
+                                    Label("All Types", systemImage: "checkmark")
+                                } else {
+                                    Text("All Types")
                                 }
-                                ForEach([Sport.run, .bike, .swim, .hike], id: \.self) { sport in
-                                    FilterChip(label: sport.label, isSelected: sportFilter == sport) {
-                                        sportFilter = sport
+                            }
+                            ForEach(Sport.allCases) { sport in
+                                Button {
+                                    typeFilter = sport
+                                } label: {
+                                    if typeFilter == sport {
+                                        Label(sport.label, systemImage: "checkmark")
+                                    } else {
+                                        Text(sport.label)
                                     }
                                 }
                             }
-                            .padding(.horizontal)
+                        } label: {
+                            FilterDropdown(
+                                label: typeFilter?.label ?? "All Types",
+                                icon: typeFilter?.sfSymbol ?? "line.3.horizontal.decrease",
+                                isActive: typeFilter != nil
+                            )
                         }
 
-                        // Cardio list
-                        let filtered = sportFilter == nil
-                            ? data.cardio
-                            : data.cardio.filter { $0.sport == sportFilter }
+                        Menu {
+                            ForEach(DateRange.allCases) { range in
+                                Button {
+                                    dateRange = range
+                                } label: {
+                                    if dateRange == range {
+                                        Label(range.rawValue, systemImage: "checkmark")
+                                    } else {
+                                        Text(range.rawValue)
+                                    }
+                                }
+                            }
+                        } label: {
+                            FilterDropdown(
+                                label: dateRange.rawValue,
+                                icon: "calendar",
+                                isActive: dateRange != .allTime
+                            )
+                        }
 
-                        ForEach(filtered.sorted(by: { $0.date > $1.date })) { workout in
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+
+                    // Unified activity list
+                    ForEach(activities) { item in
+                        switch item {
+                        case .cardio(let workout):
                             NavigationLink {
                                 WorkoutDetailView(workout: workout)
                             } label: {
@@ -108,18 +210,8 @@ struct LogTab: View {
                                 .padding(.horizontal)
                             }
                             .buttonStyle(.plain)
-                        }
 
-                        if filtered.isEmpty {
-                            ContentUnavailableView(
-                                "No Workouts",
-                                systemImage: "figure.run",
-                                description: Text("Log a workout with your coach or import from Apple Health.")
-                            )
-                        }
-                    } else {
-                        // Strength sessions list
-                        ForEach(data.strength.sorted(by: { $0.date > $1.date })) { session in
+                        case .strength(let session):
                             NavigationLink {
                                 StrengthDetailView(session: session)
                             } label: {
@@ -147,14 +239,14 @@ struct LogTab: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    }
 
-                        if data.strength.isEmpty {
-                            ContentUnavailableView(
-                                "No Strength Sessions",
-                                systemImage: "dumbbell.fill",
-                                description: Text("Tap Start Workout above to log your first session.")
-                            )
-                        }
+                    if activities.isEmpty {
+                        ContentUnavailableView(
+                            "No Activities",
+                            systemImage: "figure.run",
+                            description: Text("Log a workout or start a strength session to see it here.")
+                        )
                     }
                 }
                 .padding(.vertical)
@@ -265,22 +357,26 @@ private struct ActiveWorkoutResumeCard: View {
     }
 }
 
-// MARK: - Filter Chip
+// MARK: - Filter Dropdown Label
 
-private struct FilterChip: View {
+private struct FilterDropdown: View {
     let label: String
-    let isSelected: Bool
-    let action: () -> Void
+    let icon: String
+    let isActive: Bool
 
     var body: some View {
-        Button(action: action) {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
             Text(label)
-                .font(CoachFonts.ui(13, weight: isSelected ? .semibold : .regular))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(isSelected ? CoachColors.accent.opacity(0.15) : Color(.secondarySystemBackground))
-                .foregroundStyle(isSelected ? CoachColors.accent : .primary)
-                .clipShape(Capsule())
+                .font(CoachFonts.ui(13, weight: .medium))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(isActive ? CoachColors.accent.opacity(0.15) : Color(.secondarySystemBackground))
+        .foregroundStyle(isActive ? CoachColors.accent : .primary)
+        .clipShape(Capsule())
     }
 }
