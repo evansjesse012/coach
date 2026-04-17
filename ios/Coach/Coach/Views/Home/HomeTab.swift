@@ -23,18 +23,6 @@ struct HomeTab: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await data.syncHealthKitWorkouts() }
-                    } label: {
-                        if data.isHealthKitSyncing {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                        }
-                    }
-                    .disabled(data.isHealthKitSyncing)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
                         showSettings = true
                     } label: {
                         Image(systemName: "gearshape")

@@ -20,6 +20,7 @@ struct SettingsView: View {
                     appearanceSection
                     personalitySection
                     athleteSection
+                    healthSection
                     accountSection
                     devToolsSection
                 }
@@ -191,6 +192,48 @@ struct SettingsView: View {
                 )
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    private var healthSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("INTEGRATIONS")
+            CoachCard {
+                Button {
+                    Task { await data.syncHealthKitWorkouts() }
+                } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(CoachColors.green.opacity(0.15))
+                                .frame(width: 34, height: 34)
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(CoachColors.green)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Apple Health Sync")
+                                .font(CoachFonts.ui(15, weight: .medium))
+                                .foregroundStyle(.primary)
+                            Text("Import recent workouts from Apple Health")
+                                .font(CoachFonts.ui(11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if data.isHealthKitSyncing {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(data.isHealthKitSyncing)
+            }
         }
     }
 
