@@ -36,6 +36,17 @@ func daysUntil(_ dateStr: String) -> Int? {
     return Calendar.current.dateComponents([.day], from: Date(), to: target).day
 }
 
+/// Human-readable countdown: weeks when >= 7 days, days when < 7.
+/// Returns nil if the date can't be parsed or is in the past.
+func countdownText(_ dateStr: String, compact: Bool = false) -> String? {
+    guard let days = daysUntil(dateStr), days >= 0 else { return nil }
+    if days < 7 {
+        return compact ? "\(days)d" : "\(days) days"
+    }
+    let weeks = days / 7
+    return compact ? "\(weeks)w" : "\(weeks) weeks"
+}
+
 /// Short date format: "Mon Jan 5"
 func formatDateShort(_ dateStr: String) -> String {
     let input = DateFormatter()

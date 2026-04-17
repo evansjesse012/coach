@@ -603,7 +603,7 @@ private struct PhaseDetailPanel: View {
             Spacer()
 
             if status == .current, let days = plan.daysRemainingInPhase(phase) {
-                Text("\(days) days left")
+                Text(days < 7 ? "\(days) days left" : "\(days / 7) weeks left")
                     .font(CoachFonts.mono(12))
                     .foregroundStyle(.secondary)
             }

@@ -283,12 +283,21 @@ private struct GoalCountdownBanner: View {
             }
             Spacer()
             VStack(spacing: 0) {
-                Text("\(days)")
-                    .font(CoachFonts.display(44, weight: .bold))
-                    .foregroundStyle(CoachColors.accent)
-                Text(days == 1 ? "day" : "days")
-                    .font(CoachFonts.ui(11, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                if days < 7 {
+                    Text("\(days)")
+                        .font(CoachFonts.display(44, weight: .bold))
+                        .foregroundStyle(CoachColors.accent)
+                    Text(days == 1 ? "day" : "days")
+                        .font(CoachFonts.ui(11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(days / 7)")
+                        .font(CoachFonts.display(44, weight: .bold))
+                        .foregroundStyle(CoachColors.accent)
+                    Text(days / 7 == 1 ? "week" : "weeks")
+                        .font(CoachFonts.ui(11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(16)
@@ -1343,9 +1352,15 @@ private struct PhaseMiniCard: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let days = plan.daysRemainingInPhase(phase) {
-                    Text("\(days)d left")
-                        .font(CoachFonts.mono(11, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                    if days < 7 {
+                        Text("\(days)d left")
+                            .font(CoachFonts.mono(11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(days / 7)w left")
+                            .font(CoachFonts.mono(11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -1692,8 +1707,8 @@ private struct OtherGoalsSection: View {
                     }
                 }
                 Spacer()
-                if let date = event.date, let days = daysUntil(date), days >= 0 {
-                    Text("\(days)d")
+                if let date = event.date, let text = countdownText(date, compact: true) {
+                    Text(text)
                         .font(CoachFonts.mono(14, weight: .bold))
                         .foregroundStyle(CoachColors.accent)
                 }

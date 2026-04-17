@@ -105,8 +105,8 @@ private struct GoalCard: View {
                     }
                 }
                 Spacer()
-                if let date = event.date, !event.completed, let days = daysUntil(date), days >= 0 {
-                    Text("\(days)d")
+                if let date = event.date, !event.completed, let text = countdownText(date, compact: true) {
+                    Text(text)
                         .font(CoachFonts.mono(16, weight: .medium))
                         .foregroundStyle(CoachColors.accent)
                 }

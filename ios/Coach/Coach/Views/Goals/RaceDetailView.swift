@@ -98,12 +98,21 @@ struct RaceDetailView: View {
                 Spacer()
                 if let date = event.date, !event.completed, let days = daysUntil(date), days >= 0 {
                     VStack(alignment: .trailing, spacing: 0) {
-                        Text("\(days)")
-                            .font(CoachFonts.display(28, weight: .bold))
-                            .foregroundStyle(CoachColors.accent)
-                        Text("days")
-                            .font(CoachFonts.ui(10))
-                            .foregroundStyle(.secondary)
+                        if days < 7 {
+                            Text("\(days)")
+                                .font(CoachFonts.display(28, weight: .bold))
+                                .foregroundStyle(CoachColors.accent)
+                            Text("days")
+                                .font(CoachFonts.ui(10))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("\(days / 7)")
+                                .font(CoachFonts.display(28, weight: .bold))
+                                .foregroundStyle(CoachColors.accent)
+                            Text("weeks")
+                                .font(CoachFonts.ui(10))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 if event.completed {
