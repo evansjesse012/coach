@@ -32,6 +32,17 @@ struct WorkoutSetRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    onDelete()
+                }
+            } label: {
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+
             Text("\(setIndex + 1)")
                 .font(CoachFonts.mono(14, weight: .bold))
                 .frame(width: 32, height: 32)
