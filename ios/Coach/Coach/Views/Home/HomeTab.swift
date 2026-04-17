@@ -131,11 +131,13 @@ private struct CoachMessageCard: View {
                 .buttonStyle(.plain)
             }
 
-            // Headline — the first paragraph, rendered bold and slightly larger
-            Text(headline)
-                .font(CoachFonts.ui(16, weight: .bold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+            // Headline — the first sentence/paragraph, bold and slightly larger
+            if !headline.isEmpty {
+                Text(headline)
+                    .font(CoachFonts.ui(16, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // Body — remaining paragraphs with markdown rendering and
             // generous line spacing so each thought breathes
@@ -189,19 +191,40 @@ private struct CoachMessageCard: View {
         )
     }
 
-    /// Split the coach's note into a headline (first paragraph) and body
-    /// (everything after). The prompt instructs the model to put the hook
-    /// on its own line, followed by a blank line, then body paragraphs.
+    /// Split the coach's note into a headline (first thought) and body
+    /// (everything after). Tries three strategies in order:
+    ///   1. Split on `\n\n` (the prompt asks for paragraph breaks)
+    ///   2. Split after the first sentence (`. ` boundary)
+    ///   3. If nothing works, show everything as body with no headline
     private func splitNote(_ text: String) -> (String, String?) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 1) Paragraph break — model followed the formatting instruction
         if let range = trimmed.range(of: "\n\n") {
             let headline = String(trimmed[trimmed.startIndex..<range.lowerBound])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let body = String(trimmed[range.upperBound...])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return (headline, body.isEmpty ? nil : body)
+            if !headline.isEmpty && !body.isEmpty {
+                return (headline, body)
+            }
         }
-        return (trimmed, nil)
+
+        // 2) First sentence boundary — look for ". " or "." followed by
+        //    a space+capital, which marks the end of the first sentence.
+        //    Only split if there are at least 2 sentences.
+        if let dotSpace = trimmed.range(of: ". ") {
+            let candidate = String(trimmed[trimmed.startIndex...dotSpace.lowerBound])
+            let rest = String(trimmed[dotSpace.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rest.isEmpty && candidate.count >= 20 {
+                return (candidate, rest)
+            }
+        }
+
+        // 3) Can't split — show everything as body text (normal weight)
+        //    with no bold headline, so we don't get a wall of bold.
+        return ("", trimmed)
     }
 
     private func renderedMarkdown(_ raw: String) -> AttributedString {
