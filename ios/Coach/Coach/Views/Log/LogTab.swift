@@ -357,26 +357,4 @@ private struct ActiveWorkoutResumeCard: View {
     }
 }
 
-// MARK: - Filter Dropdown Label
-
-private struct FilterDropdown: View {
-    let label: String
-    let icon: String
-    let isActive: Bool
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-            Text(label)
-                .font(CoachFonts.ui(13, weight: .medium))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .bold))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(isActive ? CoachColors.accent.opacity(0.15) : Color(.secondarySystemBackground))
-        .foregroundStyle(isActive ? CoachColors.accent : .primary)
-        .clipShape(Capsule())
-    }
-}
+// FilterDropdown is now shared via CoachComponents.swift

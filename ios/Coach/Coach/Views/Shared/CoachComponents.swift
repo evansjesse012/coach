@@ -128,3 +128,30 @@ struct SheetHeader: View {
         .padding(.top)
     }
 }
+
+// MARK: - Filter Dropdown Label
+
+/// Compact capsule label used inside a `Menu` to show the current selection
+/// for a dropdown filter. Tints accent when a non-default option is active.
+/// Used by LogTab (Activities page) and ExerciseLibraryView.
+struct FilterDropdown: View {
+    let label: String
+    let icon: String
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+            Text(label)
+                .font(CoachFonts.ui(13, weight: .medium))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(isActive ? CoachColors.accent.opacity(0.15) : Color(.secondarySystemBackground))
+        .foregroundStyle(isActive ? CoachColors.accent : .primary)
+        .clipShape(Capsule())
+    }
+}

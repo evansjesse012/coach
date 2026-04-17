@@ -5,8 +5,8 @@ struct ExerciseLibraryView: View {
     @Environment(\.colorScheme) var colorScheme
 
     @State private var searchText = ""
-    @State private var selectedBodyParts: Set<String> = []
-    @State private var selectedCategories: Set<String> = []
+    @State private var bodyPartFilter: String?
+    @State private var equipmentFilter: String?
     @State private var showAddSheet = false
 
     private let bodyParts = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core", "Full Body"]
@@ -29,8 +29,68 @@ struct ExerciseLibraryView: View {
                 searchField
                     .padding(.horizontal)
 
-                chipRow(title: "Body Part", options: bodyParts, selection: $selectedBodyParts)
-                chipRow(title: "Equipment", options: categories, selection: $selectedCategories)
+                HStack(spacing: 10) {
+                    Menu {
+                        Button {
+                            bodyPartFilter = nil
+                        } label: {
+                            if bodyPartFilter == nil {
+                                Label("All Body Parts", systemImage: "checkmark")
+                            } else {
+                                Text("All Body Parts")
+                            }
+                        }
+                        ForEach(bodyParts, id: \.self) { part in
+                            Button {
+                                bodyPartFilter = part
+                            } label: {
+                                if bodyPartFilter == part {
+                                    Label(part, systemImage: "checkmark")
+                                } else {
+                                    Text(part)
+                                }
+                            }
+                        }
+                    } label: {
+                        FilterDropdown(
+                            label: bodyPartFilter ?? "Body Part",
+                            icon: "figure.arms.open",
+                            isActive: bodyPartFilter != nil
+                        )
+                    }
+
+                    Menu {
+                        Button {
+                            equipmentFilter = nil
+                        } label: {
+                            if equipmentFilter == nil {
+                                Label("All Equipment", systemImage: "checkmark")
+                            } else {
+                                Text("All Equipment")
+                            }
+                        }
+                        ForEach(categories, id: \.self) { cat in
+                            Button {
+                                equipmentFilter = cat
+                            } label: {
+                                if equipmentFilter == cat {
+                                    Label(cat, systemImage: "checkmark")
+                                } else {
+                                    Text(cat)
+                                }
+                            }
+                        }
+                    } label: {
+                        FilterDropdown(
+                            label: equipmentFilter ?? "Equipment",
+                            icon: "dumbbell",
+                            isActive: equipmentFilter != nil
+                        )
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal)
 
                 if sections.isEmpty && historyRows.isEmpty {
                     ContentUnavailableView(
@@ -110,31 +170,7 @@ struct ExerciseLibraryView: View {
         )
     }
 
-    // MARK: - Chip Rows
-
-    private func chipRow(title: String, options: [String], selection: Binding<Set<String>>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            CoachLabel(text: title)
-                .padding(.horizontal)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    LibraryChip(label: "All", isSelected: selection.wrappedValue.isEmpty) {
-                        selection.wrappedValue.removeAll()
-                    }
-                    ForEach(options, id: \.self) { opt in
-                        LibraryChip(label: opt, isSelected: selection.wrappedValue.contains(opt)) {
-                            if selection.wrappedValue.contains(opt) {
-                                selection.wrappedValue.remove(opt)
-                            } else {
-                                selection.wrappedValue.insert(opt)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
+    // Chip rows replaced by FilterDropdown menus above.
 
     // MARK: - Sections
 
@@ -191,10 +227,10 @@ struct ExerciseLibraryView: View {
                 let inBody = item.bodyPart.lowercased().contains(q)
                 if !inName && !inBody { return false }
             }
-            if !selectedBodyParts.isEmpty && !selectedBodyParts.contains(item.bodyPart) {
+            if let bp = bodyPartFilter, item.bodyPart != bp {
                 return false
             }
-            if !selectedCategories.isEmpty && !selectedCategories.contains(item.category) {
+            if let eq = equipmentFilter, item.category != eq {
                 return false
             }
             return true
@@ -226,23 +262,3 @@ struct ExerciseLibraryView: View {
     }
 }
 
-// MARK: - Library Chip
-
-private struct LibraryChip: View {
-    let label: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(CoachFonts.ui(12, weight: isSelected ? .semibold : .regular))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(isSelected ? CoachColors.accent.opacity(0.15) : Color(.secondarySystemBackground))
-                .foregroundStyle(isSelected ? CoachColors.accent : .primary)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
