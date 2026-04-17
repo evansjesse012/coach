@@ -61,6 +61,11 @@ final class DataService {
     /// "Build with your coach" button). Consumed on next chat appear.
     var pendingChatPrompt: String?
 
+    /// Presents the coach chat as a sheet overlay from any tab. Set to true
+    /// to open the chat; the sheet's dismiss resets it to false. Replaces
+    /// the old `selectedTab = "coach"` routing.
+    var showCoachSheet: Bool = false
+
     /// Currently-selected tab. Kept here so any view can switch tabs
     /// programmatically (e.g. Plan tab routing to the coach).
     var selectedTab: String = "home"

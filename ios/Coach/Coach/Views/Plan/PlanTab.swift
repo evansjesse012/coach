@@ -121,7 +121,7 @@ struct PlanTab: View {
     private func routeToCoachForModify(plan: TrainingPlan) {
         let race = plan.raceName ?? "my race"
         data.pendingChatPrompt = "I want to modify my current training plan for \(race). I'm in week \(plan.currentWeek) of \(plan.totalWeeks). What would you like to change?"
-        data.selectedTab = "coach"
+        data.showCoachSheet = true
     }
 }
 

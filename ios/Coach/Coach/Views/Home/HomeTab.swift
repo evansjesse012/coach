@@ -108,7 +108,7 @@ private struct CoachMessageCard: View {
                 }
                 Spacer()
                 Button {
-                    data.selectedTab = "coach"
+                    data.showCoachSheet = true
                 } label: {
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 13, weight: .semibold))
@@ -145,7 +145,7 @@ private struct CoachMessageCard: View {
                         ForEach(Array(actions.prefix(3)), id: \.self) { action in
                             Button {
                                 data.pendingChatPrompt = action
-                                data.selectedTab = "coach"
+                                data.showCoachSheet = true
                             } label: {
                                 Text(action)
                                     .font(CoachFonts.ui(12, weight: .semibold))

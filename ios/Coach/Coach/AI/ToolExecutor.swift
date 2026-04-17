@@ -754,7 +754,7 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             guard let tab = data["tab"] as? String, !tab.isEmpty else {
                 return ToolResult(summary: jsonString(["error": "Navigate requires data.tab (one of: home, goals, plan, log, coach)"]))
             }
-            let valid = Set(["home", "goals", "plan", "log", "coach"])
+            let valid = Set(["home", "goals", "plan", "log"])
             guard valid.contains(tab) else {
                 return ToolResult(summary: jsonString(["error": "Unknown tab '\(tab)'. Must be one of: home, goals, plan, log, coach."]))
             }

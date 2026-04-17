@@ -35,28 +35,33 @@ struct MainTabView: View {
                     Label("Activities", systemImage: "list.clipboard.fill")
                 }
                 .tag("log")
-
-            ChatTab()
-                .tabItem {
-                    Label("Coach", systemImage: "message.fill")
-                }
-                .tag("coach")
         }
         .tint(Self.activeColor)
         .toolbarBackground(Self.barTint, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarColorScheme(.dark, for: .tabBar)
         .safeAreaInset(edge: .bottom) {
-            // Floating "Workout in progress" pill above the tab bar. Only
-            // renders when an active strength session exists in DataService.
-            if dataService.activeStrengthSession != nil {
-                MiniActiveWorkoutBar {
-                    showActiveWorkoutLogger = true
+            VStack(spacing: 6) {
+                // Floating "Workout in progress" pill
+                if dataService.activeStrengthSession != nil {
+                    MiniActiveWorkoutBar {
+                        showActiveWorkoutLogger = true
+                    }
+                    .padding(.horizontal, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 4)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                // Floating coach button — always visible, opens the chat
+                // sheet from any tab.
+                HStack {
+                    Spacer()
+                    FloatingCoachButton {
+                        dataService.showCoachSheet = true
+                    }
+                    .padding(.trailing, 16)
+                }
             }
+            .padding(.bottom, 4)
         }
         .animation(.easeInOut(duration: 0.25), value: dataService.activeStrengthSession != nil)
         .fullScreenCover(isPresented: $showActiveWorkoutLogger) {
@@ -64,6 +69,54 @@ struct MainTabView: View {
                 WorkoutLoggingView()
             }
         }
+        .sheet(isPresented: $dataService.showCoachSheet) {
+            NavigationStack {
+                ChatTab()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button {
+                                dataService.showCoachSheet = false
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+            }
+            .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+// MARK: - Floating Coach Button
+
+/// Persistent button that sits above the tab bar on every tab. Tapping
+/// opens the coach chat as a sheet overlay — the athlete chats without
+/// losing their place on the current tab. When voice mode arrives, this
+/// button will also host the mic entry point.
+private struct FloatingCoachButton: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [CoachColors.accent, CoachColors.accent.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 52, height: 52)
+                    .shadow(color: CoachColors.accent.opacity(0.35), radius: 10, y: 4)
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
