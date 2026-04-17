@@ -71,11 +71,30 @@ private struct GreetingHeader: View {
 
 private struct CoachMessageCard: View {
     @Environment(DataService.self) var data
+    @State private var isRegenerating = false
 
     var body: some View {
         if let msg = data.settings.pushMessage, !msg.text.isEmpty {
             card(msg: msg)
         }
+    }
+
+    private func regenerateNote() async {
+        isRegenerating = true
+        do {
+            let note = try await CoachNoteGenerator.generate(
+                plan: data.trainingPlan,
+                memory: data.memory,
+                settings: data.settings,
+                events: data.events
+            )
+            var updated = data.settings
+            updated.pushMessage = note
+            try await data.saveSettings(updated)
+        } catch {
+            NSLog("[coach-note] manual refresh failed: \(error.localizedDescription)")
+        }
+        isRegenerating = false
     }
 
     private func card(msg: PushMessage) -> some View {
@@ -108,15 +127,22 @@ private struct CoachMessageCard: View {
                 }
                 Spacer()
                 Button {
-                    data.showCoachSheet = true
+                    Task { await regenerateNote() }
                 } label: {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(CoachColors.accent)
-                        .padding(7)
-                        .background(Circle().fill(CoachColors.accent.opacity(0.12)))
+                    if isRegenerating {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 30, height: 30)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(Color.secondary.opacity(0.12)))
+                    }
                 }
                 .buttonStyle(.plain)
+                .disabled(isRegenerating)
             }
 
             // Headline — the first sentence/paragraph, bold and slightly larger
