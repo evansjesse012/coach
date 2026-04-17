@@ -41,27 +41,22 @@ struct MainTabView: View {
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarColorScheme(.dark, for: .tabBar)
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 6) {
-                // Floating "Workout in progress" pill
-                if dataService.activeStrengthSession != nil {
-                    MiniActiveWorkoutBar {
-                        showActiveWorkoutLogger = true
-                    }
-                    .padding(.horizontal, 10)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            // Floating "Workout in progress" pill
+            if dataService.activeStrengthSession != nil {
+                MiniActiveWorkoutBar {
+                    showActiveWorkoutLogger = true
                 }
-
-                // Floating coach button — always visible, opens the chat
-                // sheet from any tab.
-                HStack {
-                    Spacer()
-                    FloatingCoachButton {
-                        dataService.showCoachSheet = true
-                    }
-                    .padding(.trailing, 16)
-                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 4)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .padding(.bottom, 4)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            FloatingCoachButton {
+                dataService.showCoachSheet = true
+            }
+            .padding(.trailing, 18)
+            .padding(.bottom, 70)
         }
         .animation(.easeInOut(duration: 0.25), value: dataService.activeStrengthSession != nil)
         .fullScreenCover(isPresented: $showActiveWorkoutLogger) {
