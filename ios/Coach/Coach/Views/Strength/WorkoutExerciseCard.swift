@@ -14,6 +14,10 @@ struct WorkoutExerciseCard: View {
     let onAddSet: () -> Void
     let onRemoveSet: (Int) -> Void
     let onRemoveExercise: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let canMoveUp: Bool
+    let canMoveDown: Bool
     let onUpdateRest: (Int) -> Void
     let onUpdateNotes: (String) -> Void
 
@@ -147,6 +151,33 @@ struct WorkoutExerciseCard: View {
                 }
             }
             Spacer()
+
+            HStack(spacing: 4) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) { onMoveUp() }
+                } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(canMoveUp ? .primary : .quaternary)
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(Color.secondary.opacity(canMoveUp ? 0.12 : 0.05)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canMoveUp)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) { onMoveDown() }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(canMoveDown ? .primary : .quaternary)
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(Color.secondary.opacity(canMoveDown ? 0.12 : 0.05)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canMoveDown)
+            }
+
             Menu {
                 Button {
                     notesDraft = exercise.notes ?? ""

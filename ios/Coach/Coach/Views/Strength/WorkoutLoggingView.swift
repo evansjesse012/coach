@@ -145,6 +145,10 @@ struct WorkoutLoggingView: View {
                             onAddSet: { addSet(exerciseIdx: idx) },
                             onRemoveSet: { setIdx in removeSet(exerciseIdx: idx, setIdx: setIdx) },
                             onRemoveExercise: { removeExercise(idx: idx) },
+                            onMoveUp: { moveExercise(from: idx, to: idx - 1) },
+                            onMoveDown: { moveExercise(from: idx, to: idx + 1) },
+                            canMoveUp: idx > 0,
+                            canMoveDown: idx < session.exercises.count - 1,
                             onUpdateRest: { seconds in updateRest(exerciseIdx: idx, seconds: seconds) },
                             onUpdateNotes: { notes in updateNotes(exerciseIdx: idx, notes: notes) }
                         )
@@ -327,6 +331,15 @@ struct WorkoutLoggingView: View {
             for i in session.exercises[exerciseIdx].sets.indices {
                 session.exercises[exerciseIdx].sets[i].setNum = i + 1
             }
+        }
+    }
+
+    private func moveExercise(from source: Int, to destination: Int) {
+        data.mutateActiveWorkout { session in
+            guard source >= 0, source < session.exercises.count,
+                  destination >= 0, destination < session.exercises.count else { return }
+            let exercise = session.exercises.remove(at: source)
+            session.exercises.insert(exercise, at: destination)
         }
     }
 
