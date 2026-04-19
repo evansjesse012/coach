@@ -427,7 +427,7 @@ struct PrescribedSessionDetailView: View {
             isExpanded: showNutrition,
             toggle: { showNutrition.toggle() }
         ) {
-            HStack(alignment: .top, spacing: 8) {
+            VStack(spacing: 8) {
                 nutritionCard(label: "BEFORE", color: CoachColors.accent, text: fuel.pre)
                 nutritionCard(label: "DURING", color: CoachColors.teal, text: fuel.during)
                 nutritionCard(label: "AFTER", color: CoachColors.purple, text: fuel.post)
