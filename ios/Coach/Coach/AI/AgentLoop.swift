@@ -110,9 +110,12 @@ func runAgentLoop(
     customText: String,
     messages: [ChatMessage],
     dataService: DataService,
-    maxRounds: Int = 5
+    maxRounds: Int = 3,
+    recentConversationSummaries: [String] = []
 ) async throws -> AgentResult {
-    // Clean messages for API format
+    // Clean messages for API format — only current conversation, not
+    // the full history. Recent conversation summaries give the coach
+    // thread-to-thread continuity without re-sending old transcripts.
     let clean = messages.map { msg -> [String: Any] in
         ["role": msg.role, "content": msg.content]
     }
@@ -121,10 +124,23 @@ func runAgentLoop(
     var toolCallCount = 0
     var effects: [ToolEffect] = []
 
+    // Build the system prompt with conversation summaries for continuity
+    var systemPrompt = buildSystemPrompt(personality: personality, customText: customText)
+    if !recentConversationSummaries.isEmpty {
+        let summaryBlock = recentConversationSummaries.enumerated().map { idx, s in
+            "- \(idx + 1). \(s)"
+        }.joined(separator: "\n")
+        systemPrompt += """
+
+        RECENT CONVERSATIONS (for context continuity — reference these if relevant):
+        \(summaryBlock)
+        """
+    }
+
     for _ in 0..<maxRounds {
         // Call Claude via Supabase Edge Function
         let response = try await callEdgeFunction(
-            system: buildSystemPrompt(personality: personality, customText: customText),
+            system: systemPrompt,
             messages: chain,
             tools: coachToolDefinitions,
             maxTokens: 4096

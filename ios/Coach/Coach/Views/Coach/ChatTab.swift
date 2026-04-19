@@ -4,66 +4,98 @@ struct ChatTab: View {
     @Environment(DataService.self) var data
     @State private var inputText = ""
     @State private var isLoading = false
+    @State private var showHistory = false
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Messages
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(Array(data.messages.enumerated()), id: \.offset) { index, message in
-                                MessageBubble(message: message)
-                                    .id(index)
-                            }
-                            if isLoading {
-                                HStack(spacing: 8) {
-                                    DotsLoader()
-                                    Text(loadingLabel)
-                                        .font(CoachFonts.ui(13))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal)
-                                .id("loading")
-                            }
+        VStack(spacing: 0) {
+            // Messages — scoped to the current conversation only
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if data.currentMessages.isEmpty && !isLoading {
+                            newConversationGreeting
                         }
-                        .padding()
+                        ForEach(Array(data.currentMessages.enumerated()), id: \.offset) { index, message in
+                            MessageBubble(message: message)
+                                .id(index)
+                        }
+                        if isLoading {
+                            HStack(spacing: 8) {
+                                DotsLoader()
+                                Text(loadingLabel)
+                                    .font(CoachFonts.ui(13))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal)
+                            .id("loading")
+                        }
                     }
-                    .onChange(of: data.messages.count) {
-                        withAnimation {
-                            proxy.scrollTo(data.messages.count - 1, anchor: .bottom)
+                    .padding()
+                }
+                .onChange(of: data.currentMessages.count) {
+                    withAnimation {
+                        proxy.scrollTo(data.currentMessages.count - 1, anchor: .bottom)
+                    }
+                }
+                .onAppear {
+                    // Scroll to the latest message when the chat opens
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if !data.currentMessages.isEmpty {
+                            proxy.scrollTo(data.currentMessages.count - 1, anchor: .bottom)
                         }
                     }
                 }
-
-                Divider()
-
-                // Input bar
-                HStack(spacing: 8) {
-                    TextField("Message your coach...", text: $inputText, axis: .vertical)
-                        .font(CoachFonts.ui(15))
-                        .lineLimit(1...5)
-                        .focused($isInputFocused)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-
-                    Button {
-                        Task { await sendMessage() }
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.3) : CoachColors.accent)
-                    }
-                    .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
             }
-            .navigationTitle("Coach")
-            .navigationBarTitleDisplayMode(.inline)
+
+            Divider()
+
+            // Input bar
+            HStack(spacing: 8) {
+                TextField("Message your coach...", text: $inputText, axis: .vertical)
+                    .font(CoachFonts.ui(15))
+                    .lineLimit(1...5)
+                    .focused($isInputFocused)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+
+                Button {
+                    Task { await sendMessage() }
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.3) : CoachColors.accent)
+                }
+                .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .navigationTitle("Coach")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showHistory = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .sheet(isPresented: $showHistory) {
+            NavigationStack {
+                ConversationHistoryView()
+            }
+        }
+        .task {
+            // Ensure we have an active (non-stale) conversation when
+            // the chat opens. Stale conversations are archived and a
+            // fresh one starts.
+            await data.ensureActiveConversation()
         }
         .onAppear {
             consumePendingPrompt()
@@ -73,11 +105,41 @@ struct ChatTab: View {
         }
     }
 
+    // MARK: - New conversation greeting
+
+    private var newConversationGreeting: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [CoachColors.accent, CoachColors.purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 48, height: 48)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            Text("New conversation")
+                .font(CoachFonts.ui(16, weight: .bold))
+                .foregroundStyle(.primary)
+            Text("Your coach remembers your training history, injuries, and preferences. What's on your mind?")
+                .font(CoachFonts.ui(13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 60)
+        .padding(.horizontal, 40)
+    }
+
+    // MARK: - Loading label
+
     private var loadingLabel: String {
-        // Long-running tools can publish a free-form progress string (e.g.
-        // "Generating weeks 3–4 of 12…") via DataService.activeToolProgress.
-        // Prefer that when it's set so the user sees real progress instead of
-        // the generic "Building your plan…" fallback.
         if let progress = data.activeToolProgress, !progress.isEmpty {
             return progress
         }
@@ -108,24 +170,37 @@ struct ChatTab: View {
         inputText = ""
         isInputFocused = false
 
-        let userMsg = ChatMessage.user(text)
+        // Ensure active conversation before first message
+        await data.ensureActiveConversation()
+
+        let userMsg = ChatMessage.user(text, conversationId: data.currentConversation?.id)
         try? await data.addMessage(userMsg)
 
         isLoading = true
         do {
+            // Build recent conversation summaries for context continuity
+            let recentSummaries = data.archivedConversations
+                .prefix(3)
+                .compactMap(\.summary)
+
             let result = try await runAgentLoop(
                 personality: data.settings.personality,
                 customText: data.settings.customPrompt,
-                messages: data.messages,
-                dataService: data
+                messages: data.currentMessages,
+                dataService: data,
+                recentConversationSummaries: recentSummaries
             )
 
-            let assistantMsg = ChatMessage.assistant(result.response, metadata: ChatMessageMetadata(
-                logged: result.hasWorkoutLogs,
-                nutritionLogged: result.hasNutritionLogs,
-                planChanged: result.hasPlanChanges,
-                appActionTaken: result.hasAppActions
-            ))
+            let assistantMsg = ChatMessage.assistant(
+                result.response,
+                metadata: ChatMessageMetadata(
+                    logged: result.hasWorkoutLogs,
+                    nutritionLogged: result.hasNutritionLogs,
+                    planChanged: result.hasPlanChanges,
+                    appActionTaken: result.hasAppActions
+                ),
+                conversationId: data.currentConversation?.id
+            )
             try? await data.addMessage(assistantMsg)
 
             // Apply typed side effects from the agent loop
@@ -171,10 +246,10 @@ struct ChatTab: View {
                 }
             }
 
-            // Background memory extraction
+            // Background memory extraction — only on current conversation
             Task {
                 await extractMemory(
-                    messages: data.messages,
+                    messages: data.currentMessages,
                     existingMemory: data.memory,
                     dataService: data
                 )
@@ -183,11 +258,120 @@ struct ChatTab: View {
             NSLog("[chat] sendMessage failed: \(error)")
             let errorMsg = ChatMessage.assistant(
                 "Sorry, I ran into an error. Please try again.\n\n\(error.localizedDescription)",
-                metadata: ChatMessageMetadata(isError: true)
+                metadata: ChatMessageMetadata(isError: true),
+                conversationId: data.currentConversation?.id
             )
             try? await data.addMessage(errorMsg)
         }
         isLoading = false
+    }
+}
+
+// MARK: - Conversation History View
+
+/// Shows archived conversations with their summaries. Tapping opens
+/// the transcript read-only.
+struct ConversationHistoryView: View {
+    @Environment(DataService.self) var data
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        ScrollView {
+            if data.archivedConversations.isEmpty {
+                ContentUnavailableView(
+                    "No Past Conversations",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text("Your past conversations with the coach will appear here.")
+                )
+                .padding(.top, 60)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(data.archivedConversations) { convo in
+                        NavigationLink {
+                            ArchivedConversationView(conversation: convo)
+                        } label: {
+                            conversationRow(convo)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            }
+        }
+        .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
+        .navigationTitle("Past Conversations")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+    }
+
+    private func conversationRow(_ convo: Conversation) -> some View {
+        CoachCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(formatConversationDate(convo.startedAt))
+                    .font(CoachFonts.ui(12, weight: .semibold))
+                    .foregroundStyle(CoachColors.accent)
+                if let summary = convo.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(CoachFonts.ui(13))
+                        .foregroundStyle(.primary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("No summary available")
+                        .font(CoachFonts.ui(13))
+                        .italic()
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func formatConversationDate(_ isoString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: isoString) else { return isoString }
+        let display = DateFormatter()
+        display.doesRelativeDateFormatting = true
+        display.dateStyle = .medium
+        display.timeStyle = .short
+        return display.string(from: date)
+    }
+}
+
+// MARK: - Archived Conversation View
+
+/// Read-only transcript of an archived conversation.
+struct ArchivedConversationView: View {
+    let conversation: Conversation
+    @Environment(DataService.self) var data
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
+                    MessageBubble(message: message)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle(formattedDate)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var messages: [ChatMessage] {
+        data.messagesForConversation(conversation.id)
+    }
+
+    private var formattedDate: String {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: conversation.startedAt) else { return "Conversation" }
+        let display = DateFormatter()
+        display.dateFormat = "MMM d, h:mm a"
+        return display.string(from: date)
     }
 }
 
@@ -235,9 +419,6 @@ struct MessageBubble: View {
         }
     }
 
-    /// Parse the message as inline markdown so **bold**, *italic*, `code`,
-    /// and [links](url) render properly. Line breaks are preserved. Falls back
-    /// to the raw string if parsing fails.
     private var renderedContent: AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace

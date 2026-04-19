@@ -66,6 +66,21 @@ final class DataService {
     /// the old `selectedTab = "coach"` routing.
     var showCoachSheet: Bool = false
 
+    // MARK: - Conversations
+
+    /// The active (non-archived) conversation. nil means we need to start
+    /// one. Messages in `currentMessages` are scoped to this conversation.
+    var currentConversation: Conversation?
+
+    /// Archived conversations loaded on launch, newest first. Used by
+    /// the chat History view.
+    var archivedConversations: [Conversation] = []
+
+    /// Messages belonging to the current conversation only. This is what
+    /// ChatTab renders and what gets sent to the agent loop — NOT the
+    /// full `messages` array which is now only used for legacy compat.
+    var currentMessages: [ChatMessage] = []
+
     /// Currently-selected tab. Kept here so any view can switch tabs
     /// programmatically (e.g. Plan tab routing to the coach).
     var selectedTab: String = "home"
@@ -110,7 +125,8 @@ final class DataService {
             async let tp: [TrainingPlan] = client.from("training_plans").select().execute().value
             async let ph: [PlanHistory] = client.from("plan_history").select().execute().value
             async let cm: [CoachingMemory] = client.from("coaching_memory").select().execute().value
-            async let msg: [ChatMessage] = client.from("chat_messages").select().order("created_at").execute().value
+            async let msg: [ChatMessage] = client.from("chat_messages").select().order("created_at").limit(200).execute().value
+            async let convos: [Conversation] = client.from("conversations").select().order("last_message_at", ascending: false).execute().value
             async let st: [UserSettings] = client.from("settings").select().execute().value
             async let t: [Template] = client.from("templates").select().execute().value
             async let ce: [CustomExercise] = client.from("custom_exercises").select().execute().value
@@ -126,6 +142,10 @@ final class DataService {
             planHistory = try await ph
             memory = try await cm.first ?? .empty()
             messages = try await msg
+            let allConversations = try await convos
+            archivedConversations = allConversations.filter(\.isArchived)
+            currentConversation = allConversations.first(where: { !$0.isArchived })
+            reloadCurrentMessages()
             settings = try await st.first ?? .defaults()
             templates = try await t
             customExercises = try await ce
@@ -792,8 +812,115 @@ final class DataService {
     // MARK: - Chat Messages
 
     func addMessage(_ message: ChatMessage) async throws {
-        messages.append(message)
-        try await client.from("chat_messages").insert(message).execute()
+        var msg = message
+        msg.conversationId = currentConversation?.id
+        messages.append(msg)
+        currentMessages.append(msg)
+        try await client.from("chat_messages").insert(msg).execute()
+        // Keep the conversation's lastMessageAt fresh
+        if var convo = currentConversation {
+            convo.lastMessageAt = ISO8601DateFormatter().string(from: Date())
+            currentConversation = convo
+            try? await client.from("conversations")
+                .update(["last_message_at": convo.lastMessageAt])
+                .eq("id", value: convo.id)
+                .execute()
+        }
+    }
+
+    // MARK: - Conversation lifecycle
+
+    /// Filter `messages` to only those belonging to the current conversation.
+    private func reloadCurrentMessages() {
+        guard let convoId = currentConversation?.id else {
+            currentMessages = []
+            return
+        }
+        currentMessages = messages.filter { $0.conversationId == convoId }
+    }
+
+    /// Ensure a current (non-stale) conversation exists. If the current one
+    /// is stale (>2 hours since last message) or nil, archive it and start
+    /// fresh. Called when the chat sheet opens.
+    func ensureActiveConversation() async {
+        if let existing = currentConversation, !existing.isStale {
+            return // still fresh
+        }
+        // Archive the old conversation (if any)
+        if let old = currentConversation {
+            await archiveConversation(old)
+        }
+        // Start a new one
+        let fresh = Conversation.create()
+        currentConversation = fresh
+        currentMessages = []
+        try? await client.from("conversations").insert(fresh).execute()
+    }
+
+    /// Archive a conversation: generate a summary, mark as archived,
+    /// move to the archived list.
+    func archiveConversation(_ convo: Conversation) async {
+        var archived = convo
+        archived.isArchived = true
+        // Generate a summary from the conversation's messages
+        let convoMessages = messages.filter { $0.conversationId == convo.id }
+        if !convoMessages.isEmpty {
+            archived.summary = await generateConversationSummary(convoMessages)
+        }
+        // Persist
+        try? await client.from("conversations")
+            .update(archived)
+            .eq("id", value: archived.id)
+            .execute()
+        // Update local state
+        archivedConversations.insert(archived, at: 0)
+        if currentConversation?.id == convo.id {
+            currentConversation = nil
+            currentMessages = []
+        }
+    }
+
+    /// Load messages for a specific archived conversation (for History view).
+    func messagesForConversation(_ conversationId: String) -> [ChatMessage] {
+        messages.filter { $0.conversationId == conversationId }
+    }
+
+    /// Small Claude call to produce a 1-2 sentence summary of a
+    /// conversation for the History view and coach context.
+    private func generateConversationSummary(_ msgs: [ChatMessage]) async -> String? {
+        let transcript = msgs.map { "\($0.role): \($0.content)" }
+            .joined(separator: "\n")
+            .prefix(3000) // cap input size
+        let prompt = """
+        Summarize this coaching conversation in 1-2 sentences. Focus on what was discussed, \
+        any decisions made, and any action items. Be specific — reference the actual topics, \
+        not generic descriptions.
+
+        \(transcript)
+        """
+        let body: [String: Any] = [
+            "system": "Return only the summary text, no JSON, no markdown fences.",
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": 200,
+            "model": "claude-sonnet-4-6",
+        ]
+        do {
+            let bodyData = try JSONSerialization.data(withJSONObject: body)
+            let response: SummaryResponse = try await client.functions.invoke(
+                "chat",
+                options: .init(body: bodyData)
+            ) { data, response in
+                guard 200..<300 ~= response.statusCode else {
+                    throw NSError(domain: "ConversationSummary", code: response.statusCode)
+                }
+                return try JSONDecoder().decode(SummaryResponse.self, from: data)
+            }
+            return response.content.first(where: { $0.type == "text" })?.text?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            NSLog("[conversation-summary] failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // MARK: - Settings
