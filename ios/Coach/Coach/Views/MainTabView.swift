@@ -4,10 +4,7 @@ struct MainTabView: View {
     @Environment(DataService.self) var dataService
     @State private var showActiveWorkoutLogger = false
 
-    // Near-white for the active item, dark for the tab bar tint so the
-    // Liquid Glass bar reads as part of the dark app surface above it.
-    private static let activeColor = Color(red: 0xE8 / 255, green: 0xE8 / 255, blue: 0xE8 / 255)
-    private static let barTint = Color(red: 0x1A / 255, green: 0x1A / 255, blue: 0x1E / 255)
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         @Bindable var dataService = dataService
@@ -36,10 +33,7 @@ struct MainTabView: View {
                 }
                 .tag("log")
         }
-        .tint(Self.activeColor)
-        .toolbarBackground(Self.barTint, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
-        .toolbarColorScheme(.dark, for: .tabBar)
+        .tint(CoachColors.accent)
         .safeAreaInset(edge: .bottom) {
             // Floating "Workout in progress" pill
             if dataService.activeStrengthSession != nil {
