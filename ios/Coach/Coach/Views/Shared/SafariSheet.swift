@@ -7,9 +7,7 @@ struct SafariSheet: UIViewControllerRepresentable {
     let url: URL
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
-        let vc = SFSafariViewController(url: url)
-        vc.preferredControlTintColor = UIColor(CoachColors.accent)
-        return vc
+        SFSafariViewController(url: url)
     }
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) { }

@@ -30,7 +30,7 @@ enum CoachNoteGenerator {
             dayName: dayName
         )
 
-        let personalityPrompt = getPersonalityPrompt(settings.personality, settings.customPrompt ?? "")
+        let personalityPrompt = getPersonalityPrompt(settings.personality, settings.customPrompt)
 
         let prompt = """
         \(personalityPrompt)

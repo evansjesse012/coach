@@ -663,17 +663,12 @@ struct RaceDetailView: View {
                 .padding(.top, 5)
                 .frame(minWidth: 8)
 
-            (
-                Text(lead)
-                    .font(CoachFonts.ui(12, weight: .medium))
-                    .foregroundColor(textColor(0.85))
-                + Text(rest.isEmpty ? "" : " \(rest)")
-                    .font(CoachFonts.ui(12))
-                    .foregroundColor(textColor(0.6))
-            )
-            .lineSpacing(2)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(rest.isEmpty ? lead : "\(lead) \(rest)")
+                .font(CoachFonts.ui(12))
+                .foregroundColor(textColor(0.75))
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
         .background(bg)

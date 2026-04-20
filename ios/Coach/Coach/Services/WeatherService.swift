@@ -244,22 +244,22 @@ actor WeatherService {
 
 // MARK: - API Response Types
 
-private struct GeocodeResponse: Codable {
+private struct GeocodeResponse: Codable, Sendable {
     var results: [GeocodeResult]?
 }
 
-private struct GeocodeResult: Codable {
+private struct GeocodeResult: Codable, Sendable {
     var latitude: Double
     var longitude: Double
     var name: String
 }
 
-private struct ForecastResponse: Codable {
+private struct ForecastResponse: Codable, Sendable {
     var daily: DailyData
     var hourly: HourlyData?
 }
 
-private struct DailyData: Codable {
+private struct DailyData: Codable, Sendable {
     var time: [String]
     var temperature_2m_max: [Double]
     var temperature_2m_min: [Double]
@@ -274,7 +274,7 @@ private struct DailyData: Codable {
     var weatherCode: [Int] { weather_code ?? [] }
 }
 
-private struct HourlyData: Codable {
+private struct HourlyData: Codable, Sendable {
     var time: [String]
     var temperature_2m: [Double]
     var windspeed_10m: [Double]?

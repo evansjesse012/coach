@@ -831,7 +831,7 @@ final class DataService {
         if var convo = currentConversation {
             convo.lastMessageAt = ISO8601DateFormatter().string(from: Date())
             currentConversation = convo
-            try? await client.from("conversations")
+            _ = try? await client.from("conversations")
                 .update(["last_message_at": convo.lastMessageAt])
                 .eq("id", value: convo.id)
                 .execute()
@@ -864,7 +864,7 @@ final class DataService {
         let fresh = Conversation.create()
         currentConversation = fresh
         currentMessages = []
-        try? await client.from("conversations").insert(fresh).execute()
+        _ = try? await client.from("conversations").insert(fresh).execute()
     }
 
     /// Archive a conversation: generate a summary, mark as archived,
@@ -878,7 +878,7 @@ final class DataService {
             archived.summary = await generateConversationSummary(convoMessages)
         }
         // Persist
-        try? await client.from("conversations")
+        _ = try? await client.from("conversations")
             .update(archived)
             .eq("id", value: archived.id)
             .execute()

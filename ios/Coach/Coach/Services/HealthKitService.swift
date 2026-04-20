@@ -88,7 +88,8 @@ actor HealthKitService {
         let duration = Int(hk.duration / 60)
         let distanceMiles = hk.totalDistance?.doubleValue(for: .mile())
         let distanceMeters = hk.totalDistance?.doubleValue(for: .meter())
-        let caloriesDouble = hk.totalEnergyBurned?.doubleValue(for: .kilocalorie())
+        let caloriesDouble = hk.statistics(for: HKQuantityType(.activeEnergyBurned))?
+            .sumQuantity()?.doubleValue(for: .kilocalorie())
 
         // Pace (min/mi)
         var pace: String?
