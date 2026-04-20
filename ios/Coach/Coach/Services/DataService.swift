@@ -159,28 +159,38 @@ final class DataService {
         }
         isLoading = false
 
-        // Fire-and-forget plan auto-advance + pre-generation. Runs after
-        // loadAll has returned so it never blocks launch, and the nested
-        // awaits inside release the main actor so the UI isn't stuck.
+        // Fire-and-forget background tasks. Order matters:
+        // 1. HealthKit sync — pulls latest workouts so everything downstream
+        //    has fresh data.
+        // 2. Plan auto-advance + pre-generation — advances currentWeek and
+        //    pre-generates upcoming weeks on Thursday.
+        // 3. Coach's note — generated AFTER sync and plan advance so it
+        //    reflects the latest workout data and plan state.
         Task { [weak self] in
-            await self?.ensurePlanPreGenerated()
-        }
-
-        // Refresh the coach's daily note if it's stale (generated on a
-        // previous day or never generated at all). One small Claude call
-        // (~5 seconds) that produces a personalized morning message.
-        Task { [weak self] in
-            await self?.refreshCoachNoteIfNeeded()
+            guard let self else { return }
+            await self.syncHealthKitWorkouts()
+            await self.ensurePlanPreGenerated()
+            await self.refreshCoachNoteIfNeeded()
         }
     }
 
-    /// Generates a fresh coach's note if the current one is from a
-    /// previous day (or missing entirely). Skips if today's note already
-    /// exists so we don't burn a Claude call on every app launch.
+    /// Generates a fresh coach's note if the current one is stale —
+    /// either never generated, or generated 30+ minutes ago. This means
+    /// the note refreshes on every meaningful app open (come back after
+    /// a workout → note reflects the completed session) but not on quick
+    /// app switches (30min cache prevents wasted API calls).
     private func refreshCoachNoteIfNeeded() async {
-        let today = todayString()
-        if let existing = settings.pushMessage, existing.ts == today {
-            return // already generated today
+        if let existing = settings.pushMessage, let ts = existing.ts, !ts.isEmpty {
+            let isoFmt = ISO8601DateFormatter()
+            // Also try yyyy-MM-dd format (legacy notes stored date-only)
+            let dateFmt = DateFormatter()
+            dateFmt.dateFormat = "yyyy-MM-dd"
+            if let generatedAt = isoFmt.date(from: ts) ?? dateFmt.date(from: ts) {
+                let minutesSince = Date().timeIntervalSince(generatedAt) / 60
+                if minutesSince < 30 {
+                    return // still fresh
+                }
+            }
         }
         do {
             let note = try await CoachNoteGenerator.generate(

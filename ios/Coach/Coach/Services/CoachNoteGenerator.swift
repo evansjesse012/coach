@@ -119,7 +119,7 @@ enum CoachNoteGenerator {
             text: note.text,
             actions: note.actions,
             count: nil,
-            ts: today
+            ts: ISO8601DateFormatter().string(from: Date())
         )
     }
 
