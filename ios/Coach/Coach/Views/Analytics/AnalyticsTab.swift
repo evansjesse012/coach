@@ -60,33 +60,103 @@ struct AnalyticsTab: View {
 
     // MARK: - Current Stats (CTL / ATL / TSB)
 
+    @State private var showMetricsExplainer = false
+
     @ViewBuilder
     private var currentStats: some View {
         if let latest = fitness.last {
             VStack(alignment: .leading, spacing: 12) {
-                CoachLabel(text: "Current")
-                HStack(spacing: 0) {
-                    statBox(label: "FITNESS", value: String(format: "%.0f", latest.ctl), color: CoachColors.blue)
-                    statBox(label: "FATIGUE", value: String(format: "%.0f", latest.atl), color: CoachColors.red)
-                    statBox(label: "FORM", value: String(format: "%+.0f", latest.tsb), color: latest.tsb >= 0 ? CoachColors.green : CoachColors.yellow)
+                HStack {
+                    CoachLabel(text: "Current")
+                    Spacer()
+                    Button {
+                        showMetricsExplainer = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
+                HStack(spacing: 8) {
+                    statBox(
+                        label: "FITNESS",
+                        value: String(format: "%.0f", latest.ctl),
+                        descriptor: fitnessDescriptor(latest.ctl),
+                        color: CoachColors.blue
+                    )
+                    statBox(
+                        label: "FATIGUE",
+                        value: String(format: "%.0f", latest.atl),
+                        descriptor: fatigueDescriptor(latest.atl),
+                        color: CoachColors.red
+                    )
+                    statBox(
+                        label: "FORM",
+                        value: String(format: "%+.0f", latest.tsb),
+                        descriptor: formDescriptor(latest.tsb),
+                        color: latest.tsb >= 0 ? CoachColors.green : CoachColors.yellow
+                    )
+                }
+            }
+            .sheet(isPresented: $showMetricsExplainer) {
+                MetricsExplainerSheet()
             }
         }
     }
 
-    private func statBox(label: String, value: String, color: Color) -> some View {
+    private func statBox(label: String, value: String, descriptor: String, color: Color) -> some View {
         VStack(spacing: 4) {
             Text(label)
                 .font(CoachFonts.mono(9, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text(value)
-                .font(CoachFonts.display(24, weight: .bold))
+            Text(descriptor)
+                .font(CoachFonts.ui(13, weight: .semibold))
                 .foregroundStyle(color)
+            Text(value)
+                .font(CoachFonts.mono(11, weight: .medium))
+                .foregroundStyle(color.opacity(0.7))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
         .background(color.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Descriptors
+
+    private func fitnessDescriptor(_ ctl: Double) -> String {
+        switch ctl {
+        case ..<20:  return "Starting"
+        case 20..<40: return "Building"
+        case 40..<60: return "Solid"
+        case 60..<80: return "Strong"
+        case 80..<100: return "Peak"
+        default:       return "Elite"
+        }
+    }
+
+    private func fatigueDescriptor(_ atl: Double) -> String {
+        switch atl {
+        case ..<20:  return "Fresh"
+        case 20..<40: return "Light"
+        case 40..<60: return "Moderate"
+        case 60..<80: return "Elevated"
+        case 80..<100: return "Heavy"
+        default:       return "Overloaded"
+        }
+    }
+
+    private func formDescriptor(_ tsb: Double) -> String {
+        switch tsb {
+        case 25...:    return "Overtapered"
+        case 10..<25:  return "Race-Ready"
+        case 5..<10:   return "Fresh"
+        case 0..<5:    return "Balanced"
+        case -10..<0:  return "Absorbing"
+        case -20..<(-10): return "Digging"
+        default:       return "Buried"
+        }
     }
 
     // MARK: - Fitness Chart (CTL / ATL / TSB)
@@ -340,5 +410,140 @@ struct AnalyticsTab: View {
         if tsb >= 0 { return "Close to optimal — the taper should bring form into range." }
         if tsb >= -10 { return "Carrying moderate fatigue — form should improve with taper." }
         return "Heavy fatigue load — race-day form depends on an effective taper."
+    }
+}
+
+// MARK: - Metrics Explainer Sheet
+
+private struct MetricsExplainerSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    explainerCard(
+                        icon: "chart.line.uptrend.xyaxis",
+                        title: "Fitness",
+                        color: CoachColors.blue,
+                        body: "A rolling measure of how much training your body has absorbed over the last ~6 weeks. Higher fitness means you've been consistently putting in work. It moves slowly — you can't spike it in a week, and it won't crash if you take a few days off.",
+                        scale: [
+                            ("Starting", "< 20", "New to structured training"),
+                            ("Building", "20–40", "Base is developing"),
+                            ("Solid", "40–60", "Consistent amateur athlete"),
+                            ("Strong", "60–80", "Serious training load"),
+                            ("Peak", "80–100", "High-volume training block"),
+                        ]
+                    )
+
+                    explainerCard(
+                        icon: "flame",
+                        title: "Fatigue",
+                        color: CoachColors.red,
+                        body: "How much training stress you've accumulated in the last ~7 days. It moves fast — a big training week spikes it, a rest day drops it. High fatigue isn't bad during a build block, but it needs to come down before race day.",
+                        scale: [
+                            ("Fresh", "< 20", "Fully recovered"),
+                            ("Light", "20–40", "Normal easy week"),
+                            ("Moderate", "40–60", "Standard training"),
+                            ("Elevated", "60–80", "Hard training block"),
+                            ("Heavy", "80–100", "Peak overload — deload soon"),
+                        ]
+                    )
+
+                    explainerCard(
+                        icon: "bolt.fill",
+                        title: "Form",
+                        color: CoachColors.green,
+                        body: "The balance between fitness and fatigue (Fitness minus Fatigue). When form is negative, you're carrying more fatigue than fitness — normal during hard training. When form is positive, fatigue has cleared but fitness remains — that's when you feel sharp and race-ready.",
+                        scale: [
+                            ("Race-Ready", "+10 to +25", "Optimal window for race day"),
+                            ("Fresh", "+5 to +10", "Good for key sessions"),
+                            ("Balanced", "0 to +5", "Neutral — not tired, not peaked"),
+                            ("Absorbing", "-10 to 0", "Normal build-block fatigue"),
+                            ("Digging", "-20 to -10", "Heavy load — adaptation happening"),
+                        ]
+                    )
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("How they work together")
+                            .font(CoachFonts.ui(15, weight: .bold))
+                        Text("During a build block, your coach intentionally pushes fatigue above fitness (form goes negative). You're digging a hole. During taper, you stop digging — fatigue drops fast while fitness barely moves. The gap opens up, form goes positive, and you feel like a rocket on race day.")
+                            .font(CoachFonts.ui(13))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(16)
+                    .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                    )
+                }
+                .padding()
+            }
+            .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
+            .navigationTitle("Understanding Your Metrics")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func explainerCard(
+        icon: String,
+        title: String,
+        color: Color,
+        body: String,
+        scale: [(String, String, String)]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(color)
+                Text(title)
+                    .font(CoachFonts.ui(16, weight: .bold))
+            }
+
+            Text(body)
+                .font(CoachFonts.ui(13))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 6) {
+                ForEach(scale, id: \.0) { label, range, description in
+                    HStack(spacing: 8) {
+                        Text(label)
+                            .font(CoachFonts.ui(12, weight: .semibold))
+                            .foregroundStyle(color)
+                            .frame(width: 80, alignment: .leading)
+                        Text(range)
+                            .font(CoachFonts.mono(11, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .frame(width: 65, alignment: .leading)
+                        Text(description)
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                }
+            }
+            .padding(12)
+            .background(color.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .padding(16)
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+        )
     }
 }
