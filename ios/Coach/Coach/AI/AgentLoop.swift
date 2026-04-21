@@ -213,7 +213,7 @@ func runAgentLoop(
     }
 
     return AgentResult(
-        response: "I needed more context. Try asking again.",
+        response: "I hit my tool limit before finishing. Try again or break your request into smaller pieces.",
         effects: effects,
         toolCallCount: toolCallCount
     )
