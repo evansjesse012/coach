@@ -57,6 +57,10 @@ final class DataService {
     /// or navigates to the week.
     var recentlyPregeneratedWeek: Int?
 
+    /// Timestamp of the last `preGenerateOnForeground` call, used to
+    /// debounce so we don't re-run on every foreground event.
+    private var lastForegroundPreGenAt: Date?
+
     /// Pre-seeded prompt for the chat tab set by other tabs (e.g. Plan tab's
     /// "Build with your coach" button). Consumed on next chat appear.
     var pendingChatPrompt: String?
@@ -673,6 +677,15 @@ final class DataService {
     ///
     /// Safe to call multiple times — the `pregeneratingWeeks` de-dup set
     /// prevents duplicate work.
+    /// Debounced wrapper for `ensurePlanPreGenerated` — safe to call on
+    /// every app foreground. Skips if called within the last 30 minutes.
+    func preGenerateOnForeground() async {
+        if let last = lastForegroundPreGenAt,
+           Date().timeIntervalSince(last) < 1800 { return }
+        lastForegroundPreGenAt = Date()
+        await ensurePlanPreGenerated()
+    }
+
     func ensurePlanPreGenerated() async {
         guard var plan = trainingPlan else { return }
 
@@ -712,7 +725,7 @@ final class DataService {
         //    next week — see the design in the "what would an expert coach
         //    do" discussion.
         let dayWithinWeek = daysSinceStart % 7
-        guard dayWithinWeek >= 3 else { return }
+        guard dayWithinWeek >= 2 else { return }
 
         let nextWeek = calendarWeek + 1
         guard nextWeek <= plan.totalWeeks else { return }

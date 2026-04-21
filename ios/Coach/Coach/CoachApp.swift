@@ -13,6 +13,7 @@ struct CoachApp: App {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var dataService = DataService()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -44,6 +45,11 @@ struct CoachApp: App {
             }
             .task {
                 await silentSignIn()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active && isAuthenticated {
+                    Task { await dataService.preGenerateOnForeground() }
+                }
             }
         }
     }
