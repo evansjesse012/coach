@@ -27,7 +27,7 @@ struct MainTabView: View {
                 }
                 .tag("plan")
 
-            AnalyticsPlaceholderTab()
+            AnalyticsTab()
                 .tabItem {
                     Label("Analytics", systemImage: "chart.xyaxis.line")
                 }
@@ -56,34 +56,6 @@ struct MainTabView: View {
             NavigationStack {
                 WorkoutLoggingView()
             }
-        }
-    }
-}
-
-// MARK: - Analytics Placeholder
-
-/// Placeholder until Phase 3 builds the real analytics tab.
-struct AnalyticsPlaceholderTab: View {
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Image(systemName: "chart.xyaxis.line")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.secondary)
-                Text("Analytics")
-                    .font(CoachFonts.display(20, weight: .bold))
-                Text("Training stress, fitness curves, and volume tracking coming soon.")
-                    .font(CoachFonts.ui(14))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
-            .navigationTitle("Analytics")
-            .navigationBarTitleDisplayMode(.large)
         }
     }
 }
