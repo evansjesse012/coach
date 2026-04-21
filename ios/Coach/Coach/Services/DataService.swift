@@ -1,6 +1,14 @@
 import Foundation
 import Supabase
 
+/// Record of a HealthKit auto-match waiting to be acknowledged in chat.
+struct AutoMatchRecord {
+    let session: PrescribedSession
+    let actualDuration: Int
+    let actualDistance: Double?
+    let needsReview: Bool
+}
+
 /// Centralized data access layer wrapping all Supabase CRUD operations.
 /// Loads all data into memory on launch; writes go to Supabase async with optimistic local updates.
 @MainActor
@@ -26,6 +34,10 @@ final class DataService {
     /// any prescribed session. In-memory only — repopulated on each sync.
     /// The UI shows these as "New workout detected" cards in Today's Focus.
     var pendingHealthKitImports: [CardioWorkout] = []
+
+    /// Auto-matched HealthKit workouts that haven't been acknowledged in
+    /// chat yet. ChatTab drains this on appear to generate coach reactions.
+    var unacknowledgedAutoMatches: [AutoMatchRecord] = []
 
     /// True while a HealthKit sync is running, so the UI can show a spinner.
     var isHealthKitSyncing: Bool = false
@@ -357,6 +369,10 @@ final class DataService {
         needsReview: Bool
     ) async {
         guard let coords else { return }
+
+        // Snapshot the session before mutation for the chat acknowledgment
+        let sessionBefore = sessionAt(weekNum: coords.weekNum, dayIdx: coords.dayIdx, sessionIdx: coords.sessionIdx)
+
         try? await updateSessionCompletion(
             weekNum: coords.weekNum,
             dayIdx: coords.dayIdx,
@@ -370,9 +386,27 @@ final class DataService {
                 session.actualDistance = miles
             }
             session.completionNeedsReview = needsReview
-            // Small note so Coach chat context can see provenance.
             session.completionNote = "Auto-matched from Apple Watch"
         }
+
+        // Queue for chat acknowledgment
+        if let session = sessionBefore {
+            let distanceMiles: Double? = workout.distance.flatMap { parseMiles($0) }
+            unacknowledgedAutoMatches.append(AutoMatchRecord(
+                session: session,
+                actualDuration: workout.duration,
+                actualDistance: distanceMiles,
+                needsReview: needsReview
+            ))
+        }
+    }
+
+    private func sessionAt(weekNum: Int, dayIdx: Int, sessionIdx: Int) -> PrescribedSession? {
+        guard let plan = trainingPlan,
+              let wp = plan.weeklyPlans[String(weekNum)],
+              dayIdx >= 0, dayIdx < wp.sessions.count,
+              sessionIdx >= 0, sessionIdx < wp.sessions[dayIdx].sessions.count else { return nil }
+        return wp.sessions[dayIdx].sessions[sessionIdx]
     }
 
     /// Removes an unmatched pending import (after the user resolves it).

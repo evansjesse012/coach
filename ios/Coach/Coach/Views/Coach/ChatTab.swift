@@ -105,6 +105,10 @@ struct ChatTab: View {
             if data.currentMessages.isEmpty {
                 await injectMorningBriefing()
             }
+
+            // Acknowledge any HealthKit auto-matches that arrived
+            // while the user wasn't looking at the Coach tab
+            await drainAutoMatches()
         }
         .onAppear {
             consumePendingPrompt()
@@ -183,6 +187,29 @@ struct ChatTab: View {
             conversationId: data.currentConversation?.id
         ) else { return }
         try? await data.addMessage(briefing)
+    }
+
+    // MARK: - HealthKit Auto-Match Drain
+
+    private func drainAutoMatches() async {
+        let matches = data.unacknowledgedAutoMatches
+        guard !matches.isEmpty else { return }
+        data.unacknowledgedAutoMatches.removeAll()
+
+        for match in matches {
+            // Determine if the match looks modified (duration off by >20%)
+            let prescribed = match.session.duration ?? match.session.estimatedDurationMin ?? 0
+            let isModified = prescribed > 0 && abs(match.actualDuration - prescribed) > Int(Double(prescribed) * 0.2)
+            let status: CompletionStatus = isModified ? .modified : .completed
+
+            await generateCompletionResponse(
+                session: match.session,
+                status: status,
+                source: .healthKit,
+                actualDuration: match.actualDuration,
+                actualDistance: match.actualDistance
+            )
+        }
     }
 
     // MARK: - Send Message
@@ -295,12 +322,16 @@ struct ChatTab: View {
         switch action {
         case .didIt(let w, let d, let s):
             Task {
+                guard let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s) else { return }
                 let now = ISO8601DateFormatter().string(from: Date())
-                try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
-                    session.completionStatus = .completed
-                    session.completed = true
-                    session.completionResolvedAt = now
+                try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { s in
+                    s.completionStatus = .completed
+                    s.completed = true
+                    s.completionResolvedAt = now
                 }
+                await generateCompletionResponse(
+                    session: session, status: .completed, source: .manual
+                )
             }
         case .modified(let w, let d, let s):
             if let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s) {
@@ -330,14 +361,19 @@ struct ChatTab: View {
             ModifiedCompletionSheet(session: session) { actual in
                 Task {
                     let now = ISO8601DateFormatter().string(from: Date())
-                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
-                        session.completionStatus = .modified
-                        session.completed = true
-                        session.actualDuration = actual.duration
-                        session.actualDistance = actual.distance
-                        session.completionNote = actual.note.isEmpty ? nil : actual.note
-                        session.completionResolvedAt = now
+                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { s in
+                        s.completionStatus = .modified
+                        s.completed = true
+                        s.actualDuration = actual.duration
+                        s.actualDistance = actual.distance
+                        s.completionNote = actual.note.isEmpty ? nil : actual.note
+                        s.completionResolvedAt = now
                     }
+                    await generateCompletionResponse(
+                        session: session, status: .modified, source: .manual,
+                        actualDuration: actual.duration, actualDistance: actual.distance,
+                        completionNote: actual.note.isEmpty ? nil : actual.note
+                    )
                 }
             }
             .presentationDetents([.medium])
@@ -345,30 +381,115 @@ struct ChatTab: View {
             SwappedCompletionSheet(session: session, otherSessions: []) { actual in
                 Task {
                     let now = ISO8601DateFormatter().string(from: Date())
-                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
-                        session.completionStatus = .swapped
-                        session.completed = true
-                        session.actualSport = actual.sport
-                        session.actualDuration = actual.duration
-                        session.completionNote = actual.note.isEmpty ? nil : actual.note
-                        session.completionResolvedAt = now
+                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { s in
+                        s.completionStatus = .swapped
+                        s.completed = true
+                        s.actualSport = actual.sport
+                        s.actualDuration = actual.duration
+                        s.completionNote = actual.note.isEmpty ? nil : actual.note
+                        s.completionResolvedAt = now
                     }
+                    await generateCompletionResponse(
+                        session: session, status: .swapped, source: .manual,
+                        actualDuration: actual.duration,
+                        actualSport: actual.sport,
+                        completionNote: actual.note.isEmpty ? nil : actual.note
+                    )
                 }
             }
             .presentationDetents([.medium, .large])
         case .skipped(let w, let d, let s):
             SkippedCompletionSheet { reason, note in
                 Task {
+                    let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s)
                     let now = ISO8601DateFormatter().string(from: Date())
-                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
-                        session.completionStatus = .skipped
-                        session.skipReason = reason
-                        session.completionNote = note.isEmpty ? nil : note
-                        session.completionResolvedAt = now
+                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { s in
+                        s.completionStatus = .skipped
+                        s.skipReason = reason
+                        s.completionNote = note.isEmpty ? nil : note
+                        s.completionResolvedAt = now
+                    }
+                    if let session {
+                        await generateCompletionResponse(
+                            session: session, status: .skipped, source: .manual,
+                            skipReason: reason,
+                            completionNote: note.isEmpty ? nil : note
+                        )
                     }
                 }
             }
             .presentationDetents([.height(340)])
+        }
+    }
+
+    // MARK: - Completion Response Generation
+
+    private func generateCompletionResponse(
+        session: PrescribedSession,
+        status: CompletionStatus,
+        source: CompletionResponseGenerator.CompletionSource,
+        actualDuration: Int? = nil,
+        actualDistance: Double? = nil,
+        actualSport: String? = nil,
+        skipReason: SkipReason? = nil,
+        completionNote: String? = nil
+    ) async {
+        // Build adherence summary
+        var adherenceSummary: String?
+        if let plan = data.trainingPlan,
+           let adh = computeWeekAdherence(plan: plan, weekNum: plan.currentWeek, cardio: data.cardio, strength: data.strength) {
+            adherenceSummary = "\(adh.completed)/\(adh.prescribed) sessions completed, \(adh.missed) missed"
+        }
+
+        // Tomorrow preview
+        var tomorrowPreview: String?
+        if let plan = data.trainingPlan,
+           let wp = plan.weeklyPlans[String(plan.currentWeek)] {
+            let tomorrowIdx = ((Calendar.current.component(.weekday, from: Date()) + 5) % 7) + 1
+            if tomorrowIdx < wp.sessions.count {
+                let dp = wp.sessions[tomorrowIdx]
+                if dp.isRest == true {
+                    tomorrowPreview = "Rest day"
+                } else if let first = dp.sessions.first {
+                    tomorrowPreview = first.label
+                }
+            }
+        }
+
+        // Phase name
+        var phaseName: String?
+        if let plan = data.trainingPlan,
+           let phase = plan.phases.first(where: { $0.number == plan.currentPhase }) {
+            phaseName = phase.name
+        }
+
+        let context = CompletionResponseGenerator.CompletionContext(
+            session: session,
+            status: status,
+            actualDuration: actualDuration,
+            actualDistance: actualDistance,
+            actualSport: actualSport,
+            skipReason: skipReason,
+            completionNote: completionNote,
+            source: source,
+            weekAdherenceSummary: adherenceSummary,
+            tomorrowPreview: tomorrowPreview,
+            phaseName: phaseName
+        )
+
+        do {
+            let response = try await CompletionResponseGenerator.generate(
+                context: context,
+                personality: data.settings.personality,
+                customPrompt: data.settings.customPrompt
+            )
+            let msg = ChatMessage.assistant(
+                response,
+                conversationId: data.currentConversation?.id
+            )
+            try? await data.addMessage(msg)
+        } catch {
+            NSLog("[completion-response] failed: \(error.localizedDescription)")
         }
     }
 }
