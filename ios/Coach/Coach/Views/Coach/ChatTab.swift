@@ -7,6 +7,9 @@ struct ChatTab: View {
     @State private var showHistory = false
     @FocusState private var isInputFocused: Bool
 
+    // Completion sheet state (for workout cards in chat)
+    @State private var completionSheet: ChatCompletionSheet?
+
     var body: some View {
         VStack(spacing: 0) {
             // Messages — scoped to the current conversation only
@@ -17,7 +20,7 @@ struct ChatTab: View {
                             newConversationGreeting
                         }
                         ForEach(Array(data.currentMessages.enumerated()), id: \.offset) { index, message in
-                            MessageBubble(message: message)
+                            MessageBubble(message: message, onCompletion: handleCompletion)
                                 .id(index)
                         }
                         if isLoading {
@@ -90,6 +93,9 @@ struct ChatTab: View {
             NavigationStack {
                 ConversationHistoryView()
             }
+        }
+        .sheet(item: $completionSheet) { sheet in
+            completionSheetContent(sheet)
         }
         .task {
             // Ensure we have an active (non-stale) conversation when
@@ -265,6 +271,105 @@ struct ChatTab: View {
         }
         isLoading = false
     }
+
+    // MARK: - Completion Handling
+
+    private func handleCompletion(_ action: CompletionAction) {
+        switch action {
+        case .didIt(let w, let d, let s):
+            Task {
+                let now = ISO8601DateFormatter().string(from: Date())
+                try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
+                    session.completionStatus = .completed
+                    session.completed = true
+                    session.completionResolvedAt = now
+                }
+            }
+        case .modified(let w, let d, let s):
+            if let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s) {
+                completionSheet = .modified(session: session, weekNum: w, dayIdx: d, sessionIdx: s)
+            }
+        case .swapped(let w, let d, let s):
+            if let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s) {
+                completionSheet = .swapped(session: session, weekNum: w, dayIdx: d, sessionIdx: s)
+            }
+        case .skipped(let w, let d, let s):
+            completionSheet = .skipped(weekNum: w, dayIdx: d, sessionIdx: s)
+        }
+    }
+
+    private func sessionAt(weekNum: Int, dayIdx: Int, sessionIdx: Int) -> PrescribedSession? {
+        guard let plan = data.trainingPlan,
+              let wp = plan.weeklyPlans[String(weekNum)],
+              dayIdx >= 0, dayIdx < wp.sessions.count,
+              sessionIdx >= 0, sessionIdx < wp.sessions[dayIdx].sessions.count else { return nil }
+        return wp.sessions[dayIdx].sessions[sessionIdx]
+    }
+
+    @ViewBuilder
+    private func completionSheetContent(_ sheet: ChatCompletionSheet) -> some View {
+        switch sheet {
+        case .modified(let session, let w, let d, let s):
+            ModifiedCompletionSheet(session: session) { actual in
+                Task {
+                    let now = ISO8601DateFormatter().string(from: Date())
+                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
+                        session.completionStatus = .modified
+                        session.completed = true
+                        session.actualDuration = actual.duration
+                        session.actualDistance = actual.distance
+                        session.completionNote = actual.note.isEmpty ? nil : actual.note
+                        session.completionResolvedAt = now
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        case .swapped(let session, let w, let d, let s):
+            SwappedCompletionSheet(session: session, otherSessions: []) { actual in
+                Task {
+                    let now = ISO8601DateFormatter().string(from: Date())
+                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
+                        session.completionStatus = .swapped
+                        session.completed = true
+                        session.actualSport = actual.sport
+                        session.actualDuration = actual.duration
+                        session.completionNote = actual.note.isEmpty ? nil : actual.note
+                        session.completionResolvedAt = now
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        case .skipped(let w, let d, let s):
+            SkippedCompletionSheet { reason, note in
+                Task {
+                    let now = ISO8601DateFormatter().string(from: Date())
+                    try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { session in
+                        session.completionStatus = .skipped
+                        session.skipReason = reason
+                        session.completionNote = note.isEmpty ? nil : note
+                        session.completionResolvedAt = now
+                    }
+                }
+            }
+            .presentationDetents([.height(340)])
+        }
+    }
+}
+
+// MARK: - Chat Completion Sheet
+
+enum ChatCompletionSheet: Identifiable {
+    case modified(session: PrescribedSession, weekNum: Int, dayIdx: Int, sessionIdx: Int)
+    case swapped(session: PrescribedSession, weekNum: Int, dayIdx: Int, sessionIdx: Int)
+    case skipped(weekNum: Int, dayIdx: Int, sessionIdx: Int)
+
+    var id: String {
+        switch self {
+        case .modified(_, let w, let d, let s): return "modified-\(w)-\(d)-\(s)"
+        case .swapped(_, let w, let d, let s): return "swapped-\(w)-\(d)-\(s)"
+        case .skipped(let w, let d, let s): return "skipped-\(w)-\(d)-\(s)"
+        }
+    }
 }
 
 // MARK: - Conversation History View
@@ -379,25 +484,40 @@ struct ArchivedConversationView: View {
 
 struct MessageBubble: View {
     let message: ChatMessage
+    var onCompletion: ((CompletionAction) -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
+
+    private var hasRichContent: Bool {
+        message.richContent != nil && !(message.richContent!.isEmpty)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == "user" { Spacer(minLength: 48) }
 
-            VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 4) {
-                Text(renderedContent)
-                    .font(CoachFonts.ui(14))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        message.role == "user"
-                            ? CoachColors.accent
-                            : (colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightElevated)
-                    )
-                    .foregroundStyle(message.role == "user" ? .white : .primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 8) {
+                // Text bubble (skip if content is empty and we have rich content)
+                if !message.content.isEmpty {
+                    Text(renderedContent)
+                        .font(CoachFonts.ui(14))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            message.role == "user"
+                                ? CoachColors.accent
+                                : (colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightElevated)
+                        )
+                        .foregroundStyle(message.role == "user" ? .white : .primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+
+                // Rich content components
+                if let components = message.richContent {
+                    ForEach(components) { component in
+                        RichComponentView(component: component, onCompletion: onCompletion)
+                    }
+                }
 
                 // Side-effect indicators
                 if let meta = message.metadata {
@@ -415,7 +535,8 @@ struct MessageBubble: View {
                 }
             }
 
-            if message.role == "assistant" { Spacer(minLength: 48) }
+            // Full-width for assistant messages with rich content
+            if message.role == "assistant" && !hasRichContent { Spacer(minLength: 48) }
         }
     }
 
