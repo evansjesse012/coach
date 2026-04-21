@@ -149,6 +149,14 @@ struct Event: Codable, Identifiable {
         case url
     }
 
+    // MARK: - Goal / Race helpers
+
+    var isRace: Bool { mode == .race }
+    var isGoal: Bool { mode == .goal || mode == .pr }
+
+    /// True when this goal has a linked race event.
+    var hasLinkedRace: Bool { linkedRaceId != nil && !linkedRaceId!.isEmpty }
+
     static func create(presetId: String, name: String, mode: EventMode = .goal) -> Event {
         Event(
             id: UUID().uuidString,

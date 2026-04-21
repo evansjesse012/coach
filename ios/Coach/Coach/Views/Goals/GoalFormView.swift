@@ -7,6 +7,7 @@ import SwiftUI
 /// and on save calls updateEvent. Handles deletion in edit mode.
 struct GoalFormView: View {
     let editingEventId: String?
+    var initialMode: EventMode = .race
     let onFinish: (GoalFormResult) -> Void
 
     @Environment(DataService.self) var data
@@ -455,12 +456,12 @@ struct GoalFormView: View {
            let event = data.events.first(where: { $0.id == id }) {
             populate(from: event)
         } else {
-            // New goal defaults
+            // New goal defaults — use initialMode to drive race vs goal
+            isRace = initialMode == .race || initialMode == .pr
+            prAttempt = initialMode == .pr
             if let marathon = EventPreset.all.first(where: { $0.id == "marathon" }) {
                 selectedPreset = marathon
                 autoFillDistance(for: marathon)
-                isRace = marathon.defaultMode != .goal
-                prAttempt = marathon.defaultMode == .pr
             }
         }
         loaded = true
@@ -734,10 +735,11 @@ enum GoalFormResult {
 
 struct CreateGoalSheet: View {
     @Binding var isPresented: Bool
+    var initialMode: EventMode = .race
     var onFinish: ((GoalFormResult) -> Void)? = nil
 
     var body: some View {
-        GoalFormView(editingEventId: nil) { result in
+        GoalFormView(editingEventId: nil, initialMode: initialMode) { result in
             onFinish?(result)
             isPresented = false
         }
