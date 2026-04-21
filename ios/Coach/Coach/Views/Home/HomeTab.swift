@@ -171,7 +171,7 @@ private struct CoachMessageCard: View {
                         ForEach(Array(actions.prefix(3)), id: \.self) { action in
                             Button {
                                 data.pendingChatPrompt = action
-                                data.showCoachSheet = true
+                                data.selectedTab = "coach"
                             } label: {
                                 Text(action)
                                     .font(CoachFonts.ui(12, weight: .semibold))

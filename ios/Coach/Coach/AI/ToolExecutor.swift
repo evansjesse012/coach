@@ -752,11 +752,11 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
 
         case ("navigate", "app"), ("navigate", "tab"):
             guard let tab = data["tab"] as? String, !tab.isEmpty else {
-                return ToolResult(summary: jsonString(["error": "Navigate requires data.tab (one of: home, goals, plan, log, coach)"]))
+                return ToolResult(summary: jsonString(["error": "Navigate requires data.tab (one of: coach, goals, plan, analytics, log)"]))
             }
-            let valid = Set(["home", "goals", "plan", "log"])
+            let valid = Set(["coach", "goals", "plan", "analytics", "log"])
             guard valid.contains(tab) else {
-                return ToolResult(summary: jsonString(["error": "Unknown tab '\(tab)'. Must be one of: home, goals, plan, log, coach."]))
+                return ToolResult(summary: jsonString(["error": "Unknown tab '\(tab)'. Must be one of: coach, goals, plan, analytics, log."]))
             }
             return ToolResult(
                 summary: jsonString(["success": true, "tab": tab]),

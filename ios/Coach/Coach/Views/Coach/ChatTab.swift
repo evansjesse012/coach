@@ -76,8 +76,6 @@ struct ChatTab: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .navigationTitle("Coach")
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -102,6 +100,11 @@ struct ChatTab: View {
             // the chat opens. Stale conversations are archived and a
             // fresh one starts.
             await data.ensureActiveConversation()
+
+            // Inject morning briefing if conversation is empty
+            if data.currentMessages.isEmpty {
+                await injectMorningBriefing()
+            }
         }
         .onAppear {
             consumePendingPrompt()
@@ -166,6 +169,20 @@ struct ChatTab: View {
         inputText = prompt
         isInputFocused = true
         data.pendingChatPrompt = nil
+    }
+
+    // MARK: - Morning Briefing
+
+    private func injectMorningBriefing() async {
+        guard let briefing = MorningBriefingBuilder.build(
+            coachNote: data.settings.pushMessage,
+            plan: data.trainingPlan,
+            events: data.events,
+            cardio: data.cardio,
+            strength: data.strength,
+            conversationId: data.currentConversation?.id
+        ) else { return }
+        try? await data.addMessage(briefing)
     }
 
     // MARK: - Send Message

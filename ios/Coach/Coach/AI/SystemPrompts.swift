@@ -167,7 +167,7 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
     - Only change what the athlete explicitly asked for. Don't silently flip unrelated fields.
 
     NAVIGATION:
-    - Switch tabs: {action:'navigate', target:'app', data:{tab:'home'|'goals'|'plan'|'log'|'coach'}}. Use sparingly — only when the athlete explicitly asks to open a tab ("show me my plan", "take me to the log"). Don't navigate reflexively after every mutation.
+    - Switch tabs: {action:'navigate', target:'app', data:{tab:'coach'|'goals'|'plan'|'analytics'|'log'}}. Use sparingly — only when the athlete explicitly asks to open a tab ("show me my plan", "take me to the log"). Don't navigate reflexively after every mutation.
 
     GENERAL RULES:
     - Before any update/delete on goal, workout, or strength_workout, call the matching get_* tool to look up the id. Never guess an id.

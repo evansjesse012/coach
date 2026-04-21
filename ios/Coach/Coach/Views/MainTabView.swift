@@ -9,11 +9,11 @@ struct MainTabView: View {
     var body: some View {
         @Bindable var dataService = dataService
         TabView(selection: $dataService.selectedTab) {
-            HomeTab()
+            CoachTab()
                 .tabItem {
-                    Label("Home", systemImage: "house.fill")
+                    Label("Coach", systemImage: "bubble.left.and.bubble.right.fill")
                 }
-                .tag("home")
+                .tag("coach")
 
             GoalsTab()
                 .tabItem {
@@ -26,6 +26,12 @@ struct MainTabView: View {
                     Label("Plan", systemImage: "calendar")
                 }
                 .tag("plan")
+
+            AnalyticsPlaceholderTab()
+                .tabItem {
+                    Label("Analytics", systemImage: "chart.xyaxis.line")
+                }
+                .tag("analytics")
 
             LogTab()
                 .tabItem {
@@ -45,67 +51,40 @@ struct MainTabView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            FloatingCoachButton {
-                dataService.showCoachSheet = true
-            }
-            .padding(.trailing, 18)
-            .padding(.bottom, 70)
-        }
         .animation(.easeInOut(duration: 0.25), value: dataService.activeStrengthSession != nil)
         .fullScreenCover(isPresented: $showActiveWorkoutLogger) {
             NavigationStack {
                 WorkoutLoggingView()
             }
         }
-        .sheet(isPresented: $dataService.showCoachSheet) {
-            NavigationStack {
-                ChatTab()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button {
-                                dataService.showCoachSheet = false
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-            }
-            .presentationDragIndicator(.visible)
-        }
     }
 }
 
-// MARK: - Floating Coach Button
+// MARK: - Analytics Placeholder
 
-/// Persistent button that sits above the tab bar on every tab. Tapping
-/// opens the coach chat as a sheet overlay — the athlete chats without
-/// losing their place on the current tab. When voice mode arrives, this
-/// button will also host the mic entry point.
-private struct FloatingCoachButton: View {
-    let onTap: () -> Void
+/// Placeholder until Phase 3 builds the real analytics tab.
+struct AnalyticsPlaceholderTab: View {
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        Button(action: onTap) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [CoachColors.accent, CoachColors.accent.opacity(0.85)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 52, height: 52)
-                    .shadow(color: CoachColors.accent.opacity(0.35), radius: 10, y: 4)
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
+        NavigationStack {
+            VStack(spacing: 16) {
+                Image(systemName: "chart.xyaxis.line")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+                Text("Analytics")
+                    .font(CoachFonts.display(20, weight: .bold))
+                Text("Training stress, fitness curves, and volume tracking coming soon.")
+                    .font(CoachFonts.ui(14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
+            .navigationTitle("Analytics")
+            .navigationBarTitleDisplayMode(.large)
         }
-        .buttonStyle(.plain)
     }
 }
 
