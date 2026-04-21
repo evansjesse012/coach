@@ -110,7 +110,7 @@ func runAgentLoop(
     customText: String,
     messages: [ChatMessage],
     dataService: DataService,
-    maxRounds: Int = 3,
+    maxRounds: Int = 6,
     recentConversationSummaries: [String] = []
 ) async throws -> AgentResult {
     // Clean messages for API format — only current conversation, not
