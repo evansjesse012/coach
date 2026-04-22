@@ -4,12 +4,38 @@ import MapKit
 
 struct WorkoutDetailView: View {
     let workout: CardioWorkout
+    @Environment(DataService.self) var data
     @Environment(\.colorScheme) var colorScheme
+
+    /// Finds a prescribed session that was auto-matched to this workout.
+    private var matchedSession: (session: PrescribedSession, weekNum: Int)? {
+        guard let plan = data.trainingPlan else { return nil }
+        // Only look for matches on non-manual workouts
+        guard workout.source != "manual" else { return nil }
+
+        // Search current and recent weeks for a session completed on the same date
+        for weekNum in max(1, plan.currentWeek - 2)...plan.currentWeek {
+            guard let wp = plan.weeklyPlans[String(weekNum)] else { continue }
+            for dayPlan in wp.sessions {
+                for session in dayPlan.sessions {
+                    guard session.completionStatus != nil,
+                          session.completionNote == "Auto-matched from Apple Watch",
+                          session.type.lowercased() == workout.sport.rawValue else { continue }
+                    // Check if durations are close
+                    if let actual = session.actualDuration, abs(actual - workout.duration) < 120 {
+                        return (session, weekNum)
+                    }
+                }
+            }
+        }
+        return nil
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
+                matchedSessionCard
                 statGrid
                 if workout.healthData?.hrSamples?.isEmpty == false {
                     hrChartSection
@@ -67,6 +93,33 @@ struct WorkoutDetailView: View {
                     Text(notes)
                         .font(CoachFonts.ui(14))
                         .padding(.top, 2)
+                }
+            }
+        }
+    }
+
+    // MARK: - Matched Session Card
+
+    @ViewBuilder
+    private var matchedSessionCard: some View {
+        if let match = matchedSession {
+            CoachCard {
+                HStack(spacing: 10) {
+                    Image(systemName: "link.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(CoachColors.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Matched to plan")
+                            .font(CoachFonts.ui(11, weight: .semibold))
+                            .foregroundStyle(CoachColors.green)
+                        Text(match.session.label)
+                            .font(CoachFonts.ui(14, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text("Week \(match.weekNum)")
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
                 }
             }
         }

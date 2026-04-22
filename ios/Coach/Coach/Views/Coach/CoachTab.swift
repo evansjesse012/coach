@@ -16,6 +16,7 @@ struct CoachTab: View {
     @State private var showSettings = false
     @State private var showCoachChat = false
     @State private var completionSheet: ChatCompletionSheet?
+    @State private var reviewingMatch: MatchReviewData?
     @State private var postWorkoutObservation: String?
     @State private var selectedRPE: RPELevel?
     @State private var rpeNote: String = ""
@@ -85,6 +86,21 @@ struct CoachTab: View {
             }
             .sheet(item: $completionSheet) { sheet in
                 completionSheetContent(sheet)
+            }
+            .sheet(item: $reviewingMatch) { match in
+                MatchReviewSheet(match: match) {
+                    // Confirm: clear needsReview flag
+                    Task {
+                        let now = ISO8601DateFormatter().string(from: Date())
+                        try? await data.updateSessionCompletion(
+                            weekNum: match.weekNum, dayIdx: match.dayIdx, sessionIdx: match.sessionIdx
+                        ) { s in
+                            s.completionNeedsReview = false
+                            s.completionResolvedAt = now
+                        }
+                    }
+                    reviewingMatch = nil
+                }
             }
         }
         .task {
@@ -248,8 +264,49 @@ struct CoachTab: View {
             }
             .buttonStyle(.plain)
 
-            // Action buttons
-            if session.completionStatus == nil {
+            // Action buttons — three states: unresolved, needs-review, resolved
+            if session.completionNeedsReview == true {
+                // Auto-matched from Apple Watch — needs confirmation
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "applewatch")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CoachColors.yellow)
+                        Text("Match found from Apple Watch")
+                            .font(CoachFonts.ui(12, weight: .semibold))
+                            .foregroundStyle(CoachColors.yellow)
+                        Spacer()
+                    }
+                    if let actual = session.actualDuration, actual > 0 {
+                        Text("\(actual) min recorded")
+                            .font(CoachFonts.mono(11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 8) {
+                        heroAction(label: "Review & Confirm", icon: "checkmark.circle", color: CoachColors.green, prominent: true) {
+                            // Find the matching CardioWorkout
+                            let matched = findMatchedWorkout(for: session)
+                            reviewingMatch = MatchReviewData(
+                                session: session, workout: matched,
+                                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+                            )
+                        }
+                        heroAction(label: "Dismiss", icon: "xmark", color: .secondary) {
+                            Task {
+                                try? await data.updateSessionCompletion(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx) { s in
+                                    s.completionStatus = nil
+                                    s.completed = false
+                                    s.completionNeedsReview = nil
+                                    s.actualDuration = nil
+                                    s.actualDistance = nil
+                                    s.completionNote = nil
+                                    s.completionResolvedAt = nil
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if session.completionStatus == nil {
                 HStack(spacing: 8) {
                     heroAction(label: "Did it", icon: "checkmark", color: CoachColors.green, prominent: true) {
                         Task {
@@ -285,7 +342,12 @@ struct CoachTab: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                .stroke(
+                    session.completionNeedsReview == true
+                        ? CoachColors.yellow.opacity(0.6)
+                        : (colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder),
+                    lineWidth: session.completionNeedsReview == true ? 1.5 : 1
+                )
         )
     }
 
@@ -608,6 +670,17 @@ struct CoachTab: View {
     }
 
     // ┌──────────────────────────────────────────────────────────────────┐
+    // │                      MATCH REVIEW HELPERS                       │
+
+    private func findMatchedWorkout(for session: PrescribedSession) -> CardioWorkout? {
+        // Find a workout from today that matches the session's sport and has similar duration
+        let today = todayString()
+        let sportStr = session.type.lowercased()
+        return data.cardio.first { w in
+            w.date == today && w.sport.rawValue == sportStr
+        }
+    }
+
     // │                         SHARED HELPERS                          │
     // └──────────────────────────────────────────────────────────────────┘
 
@@ -691,6 +764,148 @@ struct CoachTab: View {
                 }
             }
             .presentationDetents([.height(340)])
+        }
+    }
+}
+
+// MARK: - Match Review Data
+
+struct MatchReviewData: Identifiable {
+    let id = UUID()
+    let session: PrescribedSession
+    let workout: CardioWorkout?
+    let weekNum: Int
+    let dayIdx: Int
+    let sessionIdx: Int
+}
+
+// MARK: - Match Review Sheet
+
+struct MatchReviewSheet: View {
+    let match: MatchReviewData
+    let onConfirm: () -> Void
+
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Prescribed session
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("PRESCRIBED")
+                            .font(CoachFonts.mono(10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        CoachCard {
+                            VStack(alignment: .leading, spacing: 6) {
+                                if let sport = Sport(rawValue: match.session.type.lowercased()) {
+                                    SportBadge(sport: sport)
+                                }
+                                Text(match.session.label)
+                                    .font(CoachFonts.ui(15, weight: .semibold))
+                                HStack(spacing: 12) {
+                                    if let d = match.session.duration ?? match.session.estimatedDurationMin {
+                                        Text("\(d) min")
+                                            .font(CoachFonts.mono(13, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let zone = match.session.zone {
+                                        Text(zone)
+                                            .font(CoachFonts.mono(13, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Apple Watch workout
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "applewatch")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CoachColors.green)
+                            Text("RECORDED")
+                                .font(CoachFonts.mono(10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        if let workout = match.workout {
+                            CoachCard {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    SportBadge(sport: workout.sport)
+                                    HStack(spacing: 16) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("DURATION")
+                                                .font(CoachFonts.mono(9, weight: .semibold))
+                                                .foregroundStyle(.secondary)
+                                            Text(formatDuration(workout.duration))
+                                                .font(CoachFonts.mono(15, weight: .bold))
+                                        }
+                                        if let dist = workout.distance, !dist.isEmpty {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("DISTANCE")
+                                                    .font(CoachFonts.mono(9, weight: .semibold))
+                                                    .foregroundStyle(.secondary)
+                                                Text(dist)
+                                                    .font(CoachFonts.mono(15, weight: .bold))
+                                            }
+                                        }
+                                        if let hr = workout.avgHR {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("AVG HR")
+                                                    .font(CoachFonts.mono(9, weight: .semibold))
+                                                    .foregroundStyle(.secondary)
+                                                Text("\(hr) bpm")
+                                                    .font(CoachFonts.mono(15, weight: .bold))
+                                            }
+                                        }
+                                    }
+                                    if let cal = workout.calories {
+                                        Text("\(cal) cal")
+                                            .font(CoachFonts.ui(12))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        } else {
+                            CoachCard {
+                                Text("Workout data not available")
+                                    .font(CoachFonts.ui(13))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    // Confirm button
+                    Button {
+                        onConfirm()
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("Confirm Match")
+                                .font(CoachFonts.ui(15, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(CoachColors.green)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding()
+            }
+            .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
+            .navigationTitle("Review Match")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }
