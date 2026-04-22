@@ -7,6 +7,7 @@ struct AutoMatchRecord {
     let actualDuration: Int
     let actualDistance: Double?
     let needsReview: Bool
+    var detectedStatus: CompletionStatus = .completed
 }
 
 /// Centralized data access layer wrapping all Supabase CRUD operations.
@@ -373,20 +374,27 @@ final class DataService {
         // Snapshot the session before mutation for the chat acknowledgment
         let sessionBefore = sessionAt(weekNum: coords.weekNum, dayIdx: coords.dayIdx, sessionIdx: coords.sessionIdx)
 
+        // Determine the right completion status by comparing actual vs prescribed
+        let status = classifyCompletion(workout: workout, prescribed: sessionBefore)
+
         try? await updateSessionCompletion(
             weekNum: coords.weekNum,
             dayIdx: coords.dayIdx,
             sessionIdx: coords.sessionIdx
         ) { session in
-            session.completionStatus = .completed
+            session.completionStatus = status
             session.completed = true
             session.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
             session.actualDuration = workout.duration
             if let distanceStr = workout.distance, let miles = parseMiles(distanceStr) {
                 session.actualDistance = miles
             }
+            // If the sport was different, record the actual sport
+            if status == .swapped {
+                session.actualSport = workout.sport.rawValue
+            }
             session.completionNeedsReview = needsReview
-            session.completionNote = "Auto-matched from Apple Watch"
+            session.completionNote = autoMatchNote(status: status, workout: workout, prescribed: sessionBefore)
         }
 
         // Queue for chat acknowledgment
@@ -396,8 +404,51 @@ final class DataService {
                 session: session,
                 actualDuration: workout.duration,
                 actualDistance: distanceMiles,
-                needsReview: needsReview
+                needsReview: needsReview,
+                detectedStatus: status
             ))
+        }
+    }
+
+    /// Compares an incoming workout against the prescribed session to
+    /// classify it as completed, modified, or swapped.
+    private func classifyCompletion(workout: CardioWorkout, prescribed: PrescribedSession?) -> CompletionStatus {
+        guard let prescribed else { return .completed }
+
+        // Different sport → swapped
+        let prescribedSport = prescribed.type.lowercased()
+        let actualSport = workout.sport.rawValue
+        if prescribedSport != actualSport {
+            return .swapped
+        }
+
+        // Same sport — check duration deviation
+        let prescribedDuration = prescribed.duration
+            ?? prescribed.estimatedDurationMin
+            ?? 0
+        guard prescribedDuration > 0 else { return .completed }
+
+        let deviation = abs(workout.duration - prescribedDuration)
+        let threshold = max(10, Int(Double(prescribedDuration) * 0.2)) // 20% or 10 min, whichever is larger
+
+        if deviation > threshold {
+            return .modified
+        }
+
+        return .completed
+    }
+
+    private func autoMatchNote(status: CompletionStatus, workout: CardioWorkout, prescribed: PrescribedSession?) -> String {
+        switch status {
+        case .completed:
+            return "Auto-matched from Apple Watch"
+        case .modified:
+            let prescribed = prescribed?.duration ?? prescribed?.estimatedDurationMin ?? 0
+            return "Auto-matched from Apple Watch — \(workout.duration) min vs \(prescribed) min prescribed"
+        case .swapped:
+            return "Auto-matched from Apple Watch — did \(workout.sport.label) instead of \(prescribed?.type ?? "prescribed")"
+        case .skipped:
+            return "Auto-matched from Apple Watch"
         }
     }
 

@@ -1096,12 +1096,73 @@ struct CoachChatSheet: View {
         let matches = data.unacknowledgedAutoMatches
         guard !matches.isEmpty else { return }
         data.unacknowledgedAutoMatches.removeAll()
-        // Auto-match acknowledgments will appear as coach messages
+
         for match in matches {
-            let prescribed = match.session.duration ?? match.session.estimatedDurationMin ?? 0
-            let isModified = prescribed > 0 && abs(match.actualDuration - prescribed) > Int(Double(prescribed) * 0.2)
-            let status: CompletionStatus = isModified ? .modified : .completed
-            await generateCompletionResponse(session: match.session, status: status, source: .healthKit, actualDuration: match.actualDuration, actualDistance: match.actualDistance)
+            // Use the status detected by the matcher (completed/modified/swapped)
+            await generateCompletionResponse(
+                session: match.session,
+                status: match.detectedStatus,
+                source: .healthKit,
+                actualDuration: match.actualDuration,
+                actualDistance: match.actualDistance
+            )
+
+            // If swapped or modified, also trigger a full coach evaluation
+            // by sending a system message asking coach to review the plan
+            if match.detectedStatus == .swapped || match.detectedStatus == .modified {
+                let description = match.detectedStatus == .swapped
+                    ? "I did a different workout than prescribed — can you check if the rest of the week needs adjusting?"
+                    : "My workout was significantly different from the prescription — should we adjust anything?"
+                let systemMsg = ChatMessage.user(description, conversationId: data.currentConversation?.id)
+                try? await data.addMessage(systemMsg)
+                await sendAgentMessage(description)
+            }
+        }
+    }
+
+    /// Sends a message through the agent loop without user input.
+    private func sendAgentMessage(_ text: String) async {
+        do {
+            let recentSummaries = data.archivedConversations.prefix(3).compactMap(\.summary)
+            let result = try await runAgentLoop(
+                personality: data.settings.personality,
+                customText: data.settings.customPrompt,
+                messages: data.currentMessages,
+                dataService: data,
+                recentConversationSummaries: recentSummaries
+            )
+            let assistantMsg = ChatMessage.assistant(
+                result.response,
+                metadata: ChatMessageMetadata(
+                    logged: result.hasWorkoutLogs, nutritionLogged: result.hasNutritionLogs,
+                    planChanged: result.hasPlanChanges, appActionTaken: result.hasAppActions
+                ),
+                conversationId: data.currentConversation?.id
+            )
+            try? await data.addMessage(assistantMsg)
+            for effect in result.effects {
+                switch effect {
+                case .workoutLogged(let w): try? await data.addCardio(w)
+                case .cardioUpdated(let w): try? await data.updateCardio(w)
+                case .cardioDeleted(let id): try? await data.deleteCardio(id)
+                case .strengthDeleted(let id): try? await data.deleteStrength(id)
+                case .nutritionLogged(let e): try? await data.addNutrition(e)
+                case .planCreated(let p), .planUpdated(let p): try? await data.savePlan(p)
+                case .planDeleted(let id, let h): try? await data.deletePlan(id, archiveTo: h)
+                case .weekUpdated(let n, let wp):
+                    if var c = data.trainingPlan { c.weeklyPlans[String(n)] = wp; try? await data.savePlan(c) }
+                case .progressUpdated(let w, let p):
+                    if var c = data.trainingPlan { c.currentWeek = w; c.currentPhase = p; try? await data.savePlan(c) }
+                case .eventCreated(let e): try? await data.addEvent(e)
+                case .eventUpdated(let e): try? await data.updateEvent(e)
+                case .eventDeleted(let id): try? await data.deleteEvent(id)
+                case .memoryUpdated(let m): try? await data.saveMemory(m)
+                case .settingsUpdated(let s): try? await data.saveSettings(s)
+                case .tabChanged(let t): data.selectedTab = t
+                }
+            }
+        } catch {
+            NSLog("[auto-match-eval] agent call failed: \(error)")
         }
     }
 
