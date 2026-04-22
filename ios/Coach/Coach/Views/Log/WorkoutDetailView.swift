@@ -6,14 +6,26 @@ struct WorkoutDetailView: View {
     let workout: CardioWorkout
     @Environment(DataService.self) var data
     @Environment(\.colorScheme) var colorScheme
+    @State private var showAssignSheet = false
 
-    /// Finds a prescribed session that was auto-matched to this workout.
+    /// Finds the prescribed session linked to this workout. Prefers the
+    /// explicit linkedWorkoutId (set by auto- and manual-match), then falls
+    /// back to the legacy date+sport+auto-note heuristic for pre-link data.
     private var matchedSession: (session: PrescribedSession, weekNum: Int)? {
         guard let plan = data.trainingPlan else { return nil }
-        // Only look for matches on non-manual workouts
-        guard workout.source != "manual" else { return nil }
 
-        // Search current and recent weeks for a session completed on the same date
+        // Explicit link — works across any week, survives manual overrides.
+        for (weekKey, wp) in plan.weeklyPlans {
+            guard let weekNum = Int(weekKey) else { continue }
+            for dayPlan in wp.sessions {
+                for session in dayPlan.sessions where session.linkedWorkoutId == workout.id {
+                    return (session, weekNum)
+                }
+            }
+        }
+
+        // Legacy fallback: auto-matched sessions from before linkedWorkoutId existed.
+        guard workout.source != "manual" else { return nil }
         for weekNum in max(1, plan.currentWeek - 2)...plan.currentWeek {
             guard let wp = plan.weeklyPlans[String(weekNum)] else { continue }
             for dayPlan in wp.sessions {
@@ -21,7 +33,6 @@ struct WorkoutDetailView: View {
                     guard session.completionStatus != nil,
                           session.completionNote == "Auto-matched from Apple Watch",
                           session.type.lowercased() == workout.sport.rawValue else { continue }
-                    // Check if durations are close
                     if let actual = session.actualDuration, abs(actual - workout.duration) < 120 {
                         return (session, weekNum)
                     }
@@ -36,6 +47,7 @@ struct WorkoutDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 matchedSessionCard
+                assignToPlanAction
                 statGrid
                 if workout.healthData?.hrSamples?.isEmpty == false {
                     hrChartSection
@@ -70,6 +82,43 @@ struct WorkoutDetailView: View {
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle(formatDateShort(workout.date))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showAssignSheet) {
+            AssignSessionSheet(workout: workout) { session, sessionDate in
+                Task { await data.applyManualMatch(session: session, on: sessionDate, workout: workout) }
+            }
+        }
+    }
+
+    // MARK: - Assign to Plan Action
+
+    @ViewBuilder
+    private var assignToPlanAction: some View {
+        if matchedSession == nil {
+            Button {
+                showAssignSheet = true
+            } label: {
+                CoachCard {
+                    HStack(spacing: 10) {
+                        Image(systemName: "link.badge.plus")
+                            .font(.system(size: 18))
+                            .foregroundStyle(CoachColors.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Assign to plan")
+                                .font(CoachFonts.ui(14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            Text("Link this workout to a prescribed session")
+                                .font(CoachFonts.ui(11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Header

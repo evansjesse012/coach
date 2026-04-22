@@ -10,6 +10,8 @@ struct PrescribedSessionDetailView: View {
     @State private var showNutrition = false
     @State private var showWorkoutLogger = false
     @State private var showResumeConfirm = false
+    @State private var showLinkWorkoutSheet = false
+    @State private var showUnlinkConfirm = false
 
     var body: some View {
         ScrollView {
@@ -51,8 +53,26 @@ struct PrescribedSessionDetailView: View {
                 }
 
                 recordedWorkoutCard
+                linkWorkoutAction
             }
             .padding()
+        }
+        .sheet(isPresented: $showLinkWorkoutSheet) {
+            LinkWorkoutSheet(session: session, sessionDate: dateString) { workout in
+                Task { await data.applyManualMatch(session: session, on: dateString, workout: workout) }
+            }
+        }
+        .confirmationDialog(
+            "Unlink this workout?",
+            isPresented: $showUnlinkConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Unlink", role: .destructive) {
+                Task { await data.clearSessionMatch(session: session, on: dateString) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The session will go back to being unresolved. You can link a different workout afterwards.")
         }
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle(session.label)
@@ -462,8 +482,14 @@ struct PrescribedSessionDetailView: View {
 
     // MARK: - Recorded Workout Card
 
-    /// Finds a CardioWorkout that was auto-matched to this prescribed session.
+    /// Finds a CardioWorkout linked to this prescribed session. Prefers the
+    /// explicit linkedWorkoutId (set by auto- and manual-match), then falls
+    /// back to the pre-link date+sport heuristic so old data keeps rendering.
     private var matchedWorkout: CardioWorkout? {
+        if let linkedId = session.linkedWorkoutId,
+           let linked = data.cardio.first(where: { $0.id == linkedId }) {
+            return linked
+        }
         guard session.completionStatus != nil,
               let dateStr = dateString else { return nil }
         let sportStr = session.type.lowercased()
@@ -486,6 +512,22 @@ struct PrescribedSessionDetailView: View {
                         .font(CoachFonts.mono(10, weight: .semibold))
                     Spacer()
                     statusBadge
+                    Menu {
+                        Button {
+                            showLinkWorkoutSheet = true
+                        } label: {
+                            Label("Change match", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        Button(role: .destructive) {
+                            showUnlinkConfirm = true
+                        } label: {
+                            Label("Unlink", systemImage: "link.badge.minus")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .foregroundStyle(statusColor)
 
@@ -559,6 +601,48 @@ struct PrescribedSessionDetailView: View {
         case .modified: return CoachColors.yellow
         case .swapped: return CoachColors.blue
         default: return .secondary
+        }
+    }
+
+    // MARK: - Link Workout Action
+
+    /// Shown when the session is unresolved cardio, so the athlete can manually
+    /// pick a recorded workout if the auto-matcher didn't pair one.
+    @ViewBuilder
+    private var linkWorkoutAction: some View {
+        if session.completionStatus == nil, session.type.lowercased() != "strength" {
+            Button {
+                showLinkWorkoutSheet = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "link")
+                        .font(.system(size: 13, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Link a recorded workout")
+                            .font(CoachFonts.ui(14, weight: .semibold))
+                        Text("Pick an Apple Watch workout to mark this session complete")
+                            .font(CoachFonts.ui(11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .foregroundStyle(.primary)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    (colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 }

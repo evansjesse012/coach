@@ -395,6 +395,7 @@ final class DataService {
             }
             session.completionNeedsReview = needsReview
             session.completionNote = autoMatchNote(status: status, workout: workout, prescribed: sessionBefore)
+            session.linkedWorkoutId = workout.id
         }
 
         // Queue for chat acknowledgment
@@ -407,6 +408,118 @@ final class DataService {
                 needsReview: needsReview,
                 detectedStatus: status
             ))
+        }
+    }
+
+    /// Athlete-driven link: the user picked a CardioWorkout to fulfill a
+    /// prescribed session. Reuses the auto-match classifier and write path so
+    /// downstream UI (status pills, coach review prompts) behaves identically.
+    /// needsReview is always false — the athlete already confirmed by picking.
+    func applyManualMatch(session: PrescribedSession, on dateString: String?, workout: CardioWorkout) async {
+        guard let coords = locateSession(session, on: dateString) else { return }
+        let status = classifyCompletion(workout: workout, prescribed: session)
+
+        try? await updateSessionCompletion(
+            weekNum: coords.weekNum,
+            dayIdx: coords.dayIdx,
+            sessionIdx: coords.sessionIdx
+        ) { s in
+            s.completionStatus = status
+            s.completed = true
+            s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+            s.actualDuration = workout.duration
+            if let distanceStr = workout.distance, let miles = parseMiles(distanceStr) {
+                s.actualDistance = miles
+            }
+            if status == .swapped {
+                s.actualSport = workout.sport.rawValue
+            }
+            s.completionNeedsReview = false
+            s.completionNote = manualMatchNote(status: status, workout: workout, prescribed: session)
+            s.linkedWorkoutId = workout.id
+        }
+
+        let distanceMiles: Double? = workout.distance.flatMap { parseMiles($0) }
+        unacknowledgedAutoMatches.append(AutoMatchRecord(
+            session: session,
+            actualDuration: workout.duration,
+            actualDistance: distanceMiles,
+            needsReview: false,
+            detectedStatus: status
+        ))
+    }
+
+    /// Clears a manual (or auto) match. Used when the athlete re-picks a
+    /// different workout or explicitly unlinks.
+    func clearSessionMatch(session: PrescribedSession, on dateString: String?) async {
+        guard let coords = locateSession(session, on: dateString) else { return }
+        try? await updateSessionCompletion(
+            weekNum: coords.weekNum,
+            dayIdx: coords.dayIdx,
+            sessionIdx: coords.sessionIdx
+        ) { s in
+            s.completionStatus = nil
+            s.completed = false
+            s.completionResolvedAt = nil
+            s.actualDuration = nil
+            s.actualDistance = nil
+            s.actualSport = nil
+            s.completionNeedsReview = nil
+            s.completionNote = nil
+            s.linkedWorkoutId = nil
+        }
+    }
+
+    /// Finds the (weekNum, dayIdx, sessionIdx) for a given prescribed session.
+    /// When dateString is supplied and the plan has a startDate, derives the
+    /// exact (weekNum, dayIdx) from calendar math — disambiguating sessions
+    /// whose id ("type-label") appears in more than one week. Otherwise
+    /// scans all weeks and returns the first session with matching id.
+    func locateSession(_ session: PrescribedSession, on dateString: String?) -> SessionCoordinates? {
+        guard let plan = trainingPlan else { return nil }
+
+        if let dateString, let coords = dateDrivenCoords(plan: plan, dateString: dateString, session: session) {
+            return coords
+        }
+
+        for (weekKey, wp) in plan.weeklyPlans {
+            guard let weekNum = Int(weekKey) else { continue }
+            for (dayIdx, dayPlan) in wp.sessions.enumerated() {
+                for (sessionIdx, s) in dayPlan.sessions.enumerated() where s.id == session.id {
+                    return SessionCoordinates(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx)
+                }
+            }
+        }
+        return nil
+    }
+
+    private func dateDrivenCoords(plan: TrainingPlan, dateString: String, session: PrescribedSession) -> SessionCoordinates? {
+        guard let startStr = plan.startDate else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let start = f.date(from: startStr), let target = f.date(from: dateString) else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: start, to: target).day ?? -1
+        guard days >= 0 else { return nil }
+        let weekNum = days / 7 + 1
+        let dayIdx = days % 7
+        guard let wp = plan.weeklyPlans[String(weekNum)], dayIdx < wp.sessions.count else { return nil }
+        if let sessionIdx = wp.sessions[dayIdx].sessions.firstIndex(where: { $0.id == session.id }) {
+            return SessionCoordinates(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx)
+        }
+        return nil
+    }
+
+    private func manualMatchNote(status: CompletionStatus, workout: CardioWorkout, prescribed: PrescribedSession) -> String {
+        switch status {
+        case .completed:
+            return "Manually linked from Apple Watch"
+        case .modified:
+            let presDur = prescribed.duration ?? prescribed.estimatedDurationMin ?? 0
+            return "Manually linked — \(workout.duration) min vs \(presDur) min prescribed"
+        case .swapped:
+            return "Manually linked — did \(workout.sport.label) instead of \(prescribed.type)"
+        case .skipped:
+            return "Manually linked from Apple Watch"
         }
     }
 
@@ -874,6 +987,7 @@ final class DataService {
                 session.actualSport = nil
                 session.skipReason = nil
                 session.completionNote = nil
+                session.linkedWorkoutId = nil
             }
         }
     }

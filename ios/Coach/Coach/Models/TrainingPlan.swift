@@ -224,6 +224,7 @@ struct PrescribedSession: Codable, Identifiable {
     var completionNote: String?
     var completionResolvedAt: String?  // ISO timestamp when marked
     var completionNeedsReview: Bool?   // true for medium-confidence HK auto-matches
+    var linkedWorkoutId: String?       // Explicit CardioWorkout.id link, set by auto- or manual-match
 
     // Legacy keys stay in camelCase for backward compat with existing JSONB.
     enum CodingKeys: String, CodingKey {
@@ -246,6 +247,7 @@ struct PrescribedSession: Codable, Identifiable {
         case completionNote = "completion_note"
         case completionResolvedAt = "completion_resolved_at"
         case completionNeedsReview = "completion_needs_review"
+        case linkedWorkoutId = "linked_workout_id"
     }
 }
 
