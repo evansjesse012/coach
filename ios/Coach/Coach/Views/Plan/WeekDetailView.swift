@@ -123,7 +123,7 @@ struct WeekDetailView: View {
                 } else {
                     VStack(spacing: 12) {
                         ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { sessionIdx, session in
-                            SessionCard(
+                            WeekDaySessionCard(
                                 session: session,
                                 dateString: dateStr,
                                 weekNum: weekNum,
@@ -176,7 +176,7 @@ private struct DayHeader: View {
 
 // MARK: - Session Card
 
-private struct SessionCard: View {
+private struct WeekDaySessionCard: View {
     let session: PrescribedSession
     let dateString: String
     let weekNum: Int
