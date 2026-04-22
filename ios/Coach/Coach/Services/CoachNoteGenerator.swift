@@ -64,8 +64,20 @@ enum CoachNoteGenerator {
         Return ONLY a JSON object — no markdown fences, no prose around it:
         {
           "text": "The coach's note using markdown for emphasis. **Bold** the one key takeaway. 3-8 sentences.",
-          "actions": ["Action button 1", "Action button 2"]
+          "actions": ["Action button 1", "Action button 2"],
+          "readiness": "green",
+          "statusLine": "One plain sentence framing the day."
         }
+
+        READINESS (required):
+        - "green": Athlete is rested, plan is on track, no injury flags, good week so far.
+        - "yellow": Recent skips, elevated fatigue indicators, minor concerns, or a tough week. Not alarming but worth noting.
+        - "red": Multiple missed sessions, soreness flags from the athlete, plan significantly off track, or returning from absence.
+        Base this on the context below — adherence data, skip patterns, injury state, and training load.
+
+        STATUS LINE (required):
+        One plain sentence (NO markdown, NO bold) that frames the day. It should reference the readiness assessment and orient the athlete.
+        Examples: "You're recovered and ready — let's hit today's intervals." / "Readiness is a bit low after a heavy week — we're keeping it easy." / "Two skips this week — today's session matters."
 
         Action buttons (1-3 short phrases the athlete can tap to start a chat):
         - If today has a workout: include "View today's workout"
@@ -119,7 +131,9 @@ enum CoachNoteGenerator {
             text: note.text,
             actions: note.actions,
             count: nil,
-            ts: ISO8601DateFormatter().string(from: Date())
+            ts: ISO8601DateFormatter().string(from: Date()),
+            readiness: note.readiness,
+            statusLine: note.statusLine
         )
     }
 
@@ -249,6 +263,8 @@ enum CoachNoteGenerator {
     private struct NoteContent: Codable {
         let text: String
         let actions: [String]?
+        let readiness: String?
+        let statusLine: String?
     }
 
     // MARK: - JSON extraction

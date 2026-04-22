@@ -5,6 +5,8 @@ struct PushMessage: Codable {
     var actions: [String]?
     var count: Int?
     var ts: String?
+    var readiness: String?    // "green", "yellow", "red"
+    var statusLine: String?   // One plain sentence framing the day
 }
 
 struct UserSettings: Codable {

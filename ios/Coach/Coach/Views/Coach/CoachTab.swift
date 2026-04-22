@@ -1,30 +1,55 @@
 import SwiftUI
 
-/// The primary tab — full dashboard with tappable cards. Chat opens as
-/// a floating modal overlay via the coach button.
+// MARK: - Daily View State
+
+private enum DailyViewState {
+    case preWorkout
+    case postWorkout
+}
+
+/// The primary tab — a minimal daily view that answers: What am I doing
+/// today? Why? Am I on track? Post-workout, it transforms in-place to
+/// show a coach observation + RPE input + tomorrow preview.
 struct CoachTab: View {
     @Environment(DataService.self) var data
     @Environment(\.colorScheme) var colorScheme
     @State private var showSettings = false
     @State private var showCoachChat = false
     @State private var completionSheet: ChatCompletionSheet?
-    @State private var coachNoteExpanded = false
+    @State private var postWorkoutObservation: String?
+    @State private var selectedRPE: RPELevel?
+    @State private var rpeNote: String = ""
+
+    private var viewState: DailyViewState {
+        guard let plan = data.trainingPlan,
+              let wp = plan.weeklyPlans[String(plan.currentWeek)] else { return .preWorkout }
+        let dayIdx = todayDayIndex()
+        guard dayIdx < wp.sessions.count else { return .preWorkout }
+        let dayPlan = wp.sessions[dayIdx]
+        if dayPlan.isRest == true { return .preWorkout }
+        if dayPlan.sessions.isEmpty { return .preWorkout }
+        let allResolved = dayPlan.sessions.allSatisfy { $0.completionStatus != nil }
+        return allResolved ? .postWorkout : .preWorkout
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    raceCountdownCard
-                    coachNoteCard
-                    todayWorkoutCards
-                    weekSummaryCard
-                    tomorrowPreviewCard
+                    switch viewState {
+                    case .preWorkout:
+                        preWorkoutView
+                    case .postWorkout:
+                        postWorkoutView
+                    }
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 80)
             }
             .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
             .navigationTitle("Coach")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showSettings = true } label: {
@@ -47,9 +72,7 @@ struct CoachTab: View {
                     CoachChatSheet()
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button {
-                                    showCoachChat = false
-                                } label: {
+                                Button { showCoachChat = false } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.system(size: 22))
                                         .foregroundStyle(.secondary)
@@ -68,20 +91,33 @@ struct CoachTab: View {
             await data.ensurePlanPreGenerated()
         }
         .onAppear {
-            // If there's a pending chat prompt, open the chat sheet
-            if data.pendingChatPrompt != nil {
-                showCoachChat = true
-            }
+            if data.pendingChatPrompt != nil { showCoachChat = true }
         }
         .onChange(of: data.pendingChatPrompt) { _, newVal in
             if newVal != nil { showCoachChat = true }
         }
     }
 
-    // MARK: - Race Countdown Card
+    // ┌──────────────────────────────────────────────────────────────────┐
+    // │                      PRE-WORKOUT VIEW                           │
+    // └──────────────────────────────────────────────────────────────────┘
+
+    private var preWorkoutView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            raceGoalBar
+            statusLine
+            todayHeroCard
+            coachWhySection
+            weekStrip
+            planPositionLine
+            quickActions
+        }
+    }
+
+    // MARK: 1 — Race / Goal Bar
 
     @ViewBuilder
-    private var raceCountdownCard: some View {
+    private var raceGoalBar: some View {
         if let plan = data.trainingPlan,
            let goalId = plan.goalId,
            let event = data.events.first(where: { $0.id == goalId }),
@@ -94,307 +130,496 @@ struct CoachTab: View {
                     GoalDetailView(eventId: event.id)
                 }
             } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("RACE DAY")
-                            .font(CoachFonts.mono(10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text(event.name)
-                            .font(CoachFonts.display(18, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        if let phase = plan.phases.first(where: { $0.number == plan.currentPhase }) {
-                            Text("Week \(plan.currentWeek)/\(plan.totalWeeks) \u{00B7} \(phase.name)")
-                                .font(CoachFonts.ui(12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
+                HStack(spacing: 6) {
+                    Text(event.name)
+                        .font(CoachFonts.ui(12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text("\u{00B7}")
+                        .foregroundStyle(.tertiary)
+                    Text("\(weeksOut) weeks")
+                        .font(CoachFonts.mono(12, weight: .medium))
+                        .foregroundStyle(CoachColors.accent)
                     Spacer()
-                    VStack(spacing: 0) {
-                        Text("\(weeksOut)")
-                            .font(CoachFonts.display(32, weight: .bold))
-                            .foregroundStyle(CoachColors.accent)
-                        Text("weeks")
-                            .font(CoachFonts.mono(10, weight: .semibold))
-                            .foregroundStyle(CoachColors.accent)
-                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
                 }
-                .padding(16)
-                .background(
-                    LinearGradient(
-                        colors: [CoachColors.accent.opacity(0.1), CoachColors.accent.opacity(0.03)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(CoachColors.accent.opacity(0.2), lineWidth: 1)
-                )
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(CoachColors.accent.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
         }
     }
 
-    // MARK: - Coach Note Card
+    // MARK: 2 — Status Line
 
     @ViewBuilder
-    private var coachNoteCard: some View {
-        if let msg = data.settings.pushMessage, !msg.text.isEmpty {
-            CoachCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(coachNoteExpanded ? msg.text : truncatedNote(msg.text))
-                        .font(CoachFonts.ui(13))
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
+    private var statusLine: some View {
+        let msg = data.settings.pushMessage
+        let readiness = msg?.readiness ?? "green"
+        let text = msg?.statusLine ?? "Ready to train."
 
-                    if !coachNoteExpanded && msg.text.count > 150 {
-                        Button {
-                            withAnimation { coachNoteExpanded = true }
-                        } label: {
-                            Text("Read more")
-                                .font(CoachFonts.ui(12, weight: .semibold))
-                                .foregroundStyle(CoachColors.accent)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // Action buttons
-                    if let actions = msg.actions, !actions.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(Array(actions.prefix(3)), id: \.self) { action in
-                                    Button {
-                                        data.pendingChatPrompt = action
-                                        showCoachChat = true
-                                    } label: {
-                                        Text(action)
-                                            .font(CoachFonts.ui(12, weight: .semibold))
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 7)
-                                            .background(Capsule().fill(CoachColors.accent.opacity(0.15)))
-                                            .foregroundStyle(CoachColors.accent)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .onTapGesture {
-                if coachNoteExpanded {
-                    withAnimation { coachNoteExpanded = false }
-                }
-            }
+        HStack(spacing: 8) {
+            Circle()
+                .fill(readinessColor(readiness))
+                .frame(width: 8, height: 8)
+            Text(text)
+                .font(CoachFonts.ui(13))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func truncatedNote(_ text: String) -> String {
-        if text.count <= 150 { return text }
-        let end = text.index(text.startIndex, offsetBy: 150)
-        return String(text[..<end]) + "…"
+    private func readinessColor(_ level: String) -> Color {
+        switch level {
+        case "red": return CoachColors.red
+        case "yellow": return CoachColors.yellow
+        default: return CoachColors.green
+        }
     }
 
-    // MARK: - Today's Workout Cards
+    // MARK: 3 — Today's Hero Workout Card
 
     @ViewBuilder
-    private var todayWorkoutCards: some View {
+    private var todayHeroCard: some View {
         if let plan = data.trainingPlan,
            let wp = plan.weeklyPlans[String(plan.currentWeek)] {
             let dayIdx = todayDayIndex()
             if dayIdx < wp.sessions.count {
                 let dayPlan = wp.sessions[dayIdx]
-
-                CoachLabel(text: "Today's Focus")
-
                 if dayPlan.isRest == true {
-                    restDayCard
-                } else if !dayPlan.sessions.isEmpty {
+                    restDayHero
+                } else {
                     ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { sessionIdx, session in
-                        NavigationLink {
-                            PrescribedSessionDetailView(session: session, dateString: todayString())
-                        } label: {
-                            ChatWorkoutCard(
-                                data: WorkoutCardData(
-                                    session: session,
-                                    weekNum: plan.currentWeek,
-                                    dayIdx: dayIdx,
-                                    sessionIdx: sessionIdx
-                                ),
-                                onCompletion: handleCompletion
-                            )
-                        }
-                        .buttonStyle(.plain)
+                        heroCard(session: session, weekNum: plan.currentWeek, dayIdx: dayIdx, sessionIdx: sessionIdx)
                     }
                 }
             }
         }
     }
 
-    private var restDayCard: some View {
-        CoachCard {
-            HStack(spacing: 8) {
-                Image(systemName: "moon.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(CoachColors.purple)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Rest Day")
-                        .font(CoachFonts.ui(15, weight: .semibold))
-                    Text("Recovery is part of the plan")
-                        .font(CoachFonts.ui(12))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-        }
-    }
-
-    // MARK: - Week Summary Card
-
-    @ViewBuilder
-    private var weekSummaryCard: some View {
-        if let plan = data.trainingPlan,
-           let adherence = computeWeekAdherence(
-               plan: plan, weekNum: plan.currentWeek,
-               cardio: data.cardio, strength: data.strength
-           ) {
-            CoachLabel(text: "This Week")
-
+    private func heroCard(session: PrescribedSession, weekNum: Int, dayIdx: Int, sessionIdx: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header: sport badge + name
             NavigationLink {
-                WeekDetailView(initialWeekNum: plan.currentWeek)
+                PrescribedSessionDetailView(session: session, dateString: todayString())
             } label: {
-                CoachCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("Week \(plan.currentWeek)")
-                                .font(CoachFonts.display(16, weight: .bold))
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.tertiary)
-                        }
+                VStack(alignment: .leading, spacing: 8) {
+                    if let sport = Sport(rawValue: session.type.lowercased()) {
+                        SportBadge(sport: sport)
+                    }
+                    Text(session.label)
+                        .font(CoachFonts.display(20, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
-                        HStack(spacing: 6) {
-                            ForEach(Array(adherence.days.enumerated()), id: \.offset) { _, day in
-                                dashboardDot(for: day)
-                            }
-                            Spacer()
-                        }
+                    if let purpose = session.purpose, !purpose.isEmpty {
+                        Text(purpose)
+                            .font(CoachFonts.ui(13))
+                            .italic()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
-                        HStack(spacing: 14) {
-                            Text("SESSIONS \(adherence.completed)/\(adherence.prescribed)")
-                                .font(CoachFonts.mono(10, weight: .semibold))
+                    // Stats row
+                    HStack(spacing: 16) {
+                        if let time = heroTimeValue(session) {
+                            Text(time)
+                                .font(CoachFonts.mono(14, weight: .bold))
+                        }
+                        if let zone = session.zone, !zone.isEmpty {
+                            Text(zone)
+                                .font(CoachFonts.mono(14, weight: .bold))
                                 .foregroundStyle(.secondary)
-                            Text("ADHERENCE \(adherence.adherence)%")
-                                .font(CoachFonts.mono(10, weight: .semibold))
-                                .foregroundStyle(adherence.adherence >= 75 ? CoachColors.green : .secondary)
+                        }
+                        if let pace = session.paceRange, !pace.isEmpty {
+                            Text(pace)
+                                .font(CoachFonts.mono(13, weight: .medium))
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
             .buttonStyle(.plain)
-        }
-    }
 
-    @ViewBuilder
-    private func dashboardDot(for day: DayReview) -> some View {
-        if day.isRest {
-            Image(systemName: "moon.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(CoachColors.purple)
-                .frame(width: 24, height: 24)
-        } else if day.isToday {
-            Circle()
-                .stroke(CoachColors.accent, lineWidth: 2)
-                .frame(width: 24, height: 24)
-                .overlay(Circle().fill(CoachColors.accent).frame(width: 8, height: 8))
-        } else if day.sessions.isEmpty {
-            Circle()
-                .stroke(Color.gray.opacity(0.3), lineWidth: 1.5)
-                .frame(width: 24, height: 24)
-        } else {
-            let statuses = day.sessions.map(\.status)
-            if statuses.allSatisfy({ $0 == .completed }) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(CoachColors.green)
-                    .frame(width: 24, height: 24)
-            } else if statuses.contains(.missed) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(CoachColors.red)
-                    .frame(width: 24, height: 24)
-            } else if statuses.contains(.substituted) {
-                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(CoachColors.blue)
-                    .frame(width: 24, height: 24)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(CoachColors.yellow)
-                    .frame(width: 24, height: 24)
-            }
-        }
-    }
-
-    // MARK: - Tomorrow Preview
-
-    @ViewBuilder
-    private var tomorrowPreviewCard: some View {
-        if let plan = data.trainingPlan,
-           let wp = plan.weeklyPlans[String(plan.currentWeek)] {
-            let tomorrowIdx = todayDayIndex() + 1
-            if tomorrowIdx < wp.sessions.count {
-                let dayPlan = wp.sessions[tomorrowIdx]
-                if let session = dayPlan.sessions.first {
-                    CoachLabel(text: "Up Next \u{00B7} Tomorrow")
-                    NavigationLink {
-                        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-                        let fmt = DateFormatter()
-                        let _ = fmt.dateFormat = "yyyy-MM-dd"
-                        PrescribedSessionDetailView(session: session, dateString: fmt.string(from: tomorrow))
-                    } label: {
-                        CoachCard {
-                            HStack(spacing: 10) {
-                                let effort = session.effortCategory ?? .easy
-                                effort.gradient
-                                    .frame(width: 4)
-                                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    if let sport = Sport(rawValue: session.type.lowercased()) {
-                                        SportBadge(sport: sport)
-                                    }
-                                    Text(session.label)
-                                        .font(CoachFonts.ui(14, weight: .semibold))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                if let d = session.duration ?? session.estimatedDurationMin {
-                                    Text(formatDuration(d))
-                                        .font(CoachFonts.mono(13, weight: .medium))
-                                        .foregroundStyle(.secondary)
-                                }
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(.tertiary)
+            // Action buttons
+            if session.completionStatus == nil {
+                HStack(spacing: 8) {
+                    heroAction(label: "Did it", icon: "checkmark", color: CoachColors.green, prominent: true) {
+                        Task {
+                            let now = ISO8601DateFormatter().string(from: Date())
+                            try? await data.updateSessionCompletion(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx) { s in
+                                s.completionStatus = .completed
+                                s.completed = true
+                                s.completionResolvedAt = now
                             }
                         }
                     }
-                    .buttonStyle(.plain)
+                    heroAction(label: "Modified", icon: "pencil", color: CoachColors.yellow) {
+                        if let s = sessionAt(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx) {
+                            completionSheet = .modified(session: s, weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx)
+                        }
+                    }
+                    heroAction(label: "Skipped", icon: "xmark", color: .secondary) {
+                        completionSheet = .skipped(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx)
+                    }
                 }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(CoachColors.green)
+                    Text(session.completionStatus == .skipped ? "Skipped" : "Done")
+                        .font(CoachFonts.ui(13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+        )
+    }
+
+    private var restDayHero: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(CoachColors.purple)
+                Text("Rest Day")
+                    .font(CoachFonts.display(20, weight: .bold))
+            }
+            Text("Recovery is part of the plan.")
+                .font(CoachFonts.ui(13))
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+        )
+    }
+
+    private func heroAction(label: String, icon: String, color: Color, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .bold))
+                Text(label)
+                    .font(CoachFonts.ui(12, weight: .semibold))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity)
+            .background(prominent ? color.opacity(0.15) : Color.clear)
+            .foregroundStyle(color)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(color.opacity(prominent ? 0 : 0.3), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func heroTimeValue(_ session: PrescribedSession) -> String? {
+        if let lo = session.estimatedDurationMin, let hi = session.estimatedDurationMax {
+            return "\(lo)\u{2013}\(hi)min"
+        }
+        if let d = session.duration, d > 0 { return formatDuration(d) }
+        return nil
+    }
+
+    // MARK: 4 — The "Why" (Coach Note)
+
+    @ViewBuilder
+    private var coachWhySection: some View {
+        if let msg = data.settings.pushMessage, !msg.text.isEmpty {
+            Text(renderedMarkdown(msg.text))
+                .font(CoachFonts.ui(13))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: 5 — Week Strip
+
+    @ViewBuilder
+    private var weekStrip: some View {
+        if let plan = data.trainingPlan,
+           let wp = plan.weeklyPlans[String(plan.currentWeek)] {
+            NavigationLink {
+                WeekDetailView(initialWeekNum: plan.currentWeek)
+            } label: {
+                HStack(spacing: 0) {
+                    ForEach(Array(wp.sessions.enumerated()), id: \.offset) { dayIdx, dayPlan in
+                        let isToday = dayIdx == todayDayIndex()
+                        weekColumn(dayPlan: dayPlan, dayIdx: dayIdx, isToday: isToday)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 8)
+                .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func weekColumn(dayPlan: DayPlan, dayIdx: Int, isToday: Bool) -> some View {
+        let dayLabels = ["M", "T", "W", "T", "F", "S", "S"]
+        let isPast = dayIdx < todayDayIndex()
+
+        return VStack(spacing: 4) {
+            Text(dayIdx < dayLabels.count ? dayLabels[dayIdx] : "?")
+                .font(CoachFonts.mono(10, weight: isToday ? .bold : .medium))
+                .foregroundStyle(isToday ? CoachColors.accent : .secondary)
+
+            if dayPlan.isRest == true {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(CoachColors.purple.opacity(isPast ? 0.5 : 1))
+            } else if dayPlan.sessions.isEmpty {
+                Circle()
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    .frame(width: 14, height: 14)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { _, session in
+                        sessionDot(session: session, isToday: isToday, isPast: isPast)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 2)
+        .background(isToday ? CoachColors.accent.opacity(0.08) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func sessionDot(session: PrescribedSession, isToday: Bool, isPast: Bool) -> some View {
+        let sport = Sport(rawValue: session.type.lowercased())
+        let icon = sport?.sfSymbol ?? "circle.fill"
+        let color = sessionDotColor(session: session, isToday: isToday, isPast: isPast)
+        return Image(systemName: icon)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(color)
+    }
+
+    private func sessionDotColor(session: PrescribedSession, isToday: Bool, isPast: Bool) -> Color {
+        if let status = session.completionStatus {
+            switch status {
+            case .completed: return CoachColors.green
+            case .modified: return CoachColors.yellow
+            case .swapped: return CoachColors.blue
+            case .skipped: return CoachColors.red
+            }
+        }
+        if isToday { return CoachColors.accent }
+        if isPast { return CoachColors.red.opacity(0.6) }
+        return Color.gray.opacity(0.4)
+    }
+
+    // MARK: 6 — Plan Position Line
+
+    @ViewBuilder
+    private var planPositionLine: some View {
+        if let plan = data.trainingPlan {
+            Button {
+                data.selectedTab = "plan"
+            } label: {
+                HStack(spacing: 4) {
+                    let phaseName = plan.phases.first(where: { $0.number == plan.currentPhase })?.name ?? ""
+                    let weeksToRace = plan.totalWeeks - plan.currentWeek
+                    Text("Week \(plan.currentWeek) of \(plan.totalWeeks)")
+                    Text("\u{00B7}").foregroundStyle(.tertiary)
+                    Text(phaseName)
+                    if weeksToRace > 0 {
+                        Text("\u{00B7}").foregroundStyle(.tertiary)
+                        Text("\(weeksToRace)w to race day")
+                    }
+                }
+                .font(CoachFonts.mono(11, weight: .medium))
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: 7 — Quick Actions
+
+    private var quickActions: some View {
+        HStack(spacing: 10) {
+            quickActionButton(label: "Start workout", icon: "play.fill", prominent: true) {
+                // TODO: open strength logger or workout tracking
+            }
+            quickActionButton(label: "Log manually", icon: "square.and.pencil") {
+                data.pendingChatPrompt = "Log today's workout"
+                showCoachChat = true
+            }
+            quickActionButton(label: "Can't do today", icon: "xmark") {
+                data.pendingChatPrompt = "I can't do today's workout"
+                showCoachChat = true
             }
         }
     }
 
-    // MARK: - Helpers
+    private func quickActionButton(label: String, icon: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(label)
+                    .font(CoachFonts.ui(10, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(prominent ? CoachColors.accent.opacity(0.1) : (colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard))
+            .foregroundStyle(prominent ? CoachColors.accent : .secondary)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(prominent ? CoachColors.accent.opacity(0.2) : (colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // ┌──────────────────────────────────────────────────────────────────┐
+    // │                      POST-WORKOUT VIEW                          │
+    // └──────────────────────────────────────────────────────────────────┘
+
+    private var postWorkoutView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            raceGoalBar
+
+            // Observation
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Nice work.")
+                    .font(CoachFonts.display(22, weight: .bold))
+
+                if let observation = postWorkoutObservation {
+                    Text(observation)
+                        .font(CoachFonts.ui(14))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // RPE Input
+            VStack(alignment: .leading, spacing: 10) {
+                Text("How did it feel?")
+                    .font(CoachFonts.ui(13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    ForEach(RPELevel.allCases) { level in
+                        Button {
+                            selectedRPE = level
+                        } label: {
+                            Text(level.label)
+                                .font(CoachFonts.ui(13, weight: .semibold))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity)
+                                .background(selectedRPE == level ? level.color.opacity(0.15) : (colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard))
+                                .foregroundStyle(selectedRPE == level ? level.color : .secondary)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().stroke(selectedRPE == level ? level.color.opacity(0.3) : (colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                TextField("Add a note (optional)", text: $rpeNote)
+                    .font(CoachFonts.ui(13))
+                    .padding(10)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+
+            // Tomorrow Preview
+            tomorrowPreview
+
+            // Week strip
+            weekStrip
+
+            planPositionLine
+        }
+    }
+
+    @ViewBuilder
+    private var tomorrowPreview: some View {
+        if let plan = data.trainingPlan,
+           let wp = plan.weeklyPlans[String(plan.currentWeek)] {
+            let tomorrowIdx = todayDayIndex() + 1
+            if tomorrowIdx < wp.sessions.count,
+               let session = wp.sessions[tomorrowIdx].sessions.first {
+                let tomorrowDate = tomorrowDateString()
+                NavigationLink {
+                    PrescribedSessionDetailView(session: session, dateString: tomorrowDate)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("Tomorrow:")
+                            .font(CoachFonts.ui(13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text(session.label)
+                            .font(CoachFonts.ui(13))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if let d = session.duration ?? session.estimatedDurationMin {
+                            Text(formatDuration(d))
+                                .font(CoachFonts.mono(12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(12)
+                    .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // ┌──────────────────────────────────────────────────────────────────┐
+    // │                         SHARED HELPERS                          │
+    // └──────────────────────────────────────────────────────────────────┘
 
     private func todayDayIndex() -> Int {
         (Calendar.current.component(.weekday, from: Date()) + 5) % 7
+    }
+
+    private func tomorrowDateString() -> String {
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: tomorrow)
     }
 
     private func weeksUntil(_ dateStr: String) -> Int? {
@@ -405,33 +630,6 @@ struct CoachTab: View {
         return max(0, days / 7)
     }
 
-    // MARK: - Completion Handling
-
-    private func handleCompletion(_ action: CompletionAction) {
-        switch action {
-        case .didIt(let w, let d, let s):
-            Task {
-                guard let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s) else { return }
-                let now = ISO8601DateFormatter().string(from: Date())
-                try? await data.updateSessionCompletion(weekNum: w, dayIdx: d, sessionIdx: s) { s in
-                    s.completionStatus = .completed
-                    s.completed = true
-                    s.completionResolvedAt = now
-                }
-            }
-        case .modified(let w, let d, let s):
-            if let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s) {
-                completionSheet = .modified(session: session, weekNum: w, dayIdx: d, sessionIdx: s)
-            }
-        case .swapped(let w, let d, let s):
-            if let session = sessionAt(weekNum: w, dayIdx: d, sessionIdx: s) {
-                completionSheet = .swapped(session: session, weekNum: w, dayIdx: d, sessionIdx: s)
-            }
-        case .skipped(let w, let d, let s):
-            completionSheet = .skipped(weekNum: w, dayIdx: d, sessionIdx: s)
-        }
-    }
-
     private func sessionAt(weekNum: Int, dayIdx: Int, sessionIdx: Int) -> PrescribedSession? {
         guard let plan = data.trainingPlan,
               let wp = plan.weeklyPlans[String(weekNum)],
@@ -439,6 +637,13 @@ struct CoachTab: View {
               sessionIdx >= 0, sessionIdx < wp.sessions[dayIdx].sessions.count else { return nil }
         return wp.sessions[dayIdx].sessions[sessionIdx]
     }
+
+    private func renderedMarkdown(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+
+    // MARK: - Completion Sheets
 
     @ViewBuilder
     private func completionSheetContent(_ sheet: ChatCompletionSheet) -> some View {
@@ -490,6 +695,29 @@ struct CoachTab: View {
     }
 }
 
+// MARK: - RPE Level
+
+enum RPELevel: String, CaseIterable, Identifiable {
+    case easy, onTarget, hard
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .easy: return "Felt easy"
+        case .onTarget: return "On target"
+        case .hard: return "Hard"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .easy: return CoachColors.green
+        case .onTarget: return CoachColors.blue
+        case .hard: return CoachColors.red
+        }
+    }
+}
+
 // MARK: - Floating Coach Button
 
 struct FloatingCoachButton: View {
@@ -519,8 +747,7 @@ struct FloatingCoachButton: View {
 
 // MARK: - Coach Chat Sheet
 
-/// The chat interface presented as a modal sheet. Owns conversation
-/// management, message sending, and completion response generation.
+/// The chat interface presented as a modal sheet.
 struct CoachChatSheet: View {
     @Environment(DataService.self) var data
     @State private var inputText = ""
@@ -530,12 +757,20 @@ struct CoachChatSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if data.currentMessages.isEmpty && !isLoading {
-                            newConversationGreeting
+                            VStack(spacing: 8) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(CoachColors.accent.opacity(0.6))
+                                Text("What's on your mind?")
+                                    .font(CoachFonts.ui(14))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
                         }
                         ForEach(Array(data.currentMessages.enumerated()), id: \.offset) { index, message in
                             MessageBubble(message: message)
@@ -568,7 +803,6 @@ struct CoachChatSheet: View {
 
             Divider()
 
-            // Input bar
             HStack(spacing: 8) {
                 TextField("Message your coach...", text: $inputText, axis: .vertical)
                     .font(CoachFonts.ui(15))
@@ -616,34 +850,17 @@ struct CoachChatSheet: View {
         .onChange(of: data.pendingChatPrompt) { _, _ in consumePendingPrompt() }
     }
 
-    // MARK: - Greeting
-
-    private var newConversationGreeting: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(CoachColors.accent.opacity(0.6))
-            Text("What's on your mind?")
-                .font(CoachFonts.ui(14))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 40)
-    }
-
-    // MARK: - Loading Label
-
     private var loadingLabel: String {
         if let progress = data.activeToolProgress, !progress.isEmpty { return progress }
         switch data.activeToolName {
-        case "create_training_plan": return "Building your plan…"
+        case "create_training_plan": return "Building your plan\u{2026}"
         case "get_workouts", "get_training_stats", "get_week_review", "get_plan_history":
-            return "Reviewing your data…"
-        case "get_athlete_profile": return "Checking your profile…"
-        case "log_workout": return "Logging workout…"
-        case "log_nutrition": return "Logging nutrition…"
-        case nil: return "Thinking…"
-        default: return "Working…"
+            return "Reviewing your data\u{2026}"
+        case "get_athlete_profile": return "Checking your profile\u{2026}"
+        case "log_workout": return "Logging workout\u{2026}"
+        case "log_nutrition": return "Logging nutrition\u{2026}"
+        case nil: return "Thinking\u{2026}"
+        default: return "Working\u{2026}"
         }
     }
 
@@ -664,38 +881,26 @@ struct CoachChatSheet: View {
         let matches = data.unacknowledgedAutoMatches
         guard !matches.isEmpty else { return }
         data.unacknowledgedAutoMatches.removeAll()
-
+        // Auto-match acknowledgments will appear as coach messages
         for match in matches {
             let prescribed = match.session.duration ?? match.session.estimatedDurationMin ?? 0
             let isModified = prescribed > 0 && abs(match.actualDuration - prescribed) > Int(Double(prescribed) * 0.2)
             let status: CompletionStatus = isModified ? .modified : .completed
-
-            await generateCompletionResponse(
-                session: match.session, status: status, source: .healthKit,
-                actualDuration: match.actualDuration, actualDistance: match.actualDistance
-            )
+            await generateCompletionResponse(session: match.session, status: status, source: .healthKit, actualDuration: match.actualDuration, actualDistance: match.actualDistance)
         }
     }
-
-    // MARK: - Send Message
 
     private func sendMessage() async {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         inputText = ""
         isInputFocused = false
-
         await data.ensureActiveConversation()
-
         let userMsg = ChatMessage.user(text, conversationId: data.currentConversation?.id)
         try? await data.addMessage(userMsg)
-
         isLoading = true
         do {
-            let recentSummaries = data.archivedConversations
-                .prefix(3)
-                .compactMap(\.summary)
-
+            let recentSummaries = data.archivedConversations.prefix(3).compactMap(\.summary)
             let result = try await runAgentLoop(
                 personality: data.settings.personality,
                 customText: data.settings.customPrompt,
@@ -703,68 +908,37 @@ struct CoachChatSheet: View {
                 dataService: data,
                 recentConversationSummaries: recentSummaries
             )
-
             let assistantMsg = ChatMessage.assistant(
                 result.response,
                 metadata: ChatMessageMetadata(
-                    logged: result.hasWorkoutLogs,
-                    nutritionLogged: result.hasNutritionLogs,
-                    planChanged: result.hasPlanChanges,
-                    appActionTaken: result.hasAppActions
+                    logged: result.hasWorkoutLogs, nutritionLogged: result.hasNutritionLogs,
+                    planChanged: result.hasPlanChanges, appActionTaken: result.hasAppActions
                 ),
                 conversationId: data.currentConversation?.id
             )
             try? await data.addMessage(assistantMsg)
-
             for effect in result.effects {
                 switch effect {
-                case .workoutLogged(let workout):
-                    try? await data.addCardio(workout)
-                case .cardioUpdated(let workout):
-                    try? await data.updateCardio(workout)
-                case .cardioDeleted(let id):
-                    try? await data.deleteCardio(id)
-                case .strengthDeleted(let id):
-                    try? await data.deleteStrength(id)
-                case .nutritionLogged(let entry):
-                    try? await data.addNutrition(entry)
-                case .planCreated(let plan), .planUpdated(let plan):
-                    try? await data.savePlan(plan)
-                case .planDeleted(let id, let history):
-                    try? await data.deletePlan(id, archiveTo: history)
-                case .weekUpdated(let weekNum, let weekPlan):
-                    if var current = data.trainingPlan {
-                        current.weeklyPlans[String(weekNum)] = weekPlan
-                        try? await data.savePlan(current)
-                    }
-                case .progressUpdated(let week, let phase):
-                    if var current = data.trainingPlan {
-                        current.currentWeek = week
-                        current.currentPhase = phase
-                        try? await data.savePlan(current)
-                    }
-                case .eventCreated(let event):
-                    try? await data.addEvent(event)
-                case .eventUpdated(let event):
-                    try? await data.updateEvent(event)
-                case .eventDeleted(let id):
-                    try? await data.deleteEvent(id)
-                case .memoryUpdated(let memory):
-                    try? await data.saveMemory(memory)
-                case .settingsUpdated(let settings):
-                    try? await data.saveSettings(settings)
-                case .tabChanged(let tab):
-                    data.selectedTab = tab
+                case .workoutLogged(let w): try? await data.addCardio(w)
+                case .cardioUpdated(let w): try? await data.updateCardio(w)
+                case .cardioDeleted(let id): try? await data.deleteCardio(id)
+                case .strengthDeleted(let id): try? await data.deleteStrength(id)
+                case .nutritionLogged(let e): try? await data.addNutrition(e)
+                case .planCreated(let p), .planUpdated(let p): try? await data.savePlan(p)
+                case .planDeleted(let id, let h): try? await data.deletePlan(id, archiveTo: h)
+                case .weekUpdated(let n, let wp):
+                    if var c = data.trainingPlan { c.weeklyPlans[String(n)] = wp; try? await data.savePlan(c) }
+                case .progressUpdated(let w, let p):
+                    if var c = data.trainingPlan { c.currentWeek = w; c.currentPhase = p; try? await data.savePlan(c) }
+                case .eventCreated(let e): try? await data.addEvent(e)
+                case .eventUpdated(let e): try? await data.updateEvent(e)
+                case .eventDeleted(let id): try? await data.deleteEvent(id)
+                case .memoryUpdated(let m): try? await data.saveMemory(m)
+                case .settingsUpdated(let s): try? await data.saveSettings(s)
+                case .tabChanged(let t): data.selectedTab = t
                 }
             }
-
-            Task {
-                await extractMemory(
-                    messages: data.currentMessages,
-                    existingMemory: data.memory,
-                    dataService: data
-                )
-            }
+            Task { await extractMemory(messages: data.currentMessages, existingMemory: data.memory, dataService: data) }
         } catch {
             NSLog("[chat] sendMessage failed: \(error)")
             let errorMsg = ChatMessage.assistant(
@@ -777,54 +951,24 @@ struct CoachChatSheet: View {
         isLoading = false
     }
 
-    // MARK: - Completion Response Generation
-
     private func generateCompletionResponse(
-        session: PrescribedSession,
-        status: CompletionStatus,
+        session: PrescribedSession, status: CompletionStatus,
         source: CompletionResponseGenerator.CompletionSource,
-        actualDuration: Int? = nil,
-        actualDistance: Double? = nil,
-        actualSport: String? = nil,
-        skipReason: SkipReason? = nil,
-        completionNote: String? = nil
+        actualDuration: Int? = nil, actualDistance: Double? = nil
     ) async {
         var adherenceSummary: String?
         if let plan = data.trainingPlan,
            let adh = computeWeekAdherence(plan: plan, weekNum: plan.currentWeek, cardio: data.cardio, strength: data.strength) {
             adherenceSummary = "\(adh.completed)/\(adh.prescribed) sessions completed, \(adh.missed) missed"
         }
-
-        var tomorrowPreview: String?
-        if let plan = data.trainingPlan,
-           let wp = plan.weeklyPlans[String(plan.currentWeek)] {
-            let tomorrowIdx = ((Calendar.current.component(.weekday, from: Date()) + 5) % 7) + 1
-            if tomorrowIdx < wp.sessions.count {
-                let dp = wp.sessions[tomorrowIdx]
-                if dp.isRest == true { tomorrowPreview = "Rest day" }
-                else if let first = dp.sessions.first { tomorrowPreview = first.label }
-            }
-        }
-
-        var phaseName: String?
-        if let plan = data.trainingPlan,
-           let phase = plan.phases.first(where: { $0.number == plan.currentPhase }) {
-            phaseName = phase.name
-        }
-
         let context = CompletionResponseGenerator.CompletionContext(
-            session: session, status: status,
-            actualDuration: actualDuration, actualDistance: actualDistance,
-            actualSport: actualSport, skipReason: skipReason,
-            completionNote: completionNote, source: source,
-            weekAdherenceSummary: adherenceSummary,
-            tomorrowPreview: tomorrowPreview, phaseName: phaseName
+            session: session, status: status, actualDuration: actualDuration, actualDistance: actualDistance,
+            actualSport: nil, skipReason: nil, completionNote: nil, source: source,
+            weekAdherenceSummary: adherenceSummary, tomorrowPreview: nil, phaseName: nil
         )
-
         do {
             let response = try await CompletionResponseGenerator.generate(
-                context: context, personality: data.settings.personality,
-                customPrompt: data.settings.customPrompt
+                context: context, personality: data.settings.personality, customPrompt: data.settings.customPrompt
             )
             let msg = ChatMessage.assistant(response, conversationId: data.currentConversation?.id)
             try? await data.addMessage(msg)
