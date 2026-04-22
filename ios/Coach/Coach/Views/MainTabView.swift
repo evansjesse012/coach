@@ -105,13 +105,11 @@ struct MainTabView: View {
     // "coach" (opens chat) or "analytics" (renamed to "stats"). Intercept
     // those so existing call sites keep working without edits.
 
+    /// Called once on first appear. Resets any stale/legacy selectedTab value
+    /// (including the old "coach" default) to "today" silently. This must NOT
+    /// open the coach chat sheet — that would pop on every app launch because
+    /// DataService still initializes selectedTab to "coach" for backward compat.
     private func normalizeSelectedTab() {
-        if data.selectedTab == "coach" {
-            data.selectedTab = "today"
-            showCoachChat = true
-            return
-        }
-        if data.selectedTab == "analytics" { data.selectedTab = "stats"; return }
         if !Self.validTabs.contains(data.selectedTab) {
             data.selectedTab = "today"
         }
