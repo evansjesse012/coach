@@ -49,6 +49,8 @@ struct PrescribedSessionDetailView: View {
                 if let fuel = session.fuel, hasAnyFuel(fuel) {
                     nutritionSection(fuel)
                 }
+
+                recordedWorkoutCard
             }
             .padding()
         }
@@ -458,4 +460,105 @@ struct PrescribedSessionDetailView: View {
             (fuel.post?.isEmpty == false)
     }
 
+    // MARK: - Recorded Workout Card
+
+    /// Finds a CardioWorkout that was auto-matched to this prescribed session.
+    private var matchedWorkout: CardioWorkout? {
+        guard session.completionStatus != nil,
+              let dateStr = dateString else { return nil }
+        let sportStr = session.type.lowercased()
+        return data.cardio.first { w in
+            w.date == dateStr && w.sport.rawValue == sportStr
+        } ?? data.cardio.first { w in
+            // Swapped: different sport but matched by date + actual_sport
+            w.date == dateStr && session.actualSport?.lowercased() == w.sport.rawValue
+        }
+    }
+
+    @ViewBuilder
+    private var recordedWorkoutCard: some View {
+        if let workout = matchedWorkout, session.completionStatus != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "applewatch")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("RECORDED WORKOUT")
+                        .font(CoachFonts.mono(10, weight: .semibold))
+                    Spacer()
+                    statusBadge
+                }
+                .foregroundStyle(statusColor)
+
+                NavigationLink {
+                    WorkoutDetailView(workout: workout)
+                } label: {
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("DURATION")
+                                .font(CoachFonts.mono(9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Text(formatDuration(workout.duration))
+                                .font(CoachFonts.mono(15, weight: .bold))
+                                .foregroundStyle(.primary)
+                        }
+                        if let dist = workout.distance, !dist.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("DISTANCE")
+                                    .font(CoachFonts.mono(9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(dist)
+                                    .font(CoachFonts.mono(15, weight: .bold))
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                        if let hr = workout.avgHR {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("AVG HR")
+                                    .font(CoachFonts.mono(9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                Text("\(hr) bpm")
+                                    .font(CoachFonts.mono(15, weight: .bold))
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(14)
+            .background(statusColor.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(statusColor.opacity(0.2), lineWidth: 1)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch session.completionStatus {
+        case .completed:
+            CoachPill(text: "MATCHED", color: CoachColors.green)
+        case .modified:
+            CoachPill(text: "MODIFIED", color: CoachColors.yellow)
+        case .swapped:
+            CoachPill(text: "SWAPPED", color: CoachColors.blue)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var statusColor: Color {
+        switch session.completionStatus {
+        case .completed: return CoachColors.green
+        case .modified: return CoachColors.yellow
+        case .swapped: return CoachColors.blue
+        default: return .secondary
+        }
+    }
 }

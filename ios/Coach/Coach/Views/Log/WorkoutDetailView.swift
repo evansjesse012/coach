@@ -103,25 +103,57 @@ struct WorkoutDetailView: View {
     @ViewBuilder
     private var matchedSessionCard: some View {
         if let match = matchedSession {
-            CoachCard {
-                HStack(spacing: 10) {
-                    Image(systemName: "link.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(CoachColors.green)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Matched to plan")
-                            .font(CoachFonts.ui(11, weight: .semibold))
-                            .foregroundStyle(CoachColors.green)
-                        Text(match.session.label)
-                            .font(CoachFonts.ui(14, weight: .semibold))
-                            .foregroundStyle(.primary)
-                        Text("Week \(match.weekNum)")
-                            .font(CoachFonts.ui(11))
-                            .foregroundStyle(.secondary)
+            NavigationLink {
+                PrescribedSessionDetailView(session: match.session, dateString: workout.date)
+            } label: {
+                CoachCard {
+                    HStack(spacing: 10) {
+                        Image(systemName: "link.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(matchStatusColor(match.session))
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text("Matched to plan")
+                                    .font(CoachFonts.ui(11, weight: .semibold))
+                                    .foregroundStyle(matchStatusColor(match.session))
+                                matchStatusPill(match.session)
+                            }
+                            Text(match.session.label)
+                                .font(CoachFonts.ui(14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            Text("Week \(match.weekNum)")
+                                .font(CoachFonts.ui(11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
                     }
-                    Spacer()
                 }
             }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func matchStatusColor(_ session: PrescribedSession) -> Color {
+        switch session.completionStatus {
+        case .completed: return CoachColors.green
+        case .modified: return CoachColors.yellow
+        case .swapped: return CoachColors.blue
+        default: return CoachColors.green
+        }
+    }
+
+    @ViewBuilder
+    private func matchStatusPill(_ session: PrescribedSession) -> some View {
+        switch session.completionStatus {
+        case .modified:
+            CoachPill(text: "MODIFIED", color: CoachColors.yellow)
+        case .swapped:
+            CoachPill(text: "SWAPPED", color: CoachColors.blue)
+        default:
+            EmptyView()
         }
     }
 
