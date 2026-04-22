@@ -1,45 +1,57 @@
 import SwiftUI
 
-// MARK: - Design System
-// Port of theme system from page.jsx lines 22-49
+// MARK: - Legacy design-system bridge
+//
+// The new design system lives in `Theme` (Utilities/Theme.swift). These
+// `CoachColors` and `CoachFonts` types predate it and are still referenced
+// by the unmigrated screens (Log, Stats, Settings, Auth, Exercises, Strength,
+// and the Plan/Goals sub-views). Rather than touch every one of those files,
+// this module now forwards the legacy names to their new equivalents so a
+// single token edit in Theme cascades through the whole app.
+//
+// Call-site pattern in legacy code:
+//     colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg
+// resolves to Theme.bg in both branches, since Theme colors are dynamic and
+// auto-adapt via UITraitCollection. The ternary is redundant but harmless.
 
 enum CoachColors {
-    // Light theme
-    static let lightBg = Color(hex: "F5F4F0")
-    static let lightSurface = Color.white
-    static let lightCard = Color.white
-    static let lightElevated = Color(hex: "F0EFF8")
-    static let lightBorder = Color(hex: "E8E7F0")
-    static let lightBorderBright = Color(hex: "C8C7DC")
-    static let lightText = Color(hex: "1C1B2E")
-    static let lightSubtle = Color(hex: "5C5B78")
-    static let lightMuted = Color(hex: "A0A0BC")
+    // Chrome — forwards to Theme
+    static var lightBg:           Color { Theme.bg }
+    static var darkBg:            Color { Theme.bg }
+    static var lightSurface:      Color { Theme.surface1 }
+    static var darkSurface:       Color { Theme.surface1 }
+    static var lightCard:         Color { Theme.surface1 }
+    static var darkCard:          Color { Theme.surface1 }
+    static var lightElevated:     Color { Theme.surface2 }
+    static var darkElevated:      Color { Theme.surface2 }
+    static var lightBorder:       Color { Theme.line }
+    static var darkBorder:        Color { Theme.line }
+    static var lightBorderBright: Color { Theme.line2 }
+    static var darkBorderBright:  Color { Theme.line2 }
+    static var lightText:         Color { Theme.ink }
+    static var darkText:          Color { Theme.ink }
+    static var lightSubtle:       Color { Theme.ink2 }
+    static var darkSubtle:        Color { Theme.ink2 }
+    static var lightMuted:        Color { Theme.ink3 }
+    static var darkMuted:         Color { Theme.ink3 }
 
-    // Dark theme
-    static let darkBg = Color(hex: "07070E")
-    static let darkSurface = Color(hex: "0E0E1A")
-    static let darkCard = Color(hex: "121222")
-    static let darkElevated = Color(hex: "1A1A2C")
-    static let darkBorder = Color(hex: "222236")
-    static let darkBorderBright = Color(hex: "363658")
-    static let darkText = Color(hex: "EEEEF8")
-    static let darkSubtle = Color(hex: "9898BE")
-    static let darkMuted = Color(hex: "565678")
+    // Brand — was coral E8604C, now the olive brand accent.
+    static var accent:            Color { Theme.accent }
 
-    // Shared accent colors
-    static let accent = Color(hex: "E8604C")
-    static let green = Color(hex: "2ABF84")
-    static let cyan = Color(hex: "2BAFC4")
-    static let yellow = Color(hex: "F0A830")
-    static let purple = Color(hex: "8B6FE8")
-    static let red = Color(hex: "CC1111")
-    static let blue = Color(hex: "4A8FE8")
-    static let teal = Color(hex: "2BAFC4")
+    // Domain colors — effort categories and sports. These don't have clean
+    // mappings in the new token set (the design system keeps brand accents
+    // rare), so the legacy hex values are preserved for semantic distinction.
+    // Bike/info-tinted and error-tinted callers forward to the design tokens.
+    static let green  = Color(hex: "2ABF84")  // logged / completed / easy effort
+    static let yellow = Color(hex: "F0A830")  // tempo / threshold effort
+    static let purple = Color(hex: "8B6FE8")  // long-endurance / strength
+    static var cyan:  Color { Theme.info }    // bike / info
+    static var blue:  Color { Theme.info }    // strength (legacy) / info
+    static var teal:  Color { Theme.info }
+    static var red:   Color { Theme.warn }    // errors / vo2max / race effort
 }
 
 // MARK: - Effort Category Colors
-
-// MARK: - Phase Identity Color
 
 extension TrainingPhase {
     var accentColor: Color {
@@ -60,7 +72,7 @@ extension EffortCategory {
         case .longEndurance: return CoachColors.purple
         case .strength: return CoachColors.blue
         case .vo2max, .race: return CoachColors.red
-        case .rest: return Color.gray
+        case .rest: return Theme.ink3
         }
     }
 
@@ -81,7 +93,7 @@ extension EffortCategory {
         case .vo2max, .race:
             stops = [CoachColors.accent, CoachColors.red]
         case .rest:
-            stops = [Color.gray.opacity(0.5), Color.gray.opacity(0.3)]
+            stops = [Theme.ink3.opacity(0.5), Theme.ink3.opacity(0.3)]
         }
         return LinearGradient(colors: stops, startPoint: .top, endPoint: .bottom)
     }
@@ -92,39 +104,38 @@ extension EffortCategory {
 extension Sport {
     var swiftUIColor: Color {
         switch self {
-        case .run: return CoachColors.accent
-        case .bike: return CoachColors.cyan
-        case .swim: return CoachColors.purple
-        case .strength: return CoachColors.yellow
-        case .brick: return CoachColors.green
-        case .hike: return CoachColors.green
-        case .other: return Color.gray
+        case .run:      return Theme.Discipline.run.color
+        case .bike:     return Theme.Discipline.bike.color
+        case .swim:     return Theme.Discipline.swim.color
+        case .strength: return Theme.Discipline.strength.color
+        case .brick:    return CoachColors.green
+        case .hike:     return CoachColors.green
+        case .other:    return Theme.ink3
         }
     }
 }
 
-// MARK: - Font Helpers
+// MARK: - Font helpers
+//
+// Legacy font helpers now forward to the Theme typography system.
+// Display is sans (was rounded in the pre-redesign look); ui is plain sans;
+// mono is the monospace system font.
 
 enum CoachFonts {
-    // Custom fonts — register in Info.plist after adding .ttf files
-    // For now, use system fonts as fallbacks
     static func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        // TODO: Replace with .custom("Outfit", size: size) after bundling font
-        .system(size: size, weight: weight, design: .rounded)
+        .system(size: size, weight: weight)
     }
 
     static func ui(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        // TODO: Replace with .custom("DMSans", size: size) after bundling font
         .system(size: size, weight: weight)
     }
 
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        // TODO: Replace with .custom("JetBrainsMono", size: size) after bundling font
         .system(size: size, weight: weight, design: .monospaced)
     }
 }
 
-// MARK: - Color Hex Extension
+// MARK: - Color hex extension
 
 extension Color {
     init(hex: String) {
