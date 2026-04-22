@@ -36,7 +36,7 @@ enum CompletionAction {
 
 /// Compact workout card for chat — mirrors the Home tab's TodaySessionCard
 /// but sized for inline chat width.
-private struct ChatWorkoutCard: View {
+struct ChatWorkoutCard: View {
     let data: WorkoutCardData
     var onCompletion: ((CompletionAction) -> Void)?
 
