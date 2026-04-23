@@ -110,7 +110,13 @@ enum Theme {
         static let screenH: CGFloat       = 22
         static let cardP: CGFloat         = 16
         static let section: CGFloat       = 24
-        static let bottomReserve: CGFloat = 110
+
+        /// Visual breathing room at the bottom of each tab's scroll content.
+        /// The anchored `TabBar` is mounted via `.safeAreaInset(edge: .bottom)`
+        /// in `MainTabView`, which automatically reserves its height from
+        /// the content area — so this value only needs to add a small gap
+        /// so the last section isn't flush against the tab bar's hairline.
+        static let bottomReserve: CGFloat = 20
     }
 
     // MARK: Radius

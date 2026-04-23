@@ -2,9 +2,11 @@ import SwiftUI
 
 /// Root tab container. Hosts five tabs (Today · Goals · Plan · Log · Stats)
 /// rendered in a ZStack so each keeps its own NavigationStack state across
-/// tab switches. A custom floating `TabBar` sits on top. The Coach chat
-/// reachable from a floating action button (FAB), which also auto-presents
-/// whenever any caller sets `data.pendingChatPrompt`.
+/// tab switches. An anchored `TabBar` is mounted via `.safeAreaInset(edge: .bottom)`
+/// so each tab's scroll content ends naturally above the bar without
+/// per-screen bottom padding. A Coach chat FAB hovers 16pt above the tab
+/// bar's top edge; the `MiniActiveWorkoutBar` pill floats just above the
+/// tab bar when a strength workout is live.
 struct MainTabView: View {
     @Environment(DataService.self) private var data
 
@@ -16,7 +18,7 @@ struct MainTabView: View {
     var body: some View {
         @Bindable var data = data
 
-        ZStack(alignment: .bottom) {
+        ZStack {
             Theme.bg.ignoresSafeArea()
 
             // Tab content — all five tabs stay in the tree to preserve
@@ -28,32 +30,32 @@ struct MainTabView: View {
                 tabContent(id: "log")   { LogTab() }
                 tabContent(id: "stats") { AnalyticsTab() }
             }
-
-            // Floating chat FAB (bottom-right, above the tab bar).
-            VStack(spacing: 0) {
-                Spacer()
-                HStack {
-                    Spacer()
-                    FAB(icon: "bubble.left.fill") {
-                        showCoachChat = true
-                    }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 92)
-                }
-            }
-            .allowsHitTesting(true)
-
-            // Bottom floating stack: active-workout pill (if any) + tab bar.
-            VStack(spacing: 8) {
-                if data.activeStrengthSession != nil {
-                    MiniActiveWorkoutBar {
-                        showActiveWorkoutLogger = true
-                    }
+        }
+        // Pinned above the anchored tab bar: the active-workout pill (when
+        // present) and the chat FAB. Both align to the bottom of the content
+        // area, which — thanks to safeAreaInset below — ends at the tab bar
+        // top edge.
+        .overlay(alignment: .bottom) {
+            if data.activeStrengthSession != nil {
+                MiniActiveWorkoutBar { showActiveWorkoutLogger = true }
                     .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                TabBar(items: tabItems, selection: $data.selectedTab)
             }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            FAB(icon: "bubble.left.fill") {
+                showCoachChat = true
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, 16)
+        }
+        // Anchored tab bar: content sits above the safe area; its `surface1`
+        // background extends into the home-indicator region so the bar
+        // appears to reach the device's bottom edge.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            TabBar(items: tabItems, selection: $data.selectedTab)
+                .background(Theme.surface1.ignoresSafeArea(edges: .bottom))
         }
         .animation(.easeInOut(duration: 0.25), value: data.activeStrengthSession != nil)
         .fullScreenCover(isPresented: $showActiveWorkoutLogger) {

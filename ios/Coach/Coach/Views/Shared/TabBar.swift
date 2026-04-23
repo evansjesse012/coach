@@ -1,59 +1,70 @@
 import SwiftUI
 
-/// Floating, backdrop-blurred tab bar. Icon on top, mono uppercase
-/// label underneath. Active tab: ink background pill with `bg` text.
-/// Built for N items; the design spec uses 4.
+/// Anchored, edge-to-edge tab bar. Full width, solid `surface1` background,
+/// 1pt hairline on top, 56pt content row above the bottom safe area. Active
+/// state is communicated by color only — icon + label shift from `ink3` to
+/// `accent` with a 200ms color crossfade. No pill background, no shadow.
+///
+/// Designed to be mounted via `.safeAreaInset(edge: .bottom)` so the parent
+/// view's safe area automatically shrinks to exclude it, and scrollable
+/// content ends naturally above the bar without per-screen padding.
 struct TabBar: View {
     struct Item: Identifiable, Hashable {
         let id: String
         let icon: String       // SF Symbol
-        let label: String
+        let label: String      // Sentence-case, e.g. "Today"
+        var hasBadge: Bool = false
     }
 
     let items: [Item]
     @Binding var selection: String
 
-    /// Horizontal inset from screen edges.
-    var sideInset: CGFloat = 14
-
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(items) { item in
-                cell(item)
-                    .frame(maxWidth: .infinity)
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Theme.line)
+                .frame(height: 1)
+
+            HStack(spacing: 0) {
+                ForEach(items) { item in
+                    cell(item)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .frame(height: 56)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
-        .padding(.horizontal, sideInset)
-        .padding(.bottom, 14)
+        .background(Theme.surface1)
     }
 
     @ViewBuilder
     private func cell(_ item: Item) -> some View {
         let active = item.id == selection
         Button {
-            selection = item.id
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: item.icon)
-                    .font(.system(size: 18, weight: active ? .semibold : .regular))
-                Text(item.label)
-                    .font(Theme.Typography.monoLabel)
-                    .textCase(.uppercase)
-                    .tracking(Theme.Tracking.monoLabel)
+            if selection != item.id {
+                selection = item.id
             }
-            .foregroundStyle(active ? Theme.bg : Theme.ink2)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
-            .background(
-                Capsule()
-                    .fill(active ? Theme.ink : .clear)
-            )
-            .contentShape(Capsule())
+        } label: {
+            VStack(spacing: 3) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: item.icon)
+                        .font(.system(size: 22, weight: .regular))
+                    if item.hasBadge {
+                        Circle()
+                            .fill(Theme.accent)
+                            .frame(width: 8, height: 8)
+                            .offset(x: 4, y: -2)
+                    }
+                }
+                Text(item.label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(-0.05)
+            }
+            .foregroundStyle(active ? Theme.accent : Theme.ink3)
+            .animation(.easeOut(duration: 0.2), value: active)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -62,32 +73,46 @@ struct TabBar: View {
 // MARK: - Preview host
 
 private struct TabBarPreviewHost: View {
-    @State var selection: String = "today"
-    var scheme: ColorScheme
+    @State var selection: String
+    let scheme: ColorScheme
+
+    init(selection: String, scheme: ColorScheme) {
+        self._selection = State(initialValue: selection)
+        self.scheme = scheme
+    }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             Theme.bg.ignoresSafeArea()
-            VStack {
+            VStack(spacing: 12) {
                 Spacer()
-                Text("Selected: \(selection)")
+                Text("Screen content")
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.ink2)
+                Text("selected: \(selection)")
                     .font(Theme.Typography.monoMeta)
                     .foregroundStyle(Theme.ink3)
-                    .padding(.bottom, 120)
+                Spacer()
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             TabBar(
                 items: [
-                    .init(id: "today", icon: "house", label: "Today"),
-                    .init(id: "goals", icon: "target", label: "Goals"),
-                    .init(id: "plan",  icon: "calendar", label: "Plan"),
-                    .init(id: "log",   icon: "waveform.path.ecg", label: "Log"),
+                    .init(id: "today", icon: "house",              label: "Today"),
+                    .init(id: "goals", icon: "target",             label: "Goals"),
+                    .init(id: "plan",  icon: "calendar",           label: "Plan"),
+                    .init(id: "log",   icon: "list.clipboard.fill",label: "Log"),
+                    .init(id: "stats", icon: "chart.xyaxis.line", label: "Stats"),
                 ],
                 selection: $selection
             )
+            .background(Theme.surface1.ignoresSafeArea(edges: .bottom))
         }
         .preferredColorScheme(scheme)
     }
 }
 
-#Preview("TabBar — Light") { TabBarPreviewHost(scheme: .light) }
-#Preview("TabBar — Dark")  { TabBarPreviewHost(scheme: .dark)  }
+#Preview("TabBar — Light, Today")  { TabBarPreviewHost(selection: "today", scheme: .light) }
+#Preview("TabBar — Light, Plan")   { TabBarPreviewHost(selection: "plan",  scheme: .light) }
+#Preview("TabBar — Dark, Today")   { TabBarPreviewHost(selection: "today", scheme: .dark) }
+#Preview("TabBar — Dark, Stats")   { TabBarPreviewHost(selection: "stats", scheme: .dark) }
