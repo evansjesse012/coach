@@ -202,6 +202,21 @@ struct SessionCard: View {
 
     @ViewBuilder
     private func statusHeader(_ status: Status) -> some View {
+        SessionStatusStrip(status: status)
+    }
+}
+
+// MARK: - Shared status strip
+
+/// Colored status header strip rendered above a session card when a
+/// session has been marked done / modified / swapped / skipped. Used by
+/// both `SessionCard` (Home Today) and the `WeekDaySessionCard` inline
+/// struct in `WeekDetailView`, so the at-a-glance status treatment
+/// reads identically across every surface.
+struct SessionStatusStrip: View {
+    let status: SessionCard.Status
+
+    var body: some View {
         HStack(spacing: 8) {
             Image(systemName: status.icon)
                 .font(.system(size: 12, weight: .bold))
@@ -224,6 +239,74 @@ struct SessionCard: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(status.stripBackground)
+    }
+}
+
+// MARK: - Theme.Discipline helpers exposed to cross-file users
+
+extension SessionCard.Status {
+    /// Re-exported for `SessionStatusStrip` and any future consumer that needs
+    /// the tint color without going through the private render path.
+    var tintColor: Color { tint }
+    /// Whether the session name should render with strikethrough for this state.
+    var shouldStrikeThroughName: Bool { strikesThroughName }
+    /// Body opacity consumers should apply when this status is set.
+    var dimmedBodyOpacity: Double { bodyOpacity }
+}
+
+// MARK: - PrescribedSession → presentation mapping
+
+/// Maps a domain `PrescribedSession`'s completion state to the presentation-
+/// layer `SessionCard.Status`, composing a concise detail string for the
+/// status strip (actual duration for done/modified, swapped sport + duration
+/// for swapped, skip reason for skipped). Single source of truth — used by
+/// Home Today, Week Detail, and any other surface that renders a session
+/// card so the status treatment reads identically everywhere.
+extension PrescribedSession {
+    var sessionCardStatus: SessionCard.Status? {
+        guard let status = completionStatus else { return nil }
+        switch status {
+        case .completed:
+            return .done(detail: Self.actualDurationLabel(self))
+        case .modified:
+            return .modified(detail: Self.modifiedDetailLabel(self))
+        case .swapped:
+            return .swapped(detail: Self.swappedDetailLabel(self))
+        case .skipped:
+            return .skipped(detail: Self.skippedDetailLabel(self))
+        }
+    }
+
+    private static func actualDurationLabel(_ s: PrescribedSession) -> String? {
+        if let actual = s.actualDuration { return "\(actual)m" }
+        return nil
+    }
+
+    private static func modifiedDetailLabel(_ s: PrescribedSession) -> String? {
+        switch (s.actualDuration, s.duration) {
+        case let (actual?, prescribed?) where actual != prescribed:
+            return "\(actual)m of \(prescribed)m"
+        case let (actual?, _):
+            return "\(actual)m"
+        default:
+            return nil
+        }
+    }
+
+    private static func swappedDetailLabel(_ s: PrescribedSession) -> String? {
+        guard let sport = s.actualSport, !sport.isEmpty else { return nil }
+        let pretty = sport.prefix(1).uppercased() + sport.dropFirst()
+        if let actual = s.actualDuration {
+            return "Did \(actual)m of \(pretty)"
+        }
+        return "Did \(pretty)"
+    }
+
+    private static func skippedDetailLabel(_ s: PrescribedSession) -> String? {
+        if let reason = s.skipReason {
+            return reason.rawValue.capitalized
+        }
+        return nil
     }
 }
 

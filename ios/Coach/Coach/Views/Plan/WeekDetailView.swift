@@ -221,87 +221,77 @@ private struct WeekDaySessionCard: View {
     @Environment(DataService.self) var data
 
     var body: some View {
-        HStack(spacing: 0) {
+        let status = session.sessionCardStatus
+        let bodyOpacity = status?.dimmedBodyOpacity ?? 1.0
+        return VStack(spacing: 0) {
             NavigationLink {
                 PrescribedSessionDetailView(session: session, dateString: dateString)
             } label: {
-                HStack(spacing: 0) {
-                    // Sport-colored left rule — matches Home's Today SessionCard.
-                    Rectangle()
-                        .fill(discipline.color)
-                        .frame(width: 3)
+                VStack(spacing: 0) {
+                    if let status {
+                        SessionStatusStrip(status: status)
+                    }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    HStack(spacing: 0) {
+                        // Sport-colored left rule — matches Home's Today SessionCard.
+                        Rectangle()
+                            .fill(discipline.color)
+                            .frame(width: 3)
+
+                        VStack(alignment: .leading, spacing: 6) {
                             Text(session.label)
                                 .font(Theme.Typography.sessionTitle)
                                 .foregroundStyle(Theme.ink)
                                 .tracking(Theme.Tracking.headline)
+                                .strikethrough(status?.shouldStrikeThroughName == true, color: Theme.ink3)
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
-                            if let pill = statusPillLabel {
-                                Text(pill)
-                                    .font(Theme.Typography.monoLabelS)
-                                    .tracking(Theme.Tracking.monoLabel)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(Capsule().fill(statusPillColor.opacity(0.18)))
-                                    .foregroundStyle(statusPillColor)
+
+                            Text(secondLine)
+                                .font(Theme.Typography.monoMeta)
+                                .foregroundStyle(Theme.ink3)
+
+                            Text(thirdLine)
+                                .font(Theme.Typography.bodyS)
+                                .foregroundStyle(Theme.ink2)
+
+                            if let note = session.notes, !note.isEmpty {
+                                Text(note)
+                                    .font(Theme.Typography.small)
+                                    .foregroundStyle(Theme.ink2)
+                                    .lineLimit(2)
+                                    .padding(.top, 2)
+                            }
+
+                            if let completionNote = session.completionNote, !completionNote.isEmpty {
+                                Text("\u{201C}\(completionNote)\u{201D}")
+                                    .font(Theme.Typography.small)
+                                    .italic()
+                                    .foregroundStyle(Theme.ink3)
+                                    .lineLimit(2)
+                                    .padding(.top, 2)
                             }
                         }
+                        .opacity(bodyOpacity)
+                        .padding(.leading, 14)
+                        .padding(.vertical, 14)
 
-                        Text(secondLine)
-                            .font(Theme.Typography.monoMeta)
-                            .foregroundStyle(Theme.ink3)
+                        Spacer(minLength: 0)
 
-                        Text(thirdLine)
-                            .font(Theme.Typography.bodyS)
-                            .foregroundStyle(Theme.ink2)
-
-                        if let note = session.notes, !note.isEmpty {
-                            Text(note)
-                                .font(Theme.Typography.small)
-                                .foregroundStyle(Theme.ink2)
-                                .lineLimit(2)
-                                .padding(.top, 2)
-                        }
-
-                        if let completionNote = session.completionNote, !completionNote.isEmpty {
-                            Text("\u{201C}\(completionNote)\u{201D}")
-                                .font(Theme.Typography.small)
-                                .italic()
-                                .foregroundStyle(Theme.ink3)
-                                .lineLimit(2)
-                                .padding(.top, 2)
+                        // Right-side status-toggle affordance. Future sessions
+                        // aren't markable, so we show nothing for them.
+                        if !isFuture {
+                            toggleButton
+                                .opacity(bodyOpacity)
+                                .padding(.trailing, 14)
+                        } else {
+                            Color.clear.frame(width: 14)
                         }
                     }
-                    .padding(.leading, 14)
-                    .padding(.vertical, 14)
-
-                    Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            if !isFuture {
-                Button {
-                    Task {
-                        try? await data.toggleSessionCompleted(
-                            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
-                        )
-                    }
-                } label: {
-                    statusButtonIcon
-                        .font(.system(size: 24))
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 14)
-            } else {
-                // Future session: keep trailing padding for visual parity with
-                // markable rows, but show no toggle control.
-                Color.clear.frame(width: 14)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface1)
@@ -311,7 +301,24 @@ private struct WeekDaySessionCard: View {
                 .strokeBorder(cardBorderColor, lineWidth: cardBorderWidth)
         )
         .dsCardShadow()
-        .opacity(session.isResolved ? 0.75 : 1.0)
+    }
+
+    /// Separate toggle button outside the NavigationLink body so tapping it
+    /// doesn't also activate the push. Note it lives inside the HStack but
+    /// inside the NavigationLink label — SwiftUI lets a Button-in-label
+    /// handle its own tap while the surrounding area still navigates.
+    private var toggleButton: some View {
+        Button {
+            Task {
+                try? await data.toggleSessionCompleted(
+                    weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+                )
+            }
+        } label: {
+            statusButtonIcon
+                .font(.system(size: 24))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Derived — discipline
@@ -345,28 +352,6 @@ private struct WeekDaySessionCard: View {
             Image(systemName: "arrow.triangle.2.circlepath.circle.fill").foregroundStyle(Theme.info)
         case .skipped:
             Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.warn)
-        }
-    }
-
-    private var statusPillLabel: String? {
-        switch session.displayState {
-        case .upcoming: return nil
-        case .completed: return "DONE"
-        case .needsReview: return "REVIEW"
-        case .modified: return "MODIFIED"
-        case .swapped: return "SWAPPED"
-        case .skipped: return "SKIPPED"
-        }
-    }
-
-    private var statusPillColor: Color {
-        switch session.displayState {
-        case .upcoming: return Theme.ink3
-        case .completed: return CoachColors.green
-        case .needsReview: return Theme.warn
-        case .modified: return CoachColors.yellow
-        case .swapped: return Theme.info
-        case .skipped: return Theme.warn
         }
     }
 

@@ -246,7 +246,7 @@ struct HomeTab: View {
                 name: session.label,
                 stats: statsFor(session),
                 chips: chipsFor(session, week: week, day: day, sessionIdx: sessionIdx),
-                status: statusFor(session)
+                status: session.sessionCardStatus
             )
         }
         .buttonStyle(.plain)
@@ -282,55 +282,9 @@ struct HomeTab: View {
         ]
     }
 
-    /// Maps the session's domain completion status to the presentation-layer
-    /// SessionCard.Status, filling in a concise detail string for the status
-    /// header strip (actual duration for done/modified, swapped sport for
-    /// swapped, skip reason for skipped).
-    private func statusFor(_ session: PrescribedSession) -> SessionCard.Status? {
-        guard let status = session.completionStatus else { return nil }
-        switch status {
-        case .completed:
-            return .done(detail: actualDurationLabel(session))
-        case .modified:
-            return .modified(detail: modifiedDetail(session))
-        case .swapped:
-            return .swapped(detail: swappedDetail(session))
-        case .skipped:
-            return .skipped(detail: skippedDetail(session))
-        }
-    }
-
-    private func actualDurationLabel(_ session: PrescribedSession) -> String? {
-        if let actual = session.actualDuration { return "\(actual)m" }
-        return nil
-    }
-
-    private func modifiedDetail(_ session: PrescribedSession) -> String? {
-        switch (session.actualDuration, session.duration) {
-        case let (actual?, prescribed?) where actual != prescribed:
-            return "\(actual)m of \(prescribed)m"
-        case let (actual?, _):
-            return "\(actual)m"
-        default:
-            return nil
-        }
-    }
-
-    private func swappedDetail(_ session: PrescribedSession) -> String? {
-        guard let sport = session.actualSport, !sport.isEmpty else { return nil }
-        let pretty = sport.prefix(1).uppercased() + sport.dropFirst()
-        if let actual = session.actualDuration {
-            return "Did \(actual)m of \(pretty)"
-        }
-        return "Did \(pretty)"
-    }
-
-    private func skippedDetail(_ session: PrescribedSession) -> String? {
-        if let reason = session.skipReason {
-            return reason.rawValue.capitalized
-        }
-        return nil
-    }
+    // Session status mapping lives on PrescribedSession.sessionCardStatus
+    // (see SessionCard.swift) so Home Today and Week Detail render the
+    // same strip content from a single source of truth.
 
     private func disciplineFor(_ session: PrescribedSession) -> Theme.Discipline {
         if let sport = Sport(rawValue: session.type) { return sport.discipline }
