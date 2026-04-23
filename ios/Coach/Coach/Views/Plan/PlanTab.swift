@@ -22,7 +22,6 @@ struct PlanTab: View {
                     }
                     .padding(.horizontal, Theme.Spacing.screenH)
                     .padding(.top, 16)
-                    .padding(.bottom, Theme.Spacing.bottomReserve)
                 } else {
                     VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                         headerBlock(planExists: false)
@@ -30,9 +29,9 @@ struct PlanTab: View {
                     }
                     .padding(.horizontal, Theme.Spacing.screenH)
                     .padding(.top, 16)
-                    .padding(.bottom, Theme.Spacing.bottomReserve)
                 }
             }
+            .clearsTabBar()
             .background(Theme.bg.ignoresSafeArea())
             .scrollContentBackground(.hidden)
             .sheet(isPresented: $showPlanChat) {

@@ -119,6 +119,7 @@ struct ExerciseLibraryView: View {
             }
             .padding(.vertical, 12)
         }
+        .clearsTabBar()
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle("Exercise Library")
         .navigationBarTitleDisplayMode(.inline)

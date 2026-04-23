@@ -34,8 +34,8 @@ struct HomeTab: View {
                 }
                 .padding(.horizontal, Theme.Spacing.screenH)
                 .padding(.top, 16)
-                .padding(.bottom, Theme.Spacing.bottomReserve)
             }
+            .clearsTabBar()
             .background(Theme.bg.ignoresSafeArea())
             .scrollContentBackground(.hidden)
             .sheet(isPresented: $showSettings) {

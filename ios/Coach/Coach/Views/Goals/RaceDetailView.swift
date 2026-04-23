@@ -50,6 +50,7 @@ struct RaceDetailView: View {
                 )
             }
         }
+        .clearsTabBar()
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

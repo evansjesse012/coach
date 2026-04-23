@@ -57,6 +57,7 @@ struct PrescribedSessionDetailView: View {
             }
             .padding()
         }
+        .clearsTabBar()
         .sheet(isPresented: $showLinkWorkoutSheet) {
             LinkWorkoutSheet(session: session, sessionDate: dateString) { workout in
                 Task { await data.applyManualMatch(session: session, on: dateString, workout: workout) }

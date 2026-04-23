@@ -38,6 +38,7 @@ struct PlanReviewView: View {
                 }
                 .padding()
             }
+            .clearsTabBar()
             .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
             .navigationTitle("Plan Review")
             .navigationBarTitleDisplayMode(.inline)

@@ -36,6 +36,7 @@ struct StrengthDetailView: View {
             }
             .padding()
         }
+        .clearsTabBar()
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle("Strength")
         .navigationBarTitleDisplayMode(.inline)

@@ -29,8 +29,8 @@ struct WeekDetailView: View {
             }
             .padding(.horizontal, Theme.Spacing.screenH)
             .padding(.top, 8)
-            .padding(.bottom, Theme.Spacing.bottomReserve)
         }
+        .clearsTabBar()
         .background(Theme.bg.ignoresSafeArea())
         .scrollContentBackground(.hidden)
         .navigationTitle("Plan Overview")

@@ -32,9 +32,9 @@ struct AnalyticsTab: View {
                         raceDayReadiness
                     }
                     .padding()
-                    .padding(.bottom, Theme.Spacing.bottomReserve)
                 }
             }
+            .clearsTabBar()
             .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
             .navigationTitle("Analytics")
             .navigationBarTitleDisplayMode(.large)

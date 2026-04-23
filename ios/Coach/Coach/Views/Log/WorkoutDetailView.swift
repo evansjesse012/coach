@@ -79,6 +79,7 @@ struct WorkoutDetailView: View {
             }
             .padding()
         }
+        .clearsTabBar()
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle(formatDateShort(workout.date))
         .navigationBarTitleDisplayMode(.inline)

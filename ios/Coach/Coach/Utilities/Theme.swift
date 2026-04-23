@@ -161,6 +161,21 @@ private extension UIColor {
 extension View {
     /// Card shadow matching the design system (mode-aware, two-layer).
     func dsCardShadow() -> some View { modifier(DSCardShadow()) }
+
+    /// Ensures scrollable content ends cleanly above the app's anchored
+    /// tab bar on every screen — tab roots AND anything pushed from a
+    /// tab's NavigationStack. Wraps `contentMargins(.bottom:for: .scrollContent)`
+    /// sized at `Theme.Spacing.bottomReserve` so the scroll view's bottom
+    /// content region is inset by one constant value. Applied once per
+    /// ScrollView, any new screen added under the tab bar just adds this
+    /// modifier — no custom padding math, no per-screen drift.
+    ///
+    /// Do NOT apply to ScrollViews inside a `.sheet` or `.fullScreenCover`:
+    /// those presentations cover the tab bar, so the reserve would only
+    /// manifest as unnecessary bottom whitespace.
+    func clearsTabBar() -> some View {
+        contentMargins(.bottom, Theme.Spacing.bottomReserve, for: .scrollContent)
+    }
 }
 
 private struct DSCardShadow: ViewModifier {

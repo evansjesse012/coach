@@ -15,6 +15,7 @@ struct PhaseDetailView: View {
             }
             .padding()
         }
+        .clearsTabBar()
         .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())
         .navigationTitle(phase.name)
         .navigationBarTitleDisplayMode(.inline)
