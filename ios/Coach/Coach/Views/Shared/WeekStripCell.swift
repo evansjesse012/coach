@@ -69,12 +69,16 @@ struct WeekStripCell: View {
 
     @ViewBuilder
     private var iconStack: some View {
+        // Uniform icon size: single-icon cells don't inflate and multi-icon
+        // cells don't shrink to squeeze in. The 16pt size reads at a glance
+        // and two still fit comfortably inside the ~40pt cell with 3pt gap
+        // (35pt total, ~2.5pt breathing room top and bottom).
         let visible = Array(glyphs.prefix(2))
         let oversize = max(0, glyphs.count - 2)
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
             ForEach(Array(visible.enumerated()), id: \.offset) { _, g in
                 Image(systemName: g.symbolName)
-                    .font(.system(size: glyphs.count > 1 ? 13 : 18, weight: .regular))
+                    .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(Self.iconColor(
                         state: state,
                         isToday: isToday,
