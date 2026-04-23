@@ -40,13 +40,19 @@ struct SessionDetailView: View {
     @State private var workingFatigue: Int? = nil
     @State private var workingLinkedWorkoutId: String? = nil
 
-    @State private var showDiscardConfirm = false
     @State private var showClearConfirm = false
     @State private var showBrowseSheet = false
     @State private var showReschedulePlaceholder = false
     @State private var hasLoadedInitial = false
     @State private var showWorkoutLogger = false
     @State private var showResumeConfirm = false
+
+    /// Debounced save task. Every working-state change schedules a
+    /// single save ~300ms later, cancelling any earlier pending save,
+    /// so a rapid series of edits (e.g. tap pill → pick reason → type
+    /// a note) coalesces into one network write. Dismissing the view
+    /// flushes the pending task so nothing is lost.
+    @State private var saveTask: Task<Void, Never>?
 
     // MARK: - Derived
 
@@ -108,7 +114,7 @@ struct SessionDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button { attemptBack() } label: {
+                Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Theme.ink2)
@@ -143,9 +149,6 @@ struct SessionDetailView: View {
                 .accessibilityLabel("Session options")
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            saveBar
-        }
         .confirmationDialog(
             "Clear logged data for this session?",
             isPresented: $showClearConfirm,
@@ -155,14 +158,6 @@ struct SessionDetailView: View {
             Button("Cancel", role: .cancel) { workingStatus = session.statusKind }
         } message: {
             Text("This removes the duration, notes, RPE, and any linked workout you've recorded.")
-        }
-        .confirmationDialog(
-            "Discard changes?",
-            isPresented: $showDiscardConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Discard", role: .destructive) { dismiss() }
-            Button("Keep editing", role: .cancel) {}
         }
         .sheet(isPresented: $showBrowseSheet) {
             BrowseRecentWorkoutsSheet(
@@ -204,6 +199,20 @@ struct SessionDetailView: View {
             }
         }
         .onAppear { loadFromSessionIfNeeded() }
+        // Auto-save: every working-state change schedules a debounced save.
+        // Back-to-back edits (status → reason → note) coalesce into one
+        // network write; dismissing the view flushes anything pending.
+        .onChange(of: workingStatus)          { _, _ in scheduleSave() }
+        .onChange(of: workingLinkedWorkoutId) { _, _ in scheduleSave() }
+        .onChange(of: workingActualEffort)    { _, _ in scheduleSave() }
+        .onChange(of: workingSkipReason)      { _, _ in scheduleSave() }
+        .onChange(of: workingRPE)             { _, _ in scheduleSave() }
+        .onChange(of: workingFatigue)         { _, _ in scheduleSave() }
+        .onChange(of: workingActualDuration)  { _, _ in scheduleSave() }
+        .onChange(of: workingReplacedWith)    { _, _ in scheduleSave() }
+        .onChange(of: workingCompletionNote)  { _, _ in scheduleSave() }
+        .onChange(of: workingAthleteNote)     { _, _ in scheduleSave() }
+        .onDisappear { flushPendingSave() }
     }
 
     // MARK: - Hero section
@@ -973,35 +982,6 @@ struct SessionDetailView: View {
         }
     }
 
-    // MARK: - Save bar
-
-    private var saveBar: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(Theme.line).frame(height: 1)
-            HStack(spacing: 10) {
-                Button {
-                    attemptBack()
-                } label: {
-                    Text("Cancel")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Theme.ink2)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.plain)
-                Spacer(minLength: 0)
-                Pill(title: "Save", variant: .primary) {
-                    Task { await save() }
-                }
-                .disabled(!hasChanges)
-                .opacity(hasChanges ? 1.0 : 0.5)
-            }
-            .padding(.horizontal, Theme.Spacing.screenH)
-            .padding(.vertical, 10)
-        }
-        .background(Theme.bg)
-    }
-
     // MARK: - Save / Load
 
     private func loadFromSessionIfNeeded() {
@@ -1020,7 +1000,12 @@ struct SessionDetailView: View {
         workingLinkedWorkoutId = session.linkedWorkoutId
     }
 
-    private func save() async {
+    /// Writes the current working state to `DataService`. Called by the
+    /// auto-save scheduler and by `flushPendingSave` on dismiss. Safe to
+    /// call when nothing changed — the guard short-circuits in the
+    /// caller, and `updateSessionCompletion` is idempotent for equal
+    /// writes anyway.
+    private func persist() async {
         try? await data.updateSessionCompletion(
             weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
         ) { s in
@@ -1070,7 +1055,32 @@ struct SessionDetailView: View {
             s.fatigue = workingFatigue
             s.athleteNote = nilIfEmpty(workingAthleteNote)
         }
-        dismiss()
+    }
+
+    /// Schedule a debounced save. Cancels any prior pending save so a
+    /// burst of edits produces a single write ~300ms after the last one.
+    /// The guard on `hasLoadedInitial` prevents saving the defaults that
+    /// `loadFromSessionIfNeeded` assigns during the initial render.
+    private func scheduleSave() {
+        guard hasLoadedInitial else { return }
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            guard hasChanges else { return }
+            await persist()
+        }
+    }
+
+    /// Called on `.onDisappear`. Cancels any pending debounce and writes
+    /// the final state synchronously-ish so nothing typed into a note
+    /// field is lost when the user taps back before the 300ms elapses.
+    private func flushPendingSave() {
+        saveTask?.cancel()
+        saveTask = nil
+        if hasLoadedInitial && hasChanges {
+            Task { await persist() }
+        }
     }
 
     private func clearLoggedData() {
@@ -1102,14 +1112,6 @@ struct SessionDetailView: View {
         !workingReplacedWith.isEmpty ||
         workingSkipReason != nil ||
         !workingCompletionNote.isEmpty
-    }
-
-    private func attemptBack() {
-        if hasChanges {
-            showDiscardConfirm = true
-        } else {
-            dismiss()
-        }
     }
 
     // MARK: - Helpers
