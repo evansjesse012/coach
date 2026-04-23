@@ -4,21 +4,26 @@ struct HomeTab: View {
     @Environment(DataService.self) private var data
     @State private var path = NavigationPath()
     @State private var showSettings = false
-    @State private var activeSheet: ActiveSheet?
+    @State private var undoToast: UndoToast?
 
-    // Sheets for did-it / modified / swapped / skipped flows
-    enum ActiveSheet: Identifiable {
-        case modified(week: Int, day: Int, session: Int, prescribed: PrescribedSession)
-        case swapped(week: Int, day: Int, session: Int, prescribed: PrescribedSession, others: [PrescribedSession])
-        case skipped(week: Int, day: Int, session: Int)
+    /// Programmatic routes pushed from Today. Closure-style NavigationLinks
+    /// (week card, phase progress) continue to push onto the same stack;
+    /// the `.id(UUID())` rebuild in `popsOnTabReselect` still tears them
+    /// down on tab re-select.
+    enum TodayRoute: Hashable {
+        case sessionDetail(weekNum: Int, dayIdx: Int, sessionIdx: Int, preselected: Theme.SessionStatusKind?)
+    }
 
-        var id: String {
-            switch self {
-            case .modified(let w, let d, let s, _):    return "mod-\(w)-\(d)-\(s)"
-            case .swapped(let w, let d, let s, _, _):  return "swp-\(w)-\(d)-\(s)"
-            case .skipped(let w, let d, let s):        return "skp-\(w)-\(d)-\(s)"
-            }
-        }
+    /// Ephemeral undo for a quick-logged completion. Persists for ~5s
+    /// after commit, then fades. The `snapshot` captures the pre-mutation
+    /// session so Undo can restore it verbatim.
+    struct UndoToast: Identifiable {
+        let id = UUID()
+        let message: String
+        let weekNum: Int
+        let dayIdx: Int
+        let sessionIdx: Int
+        let snapshot: PrescribedSession
     }
 
     var body: some View {
@@ -38,14 +43,49 @@ struct HomeTab: View {
             .clearsTabBar()
             .background(Theme.bg.ignoresSafeArea())
             .scrollContentBackground(.hidden)
+            .navigationDestination(for: TodayRoute.self) { route in
+                destinationView(for: route)
+            }
             .sheet(isPresented: $showSettings) {
                 NavigationStack { SettingsView() }
             }
-            .sheet(item: $activeSheet) { sheet in
-                sheetView(for: sheet)
+            .overlay(alignment: .bottom) {
+                if let toast = undoToast {
+                    UndoToastBanner(toast: toast) {
+                        Task { await undoToastAction(toast) }
+                    }
+                    .padding(.horizontal, Theme.Spacing.screenH)
+                    .padding(.bottom, Theme.Spacing.bottomReserve + 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(.spring(duration: 0.28), value: undoToast?.id)
         }
         .popsOnTabReselect(tabId: "today", path: $path)
+    }
+
+    @ViewBuilder
+    private func destinationView(for route: TodayRoute) -> some View {
+        switch route {
+        case .sessionDetail(let week, let day, let idx, let pre):
+            if let plan = data.trainingPlan,
+               let wp = plan.weeklyPlans[String(week)],
+               day >= 0, day < wp.sessions.count,
+               idx >= 0, idx < wp.sessions[day].sessions.count {
+                SessionDetailView(
+                    session: wp.sessions[day].sessions[idx],
+                    dateString: sessionDateString(
+                        planStartDate: plan.startDate,
+                        weekNumber: week,
+                        dayIdx: day
+                    ),
+                    weekNum: week,
+                    dayIdx: day,
+                    sessionIdx: idx,
+                    preselectedStatus: pre
+                )
+            }
+        }
     }
 
     // MARK: - Header
@@ -237,49 +277,40 @@ struct HomeTab: View {
 
     @ViewBuilder
     private func sessionRow(session: PrescribedSession, week: Int, day: Int, sessionIdx: Int) -> some View {
-        NavigationLink {
-            PrescribedSessionDetailView(session: session, dateString: todayString())
-        } label: {
-            SessionCard(
-                discipline: disciplineFor(session),
-                effort: effortLabel(for: session),
-                name: session.label,
-                stats: statsFor(session),
-                chips: chipsFor(session, week: week, day: day, sessionIdx: sessionIdx),
-                status: session.sessionCardStatus
-            )
-        }
-        .buttonStyle(.plain)
-    }
+        let footerRow = TodayQuickLogRow(
+            session: session,
+            onDone: { Task { await markDidIt(week: week, day: day, sessionIdx: sessionIdx) } },
+            onSkip: { Task { await markSkipped(week: week, day: day, sessionIdx: sessionIdx) } },
+            onModified: {
+                path.append(TodayRoute.sessionDetail(
+                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: .modified
+                ))
+            },
+            onSwapped: {
+                path.append(TodayRoute.sessionDetail(
+                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: .swapped
+                ))
+            },
+            onEdit: {
+                path.append(TodayRoute.sessionDetail(
+                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: nil
+                ))
+            }
+        )
 
-    private func chipsFor(_ session: PrescribedSession, week: Int, day: Int, sessionIdx: Int) -> [SessionCard.ChipAction] {
-        if session.completionStatus != nil {
-            return [
-                SessionCard.ChipAction(title: "Tap to undo", variant: .done) {
-                    Task { try? await resetCompletion(week: week, day: day, sessionIdx: sessionIdx) }
-                }
-            ]
-        }
-        return [
-            SessionCard.ChipAction(title: "Did it", variant: .done) {
-                Task { try? await markDidIt(week: week, day: day, sessionIdx: sessionIdx) }
-            },
-            SessionCard.ChipAction(title: "Modified") {
-                activeSheet = .modified(week: week, day: day, session: sessionIdx, prescribed: session)
-            },
-            SessionCard.ChipAction(title: "Swapped") {
-                activeSheet = .swapped(
-                    week: week,
-                    day: day,
-                    session: sessionIdx,
-                    prescribed: session,
-                    others: otherSessionsToday(week: week, day: day, exclude: sessionIdx)
-                )
-            },
-            SessionCard.ChipAction(title: "Skipped") {
-                activeSheet = .skipped(week: week, day: day, session: sessionIdx)
-            },
-        ]
+        SessionCard(
+            discipline: disciplineFor(session),
+            effort: effortLabel(for: session),
+            name: session.label,
+            stats: statsFor(session),
+            status: session.sessionCardStatus,
+            footer: AnyView(footerRow),
+            onTap: {
+                path.append(TodayRoute.sessionDetail(
+                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: nil
+                ))
+            }
+        )
     }
 
     // Session status mapping lives on PrescribedSession.sessionCardStatus
@@ -319,15 +350,6 @@ struct HomeTab: View {
             out.append(.init(label: "Target", value: target))
         }
         return Array(out.prefix(3))
-    }
-
-    private func otherSessionsToday(week: Int, day: Int, exclude: Int) -> [PrescribedSession] {
-        guard let plan = data.trainingPlan,
-              let wp = plan.weeklyPlans[String(week)],
-              day >= 0, day < wp.sessions.count else { return [] }
-        return wp.sessions[day].sessions.enumerated().compactMap { idx, s in
-            idx == exclude ? nil : s
-        }
     }
 
     // MARK: - Rest / empty / no-plan states
@@ -589,85 +611,247 @@ struct HomeTab: View {
         }
     }
 
-    // MARK: - Sheet dispatch
+    // MARK: - Completion mutations (quick-log path)
+    //
+    // Quick-log confirmations (Done / Skipped) commit inline, snapshot the
+    // pre-mutation session, and surface an UndoToast for ~5s so a misfire is
+    // recoverable with one tap. Modified / Swapped don't come through here —
+    // they push SessionDetailView via the `path` and commit from there.
 
-    @ViewBuilder
-    private func sheetView(for sheet: ActiveSheet) -> some View {
-        switch sheet {
-        case .modified(let w, let d, let s, let pre):
-            ModifiedCompletionSheet(session: pre) { actual in
-                Task { try? await applyModified(actual, week: w, day: d, sessionIdx: s) }
+    @MainActor
+    private func markDidIt(week: Int, day: Int, sessionIdx: Int) async {
+        guard let before = snapshotSession(week: week, day: day, sessionIdx: sessionIdx) else { return }
+        do {
+            try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
+                s.completionStatus = .completed
+                s.completed = true
+                s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+                if s.actualDuration == nil { s.actualDuration = s.duration }
+                if s.actualDistance == nil { s.actualDistance = s.distanceMiles }
             }
-            .presentationDetents([.medium])
+            presentUndoToast(message: "Marked as Done", week: week, day: day, sessionIdx: sessionIdx, snapshot: before)
+        } catch {
+            // Guarded paths (e.g. future-dated session) throw — silently drop;
+            // the UI already prevents those taps via `canQuickLog`.
+        }
+    }
 
-        case .swapped(let w, let d, let s, let pre, let others):
-            SwappedCompletionSheet(session: pre, otherSessions: others) { actual in
-                Task { try? await applySwapped(actual, week: w, day: d, sessionIdx: s) }
+    @MainActor
+    private func markSkipped(week: Int, day: Int, sessionIdx: Int) async {
+        guard let before = snapshotSession(week: week, day: day, sessionIdx: sessionIdx) else { return }
+        do {
+            try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
+                s.completionStatus = .skipped
+                s.completed = false
+                s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
             }
-            .presentationDetents([.medium, .large])
+            presentUndoToast(message: "Marked as Skipped", week: week, day: day, sessionIdx: sessionIdx, snapshot: before)
+        } catch { }
+    }
 
-        case .skipped(let w, let d, let s):
-            SkippedCompletionSheet { reason, note in
-                Task { try? await applySkipped(reason: reason, note: note, week: w, day: d, sessionIdx: s) }
+    private func snapshotSession(week: Int, day: Int, sessionIdx: Int) -> PrescribedSession? {
+        guard let plan = data.trainingPlan,
+              let wp = plan.weeklyPlans[String(week)],
+              day >= 0, day < wp.sessions.count,
+              sessionIdx >= 0, sessionIdx < wp.sessions[day].sessions.count else {
+            return nil
+        }
+        return wp.sessions[day].sessions[sessionIdx]
+    }
+
+    // MARK: - Undo toast
+
+    private func presentUndoToast(message: String, week: Int, day: Int, sessionIdx: Int, snapshot: PrescribedSession) {
+        let toast = UndoToast(
+            message: message, weekNum: week, dayIdx: day, sessionIdx: sessionIdx, snapshot: snapshot
+        )
+        undoToast = toast
+        // Auto-dismiss after 5s, unless a newer toast has replaced this one.
+        Task { [toastId = toast.id] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if undoToast?.id == toastId {
+                undoToast = nil
             }
-            .presentationDetents([.height(340)])
         }
     }
 
-    // MARK: - Completion mutations (preserved from legacy)
+    @MainActor
+    private func undoToastAction(_ toast: UndoToast) async {
+        // Revert the mutation by writing the snapshotted session verbatim.
+        try? await data.updateSessionCompletion(
+            weekNum: toast.weekNum, dayIdx: toast.dayIdx, sessionIdx: toast.sessionIdx
+        ) { s in
+            s = toast.snapshot
+        }
+        undoToast = nil
+    }
+}
 
-    private func markDidIt(week: Int, day: Int, sessionIdx: Int) async throws {
-        try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
-            s.completionStatus = .completed
-            s.completed = true
-            s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
-            if s.actualDuration == nil { s.actualDuration = s.duration }
-            if s.actualDistance == nil { s.actualDistance = s.distanceMiles }
+// MARK: - Today quick-log row (pending pills / Edit link)
+
+/// Footer row rendered inside the Home Today `SessionCard`. For pending
+/// sessions it shows four 2-tap-confirm / one-tap pills (Done, Modified,
+/// Swapped, Skipped) using canonical `Theme.SessionStatusKind` colors.
+/// For a session already marked done / modified / swapped / skipped it
+/// collapses to a single "Edit" link — the SessionCard's status strip
+/// at the top already signals the state.
+private struct TodayQuickLogRow: View {
+    let session: PrescribedSession
+    let onDone: () -> Void
+    let onSkip: () -> Void
+    let onModified: () -> Void
+    let onSwapped: () -> Void
+    let onEdit: () -> Void
+
+    /// Which pill is currently armed (awaiting a second tap). Local state —
+    /// tapping a second pill disarms the first without any cross-row coupling.
+    @State private var armed: Theme.SessionStatusKind?
+    @State private var armTimer: Task<Void, Never>?
+
+    var body: some View {
+        if session.completionStatus != nil {
+            editRow
+        } else {
+            // The Today tab only renders today's sessions, so the
+            // "no future marks" guard in DataService never trips here —
+            // the pill row is always live.
+            pillsRow
         }
     }
 
-    private func applyModified(_ actual: ModifiedActualInput, week: Int, day: Int, sessionIdx: Int) async throws {
-        try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
-            s.completionStatus = .modified
-            s.completed = true
-            s.actualDuration = actual.duration
-            s.actualDistance = actual.distance
-            s.completionNote = actual.note
-            s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+    private var pillsRow: some View {
+        HStack(spacing: 8) {
+            TodayStatusPill(
+                kind: .done,
+                isArmed: armed == .done,
+                action: { handleTap(.done) }
+            )
+            TodayStatusPill(
+                kind: .modified,
+                isArmed: false,
+                action: onModified
+            )
+            TodayStatusPill(
+                kind: .swapped,
+                isArmed: false,
+                action: onSwapped
+            )
+            TodayStatusPill(
+                kind: .skipped,
+                isArmed: armed == .skipped,
+                action: { handleTap(.skipped) }
+            )
+            Spacer(minLength: 0)
         }
     }
 
-    private func applySwapped(_ actual: SwappedActualInput, week: Int, day: Int, sessionIdx: Int) async throws {
-        try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
-            s.completionStatus = .swapped
-            s.completed = true
-            s.actualSport = actual.sport
-            s.actualDuration = actual.duration
-            s.completionNote = actual.note
-            s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+    private var editRow: some View {
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
+            Button(action: onEdit) {
+                HStack(spacing: 4) {
+                    Text("Edit")
+                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(Theme.ink2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Theme.surface2, in: Capsule())
+            }
+            .buttonStyle(.plain)
         }
     }
 
-    private func applySkipped(reason: SkipReason, note: String, week: Int, day: Int, sessionIdx: Int) async throws {
-        try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
-            s.completionStatus = .skipped
-            s.completed = false
-            s.skipReason = reason
-            s.completionNote = note
-            s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+    private func handleTap(_ kind: Theme.SessionStatusKind) {
+        guard kind == .done || kind == .skipped else { return }
+        if armed == kind {
+            // Second tap — commit.
+            armed = nil
+            armTimer?.cancel()
+            armTimer = nil
+            switch kind {
+            case .done: onDone()
+            case .skipped: onSkip()
+            default: break
+            }
+        } else {
+            // First tap — arm and start a 4s auto-disarm timer.
+            armed = kind
+            armTimer?.cancel()
+            armTimer = Task { [kind] in
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                await MainActor.run {
+                    if self.armed == kind { self.armed = nil }
+                }
+            }
         }
     }
 
-    private func resetCompletion(week: Int, day: Int, sessionIdx: Int) async throws {
-        try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
-            s.completionStatus = nil
-            s.completed = nil
-            s.actualDuration = nil
-            s.actualDistance = nil
-            s.actualSport = nil
-            s.skipReason = nil
-            s.completionNote = nil
-            s.completionResolvedAt = nil
+}
+
+/// One of four Today quick-log pills (Done / Modified / Swapped / Skipped).
+/// Colors come from `Theme.SessionStatusKind` — the canonical source —
+/// so the pill row is visually aligned with the status strip, badges, and
+/// SessionDetailView's status picker. An armed pill (Done / Skipped only)
+/// inverts to a filled treatment with a "Tap to confirm" label.
+private struct TodayStatusPill: View {
+    let kind: Theme.SessionStatusKind
+    let isArmed: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: kind.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(isArmed ? "Confirm?" : kind.label)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(isArmed ? Color.white : kind.tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(isArmed ? kind.tint : kind.fill)
+            .overlay(
+                Capsule().strokeBorder(kind.tint.opacity(isArmed ? 0 : 0.5), lineWidth: 1)
+            )
+            .clipShape(Capsule())
         }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Undo toast banner
+
+private struct UndoToastBanner: View {
+    let toast: HomeTab.UndoToast
+    let onUndo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(toast.message)
+                .font(Theme.Typography.bodyS)
+                .foregroundStyle(Theme.ink)
+            Spacer(minLength: 8)
+            Button(action: onUndo) {
+                Text("Undo")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Theme.accentSoft, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Theme.line, lineWidth: 1)
+        )
+        .dsCardShadow()
     }
 }

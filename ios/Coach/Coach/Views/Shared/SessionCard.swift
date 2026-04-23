@@ -5,10 +5,12 @@ import SwiftUI
 /// sans session name, 3-column stat row, optional chips row.
 ///
 /// When `status` is set, a colored header strip runs across the top of
-/// the card, the body dims, and a skipped session's name gets
-/// strikethrough. The strip is the primary at-a-glance signal; the
-/// sport-colored left rule is preserved so the sport identity still
-/// reads in peripheral vision.
+/// the card using canonical `Theme.SessionStatusKind` tokens. The strip
+/// is the only at-a-glance status signal — we no longer strikethrough
+/// skipped names or dim completed bodies (both patterns removed during
+/// the session-status unification; the canonical colors carry the weight
+/// on their own). The sport-colored left rule is preserved so the sport
+/// identity still reads in peripheral vision.
 struct SessionCard: View {
     let discipline: Theme.Discipline
     /// Mono-uppercase effort or session tag, e.g. "EASY", "INTERVALS".
@@ -17,12 +19,17 @@ struct SessionCard: View {
     let name: String
     /// Up to 3 data columns; uses mono value + smaller mono unit.
     let stats: [Stat]
-    /// Optional row of action chips.
+    /// Optional row of action chips. Used by legacy surfaces; the Today
+    /// surface passes `footer` instead for the new quick-log pill row.
     var chips: [ChipAction] = []
-    /// Resolved status. When set, renders the status header strip,
-    /// dims the body, and (for skipped) strikes through the name.
+    /// Resolved status. When set, renders the status header strip using
+    /// canonical `Theme.SessionStatusKind` tokens.
     var status: Status? = nil
-    /// Called when the card body itself is tapped (excluding chips).
+    /// Optional custom footer rendered in the card's action slot —
+    /// takes precedence over `chips` when present. Used by Home's Today
+    /// section for the 2-tap-confirm status pill row / Edit link.
+    var footer: AnyView? = nil
+    /// Called when the card body itself is tapped (excluding chips/footer).
     /// If nil, no tap gesture is attached and the parent (e.g. a
     /// `NavigationLink`) is free to capture the tap.
     var onTap: (() -> Void)? = nil
@@ -50,49 +57,23 @@ struct SessionCard: View {
         case swapped(detail: String? = nil)
         case skipped(detail: String? = nil)
 
-        fileprivate var title: String {
+        /// The canonical `Theme.SessionStatusKind` that owns the fill, border,
+        /// tint, icon, and label for this status. All rendering goes through
+        /// here so no surface hand-rolls its own status colors.
+        var kind: Theme.SessionStatusKind {
             switch self {
-            case .done:     return "Done"
-            case .modified: return "Modified"
-            case .swapped:  return "Swapped"
-            case .skipped:  return "Skipped"
+            case .done:     return .done
+            case .modified: return .modified
+            case .swapped:  return .swapped
+            case .skipped:  return .skipped
             }
         }
+
         fileprivate var detail: String? {
             switch self {
             case .done(let d), .modified(let d), .swapped(let d), .skipped(let d):
                 return d
             }
-        }
-        fileprivate var icon: String {
-            switch self {
-            case .done:     return "checkmark.circle.fill"
-            case .modified: return "pencil.circle.fill"
-            case .swapped:  return "arrow.triangle.2.circlepath.circle.fill"
-            case .skipped:  return "xmark.circle.fill"
-            }
-        }
-        fileprivate var tint: Color {
-            switch self {
-            case .done:     return CoachColors.green
-            case .modified: return CoachColors.yellow
-            case .swapped:  return Theme.info
-            case .skipped:  return Theme.warn
-            }
-        }
-        fileprivate var stripBackground: Color {
-            switch self {
-            case .skipped: return Theme.warnBg
-            default:       return tint.opacity(0.15)
-            }
-        }
-        fileprivate var strikesThroughName: Bool {
-            if case .skipped = self { return true }
-            return false
-        }
-        fileprivate var bodyOpacity: Double {
-            if case .skipped = self { return 0.65 }
-            return 0.85
         }
     }
 
@@ -123,7 +104,6 @@ struct SessionCard: View {
                         .font(Theme.Typography.sessionTitle)
                         .foregroundStyle(Theme.ink)
                         .tracking(Theme.Tracking.headline)
-                        .strikethrough(status?.strikesThroughName == true, color: Theme.ink3)
                         .fixedSize(horizontal: false, vertical: true)
 
                     if !stats.isEmpty {
@@ -136,7 +116,10 @@ struct SessionCard: View {
                         .padding(.top, 2)
                     }
 
-                    if !chips.isEmpty {
+                    if let footer {
+                        footer
+                            .padding(.top, 6)
+                    } else if !chips.isEmpty {
                         HStack(spacing: 8) {
                             ForEach(chips) { c in
                                 Chip(title: c.title, variant: c.variant, action: c.action)
@@ -146,7 +129,6 @@ struct SessionCard: View {
                         .padding(.top, 2)
                     }
                 }
-                .opacity(status?.bodyOpacity ?? 1.0)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
             }
@@ -212,46 +194,51 @@ struct SessionCard: View {
 /// session has been marked done / modified / swapped / skipped. Used by
 /// both `SessionCard` (Home Today) and the `WeekDaySessionCard` inline
 /// struct in `WeekDetailView`, so the at-a-glance status treatment
-/// reads identically across every surface.
+/// reads identically across every surface. Colors come from
+/// `Theme.SessionStatusKind` — the single source of truth.
 struct SessionStatusStrip: View {
     let status: SessionCard.Status
 
     var body: some View {
+        let kind = status.kind
         HStack(spacing: 8) {
-            Image(systemName: status.icon)
+            Image(systemName: kind.icon)
                 .font(.system(size: 12, weight: .bold))
-            Text(status.title)
+            Text(kind.label)
                 .font(Theme.Typography.monoLabel)
                 .textCase(.uppercase)
                 .tracking(Theme.Tracking.monoLabel)
             if let detail = status.detail, !detail.isEmpty {
                 Text("·")
                     .font(Theme.Typography.monoLabel)
-                    .foregroundStyle(status.tint.opacity(0.7))
+                    .foregroundStyle(kind.tint.opacity(0.7))
                 Text(detail)
                     .font(Theme.Typography.monoMeta)
-                    .foregroundStyle(status.tint.opacity(0.85))
+                    .foregroundStyle(kind.tint.opacity(0.85))
             }
             Spacer(minLength: 0)
         }
-        .foregroundStyle(status.tint)
+        .foregroundStyle(kind.tint)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(status.stripBackground)
+        .background(kind.fill)
     }
 }
 
-// MARK: - Theme.Discipline helpers exposed to cross-file users
+// MARK: - Theme helpers exposed to cross-file users
 
 extension SessionCard.Status {
-    /// Re-exported for `SessionStatusStrip` and any future consumer that needs
-    /// the tint color without going through the private render path.
-    var tintColor: Color { tint }
-    /// Whether the session name should render with strikethrough for this state.
-    var shouldStrikeThroughName: Bool { strikesThroughName }
-    /// Body opacity consumers should apply when this status is set.
-    var dimmedBodyOpacity: Double { bodyOpacity }
+    /// Tint color for this status — read from the canonical kind.
+    var tintColor: Color { kind.tint }
+    /// Strikethrough has been retired across every surface. The canonical
+    /// status colors carry the signal now. Kept here so legacy call sites
+    /// compile during the migration; will be deleted in Phase 3.
+    var shouldStrikeThroughName: Bool { false }
+    /// Body dimming has been retired for the same reason. Kept here so
+    /// legacy call sites compile during the migration; will be deleted
+    /// in Phase 3.
+    var dimmedBodyOpacity: Double { 1.0 }
 }
 
 // MARK: - PrescribedSession → presentation mapping
