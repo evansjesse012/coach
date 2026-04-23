@@ -163,6 +163,7 @@ struct CoachTab: View {
                 .padding(.horizontal, Theme.Spacing.screenH)
                 .padding(.vertical, 20)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: data.currentMessages.count) { _, _ in
                 scrollToBottom(proxy: proxy)
             }
