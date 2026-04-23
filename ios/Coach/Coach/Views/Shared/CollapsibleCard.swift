@@ -47,11 +47,11 @@ struct CollapsibleCard<Header: View, Content: View>: View {
         // Forcing the VStack to its parent's proposal means children get a
         // finite width and the inner Texts actually wrap.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.line, lineWidth: 1)
         )
     }
 }

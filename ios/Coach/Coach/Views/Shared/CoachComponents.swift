@@ -2,14 +2,17 @@ import SwiftUI
 
 // MARK: - Pill / Badge
 
+/// Legacy inline badge — not interactive. (See `Pill` in Pill.swift for the
+/// new button-style pill.) API stable; colors forward to Theme so a given
+/// `color` is used at both foreground and a soft tint background.
 struct CoachPill: View {
     let text: String
-    var color: Color = CoachColors.accent
+    var color: Color = Theme.accent
 
     var body: some View {
         Text(text)
-            .font(CoachFonts.ui(11, weight: .semibold))
-            .padding(.horizontal, 8)
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(color.opacity(0.15))
             .foregroundStyle(color)
@@ -23,13 +26,13 @@ struct SportBadge: View {
     let sport: Sport
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             Image(systemName: sport.sfSymbol)
                 .font(.system(size: 10, weight: .semibold))
             Text(sport.label)
-                .font(CoachFonts.ui(11, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(sport.swiftUIColor.opacity(0.15))
         .foregroundStyle(sport.swiftUIColor)
@@ -39,14 +42,18 @@ struct SportBadge: View {
 
 // MARK: - Section Label
 
+/// Legacy section label. Rendered with the same mono-uppercase token style
+/// as the new `SectionHeader(variant: .system)` so legacy screens align
+/// typographically with the priority screens.
 struct CoachLabel: View {
     let text: String
 
     var body: some View {
-        Text(text.uppercased())
-            .font(CoachFonts.ui(11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .tracking(0.5)
+        Text(text)
+            .font(Theme.Typography.monoLabel)
+            .foregroundStyle(Theme.ink3)
+            .textCase(.uppercase)
+            .tracking(Theme.Tracking.monoLabel)
     }
 }
 
@@ -57,19 +64,17 @@ struct CoachInput: View {
     @Binding var text: String
     var keyboardType: UIKeyboardType = .default
 
-    @Environment(\.colorScheme) var colorScheme
-
     var body: some View {
         TextField(placeholder, text: $text)
-            .font(CoachFonts.ui(15))
+            .font(Theme.Typography.body)
             .keyboardType(keyboardType)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(colorScheme == .dark ? CoachColors.darkElevated : CoachColors.lightElevated)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Theme.surface2)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Theme.line, lineWidth: 1)
             )
     }
 }
@@ -83,7 +88,7 @@ struct DotsLoader: View {
         HStack(spacing: 4) {
             ForEach(0..<3) { index in
                 Circle()
-                    .fill(CoachColors.accent)
+                    .fill(Theme.accent)
                     .frame(width: 6, height: 6)
                     .scaleEffect(animating ? 1.0 : 0.5)
                     .opacity(animating ? 1.0 : 0.3)
@@ -107,25 +112,29 @@ struct SheetHeader: View {
     let onClose: () -> Void
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(CoachFonts.display(20, weight: .bold))
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
                 if let subtitle {
                     Text(subtitle)
-                        .font(CoachFonts.ui(13))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.ink2)
                 }
             }
             Spacer()
             Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(.secondary)
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.ink2)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
             }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal)
-        .padding(.top)
+        .padding(.horizontal, Theme.Spacing.screenH)
+        .padding(.top, 14)
     }
 }
 
@@ -144,14 +153,18 @@ struct FilterDropdown: View {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .semibold))
             Text(label)
-                .font(CoachFonts.ui(13, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .bold))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(isActive ? CoachColors.accent.opacity(0.15) : Color(.secondarySystemBackground))
-        .foregroundStyle(isActive ? CoachColors.accent : .primary)
+        .background(isActive ? Theme.accentSoft : Theme.surface2)
+        .foregroundStyle(isActive ? Theme.accent : Theme.ink)
+        .overlay(
+            Capsule()
+                .strokeBorder(isActive ? Theme.accent.opacity(0.4) : Theme.line, lineWidth: 1)
+        )
         .clipShape(Capsule())
     }
 }
