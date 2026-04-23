@@ -339,6 +339,12 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
         do {
             let data = try JSONSerialization.data(withJSONObject: input)
             let wp = try JSONDecoder().decode(WeeklyPlan.self, from: data)
+            if let err = firstFutureCompletionMark(
+                in: wp,
+                planStartDate: dataService.trainingPlan?.startDate
+            ) {
+                return ToolResult(summary: jsonString(["error": err]))
+            }
             return ToolResult(
                 summary: jsonString([
                     "saved": true,
@@ -379,6 +385,9 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                 } catch let PatchError.invalidOp(msg) {
                     throw PatchError.invalidOp("op #\(i): \(msg)")
                 }
+            }
+            if let err = firstFutureCompletionMark(in: wp, planStartDate: plan.startDate) {
+                return ToolResult(summary: jsonString(["error": err]))
             }
             return ToolResult(
                 summary: jsonString([
@@ -795,6 +804,46 @@ private func weeksBetweenTodayAnd(_ dateStr: String?) -> Int? {
     let days = Calendar.current.dateComponents([.day], from: Date(), to: target).day ?? 0
     guard days > 0 else { return nil }
     return Int(ceil(Double(days) / 7.0))
+}
+
+// MARK: - Future-mark guard
+
+/// Scans a WeeklyPlan for any session whose scheduled date is strictly
+/// after today AND carries a completion marker (`completionStatus != nil`
+/// or `completed == true`). Returns a human-readable, AI-parroting error
+/// message naming the offending session, or nil if the week is clean.
+///
+/// Used by `patch_weekly_plan`, `save_weekly_plan`, and any other tool
+/// that can write completion markers into a WeeklyPlan payload — so the
+/// agent loop sees the error as the tool's result in the same turn and
+/// can self-correct in its response to the athlete.
+///
+/// Permissive when the plan has no `startDate` (can't compute dates;
+/// an undated plan is a broken state anyway).
+private func firstFutureCompletionMark(
+    in wp: WeeklyPlan,
+    planStartDate: String?
+) -> String? {
+    guard let startDateStr = planStartDate else { return nil }
+    let iso = DateFormatter()
+    iso.dateFormat = "yyyy-MM-dd"
+    guard let planStart = iso.date(from: startDateStr) else { return nil }
+    let today = todayString()
+
+    for (dayIdx, day) in wp.sessions.enumerated() {
+        let offset = (wp.weekNumber - 1) * 7 + dayIdx
+        guard let date = Calendar.current.date(byAdding: .day, value: offset, to: planStart) else { continue }
+        let dateStr = iso.string(from: date)
+        guard dateStr > today else { continue }   // past or today — marking is allowed
+        for session in day.sessions {
+            guard session.completionStatus != nil || session.completed == true else { continue }
+            let pretty = DateFormatter()
+            pretty.dateFormat = "EEE, MMM d"
+            let when = pretty.string(from: date)
+            return "Rejected — can't mark a future session. '\(session.label)' on \(when) (week \(wp.weekNumber), day \(dayIdx)) is scheduled for the future. A session can't be completed / modified / swapped / skipped before its date; it hasn't happened yet. If the athlete is claiming they did or missed this session, the date is future — push back and confirm what they actually meant (wrong day, different session) before any edit."
+        }
+    }
+    return nil
 }
 
 // MARK: - Patch support
