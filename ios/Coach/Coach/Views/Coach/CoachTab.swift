@@ -1,7 +1,10 @@
 import SwiftUI
 
-/// Pure chat screen. In the new nav this is presented as a sheet from the
-/// global FAB — there is no tab-resident dashboard anymore.
+/// Pure chat screen. Presented as a sheet from the global FAB. Hosts the
+/// simplified header, the message stream with timestamp dividers and
+/// suggested replies, and the composer. The "what the coach knows" info
+/// (race, phase, recent training) is surfaced via the overflow menu's
+/// Coach context sheet — no persistent strip eats screen real estate.
 struct CoachTab: View {
     @Environment(DataService.self) private var data
     @Environment(\.dismiss) private var dismiss
@@ -9,13 +12,29 @@ struct CoachTab: View {
     @State private var inputText = ""
     @State private var isLoading = false
     @State private var showHistory = false
+    @State private var showContext = false
+    @State private var showSettings = false
     @FocusState private var isInputFocused: Bool
     @State private var didBootstrap = false
+
+    /// The most recent assistant message. Suggested-reply pills render only
+    /// under this message, and only until the user sends any reply.
+    private var latestAssistantID: Int? {
+        for msg in data.currentMessages.reversed() where msg.role == "assistant" {
+            return msg.id
+        }
+        return nil
+    }
+    /// Hide pills after the user has sent anything after the latest assistant
+    /// message (even if the stored `suggestedReplies` array is still populated).
+    private var showSuggestedRepliesForLatest: Bool {
+        guard let last = data.currentMessages.last else { return false }
+        return last.role == "assistant"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             headerRow
-            programContextStrip
             messagesScroll
             composer
         }
@@ -36,110 +55,79 @@ struct CoachTab: View {
         .sheet(isPresented: $showHistory) {
             NavigationStack { ConversationHistoryView() }
         }
+        .sheet(isPresented: $showContext) {
+            CoachContextSheet()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack { SettingsView() }
+        }
     }
 
-    // MARK: - Header
+    // MARK: - Header (52pt, minimal)
 
     private var headerRow: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.ink2)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-
-            avatarCircle
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Coach")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                Text("Direct · Data-backed")
-                    .font(Theme.Typography.monoLabelS)
-                    .foregroundStyle(Theme.ink3)
-                    .textCase(.uppercase)
-                    .tracking(Theme.Tracking.monoLabel)
-            }
-
-            Spacer(minLength: 0)
-
-            Button { showHistory = true } label: {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(Theme.ink2)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, Theme.Spacing.screenH)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
-    }
-
-    private var avatarCircle: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Theme.accent, Theme.accentDark],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .frame(width: 40, height: 40)
-            .clipShape(Circle())
-            Text("C")
-                .font(Theme.Typography.mono(14, weight: .semibold))
-                .foregroundStyle(Theme.accentInk)
-        }
-    }
-
-    // MARK: - Program context strip
-
-    private var programContextStrip: some View {
         VStack(spacing: 0) {
-            Hairline()
-            HStack(alignment: .firstTextBaseline) {
-                Text(leftContext)
-                    .font(Theme.Typography.monoLabel)
-                    .foregroundStyle(Theme.ink3)
-                    .textCase(.uppercase)
-                    .tracking(Theme.Tracking.monoLabel)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if let phase = rightContext {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(Theme.accent)
-                            .frame(width: 5, height: 5)
-                        Text(phase)
-                            .font(Theme.Typography.monoLabel)
-                            .foregroundStyle(Theme.accent)
-                            .textCase(.uppercase)
-                            .tracking(Theme.Tracking.monoLabel)
-                            .lineLimit(1)
-                    }
+            HStack(spacing: 16) {
+                // Left: back / dismiss
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Theme.ink2)
+                        .frame(width: 24, height: 24)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close chat")
+
+                Spacer(minLength: 8)
+
+                // Center: "Coach" + availability dot
+                HStack(spacing: 6) {
+                    Text("Coach")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                    Circle()
+                        .fill(Theme.accent)
+                        .frame(width: 6, height: 6)
+                        .accessibilityLabel("Coach available")
+                }
+
+                Spacer(minLength: 8)
+
+                // Right: overflow menu
+                Menu {
+                    Button {
+                        showContext = true
+                    } label: {
+                        Label("Coach context", systemImage: "info.circle")
+                    }
+                    Button {
+                        showHistory = true
+                    } label: {
+                        Label("Message history", systemImage: "clock.arrow.circlepath")
+                    }
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Theme.ink2)
+                        .frame(width: 24, height: 24)
+                }
+                .accessibilityLabel("Chat options")
             }
-            .padding(.horizontal, Theme.Spacing.screenH)
-            .padding(.vertical, 10)
-            Hairline()
-        }
-    }
+            .padding(.horizontal, 16)
+            .frame(height: 52)
 
-    private var leftContext: String {
-        guard let plan = data.trainingPlan else { return "No active plan" }
-        var parts: [String] = []
-        if let name = plan.raceName, !name.isEmpty {
-            parts.append(name)
+            Rectangle()
+                .fill(Theme.line)
+                .frame(height: 1)
         }
-        parts.append("Wk \(plan.currentWeek) / \(plan.totalWeeks)")
-        return parts.joined(separator: " · ")
-    }
-
-    private var rightContext: String? {
-        data.trainingPlan?.current?.name
+        .background(Theme.bg)
     }
 
     // MARK: - Messages scroll
@@ -147,21 +135,22 @@ struct CoachTab: View {
     private var messagesScroll: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 26) {
-                    if data.currentMessages.isEmpty && !isLoading {
-                        emptyState.padding(.top, 60)
+                if data.currentMessages.isEmpty && !isLoading {
+                    emptyState
+                        .padding(.horizontal, Theme.Spacing.screenH)
+                        .padding(.top, 40)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 26) {
+                        messageStreamContent
+                        if isLoading {
+                            loadingIndicator.id("loading")
+                        }
                     }
-                    ForEach(Array(data.currentMessages.enumerated()), id: \.offset) { idx, msg in
-                        MessageBubble(message: msg)
-                            .id(idx)
-                            .frame(maxWidth: .infinity, alignment: msg.role == "user" ? .trailing : .leading)
-                    }
-                    if isLoading {
-                        loadingIndicator.id("loading")
-                    }
+                    .padding(.horizontal, Theme.Spacing.screenH)
+                    .padding(.top, 8)
+                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, Theme.Spacing.screenH)
-                .padding(.vertical, 20)
             }
             .onChange(of: data.currentMessages.count) { _, _ in
                 scrollToBottom(proxy: proxy)
@@ -170,6 +159,67 @@ struct CoachTab: View {
                 scrollToBottom(proxy: proxy)
             }
         }
+    }
+
+    @ViewBuilder
+    private var messageStreamContent: some View {
+        let msgs = data.currentMessages
+        ForEach(Array(msgs.enumerated()), id: \.offset) { idx, msg in
+            if let dividerText = dividerText(at: idx, in: msgs) {
+                ChatTimestampDivider(text: dividerText)
+            }
+            MessageBubble(message: msg)
+                .id(idx)
+                .frame(maxWidth: .infinity, alignment: msg.role == "user" ? .trailing : .leading)
+
+            if msg.role == "assistant",
+               msg.id == latestAssistantID,
+               showSuggestedRepliesForLatest,
+               let replies = msg.suggestedReplies, !replies.isEmpty {
+                SuggestedRepliesRow(replies: replies) { reply in
+                    applySuggestedReply(reply)
+                }
+                .padding(.top, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// Returns the text for a divider shown ABOVE the message at `idx`, or
+    /// nil if no divider is warranted. First message always gets a divider
+    /// (anchored on the conversation's start). Subsequent messages get one
+    /// when > 30 minutes have passed or the calendar date changes vs. the
+    /// previous message. Messages without a parseable timestamp skip the
+    /// divider rather than guess.
+    private func dividerText(at idx: Int, in msgs: [ChatMessage]) -> String? {
+        let curDate = messageDate(msgs[idx])
+        if idx == 0 {
+            // Anchor the first divider either on the message's own timestamp
+            // or the conversation's startedAt fallback.
+            let anchor = curDate ?? conversationStartDate
+            guard let d = anchor else { return nil }
+            return chatDividerText(for: d)
+        }
+        guard let cur = curDate, let prev = messageDate(msgs[idx - 1]) else { return nil }
+        let cal = Calendar.current
+        let crossedDay = !cal.isDate(cur, inSameDayAs: prev)
+        let bigGap = cur.timeIntervalSince(prev) > 30 * 60
+        guard crossedDay || bigGap else { return nil }
+        return chatDividerText(for: cur)
+    }
+
+    private func messageDate(_ msg: ChatMessage) -> Date? {
+        guard let ts = msg.createdAt, !ts.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return iso.date(from: ts) ?? ISO8601DateFormatter().date(from: ts)
+    }
+
+    private var conversationStartDate: Date? {
+        guard let ts = data.currentConversation?.startedAt, !ts.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return iso.date(from: ts) ?? ISO8601DateFormatter().date(from: ts)
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
@@ -182,23 +232,39 @@ struct CoachTab: View {
         }
     }
 
+    // MARK: - Empty state
+
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 26, weight: .regular))
-                .foregroundStyle(Theme.accent)
-            Text("What's on your mind?")
-                .font(Theme.Typography.sessionTitle)
+        VStack(spacing: 14) {
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 6, height: 6)
+                .padding(.bottom, 2)
+                .accessibilityHidden(true)
+            Text("Your coach is here")
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Theme.ink)
-            Text("Ask about today's session, request a plan change, or log a workout.")
-                .font(Theme.Typography.body)
+            Text("Ask anything about your training, or tell me how you're feeling today.")
+                .font(Theme.Typography.bodyS)
                 .foregroundStyle(Theme.ink2)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 280)
+                .padding(.bottom, 10)
+            SuggestedRepliesRow(replies: starterReplies) { reply in
+                applySuggestedReply(reply)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 24)
     }
+
+    private let starterReplies = [
+        "How's my week looking?",
+        "I'm feeling tired",
+        "Can I swap a workout?",
+    ]
+
+    // MARK: - Loading indicator
 
     private var loadingIndicator: some View {
         HStack(spacing: 12) {
@@ -226,11 +292,11 @@ struct CoachTab: View {
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 10) {
             HStack(alignment: .bottom) {
-                TextField("Message your coach…", text: $inputText, axis: .vertical)
+                TextField("Message Coach…", text: $inputText, axis: .vertical)
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.ink)
                     .focused($isInputFocused)
-                    .lineLimit(1...6)
+                    .lineLimit(1...4)
                     .submitLabel(.send)
                     .toolbar {
                         ToolbarItemGroup(placement: .keyboard) {
@@ -274,6 +340,13 @@ struct CoachTab: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+    }
+
+    // MARK: - Suggested reply pre-fill
+
+    private func applySuggestedReply(_ text: String) {
+        inputText = text
+        isInputFocused = true
     }
 
     // MARK: - Pending prompt / bootstrap
@@ -340,7 +413,8 @@ struct CoachTab: View {
                     planChanged: result.hasPlanChanges,
                     appActionTaken: result.hasAppActions
                 ),
-                conversationId: data.currentConversation?.id
+                conversationId: data.currentConversation?.id,
+                suggestedReplies: result.suggestedReplies.isEmpty ? nil : result.suggestedReplies
             )
             try? await data.addMessage(assistantMsg)
             await applyAgentEffects(result.effects)
@@ -375,7 +449,8 @@ struct CoachTab: View {
                     planChanged: result.hasPlanChanges,
                     appActionTaken: result.hasAppActions
                 ),
-                conversationId: data.currentConversation?.id
+                conversationId: data.currentConversation?.id,
+                suggestedReplies: result.suggestedReplies.isEmpty ? nil : result.suggestedReplies
             )
             try? await data.addMessage(assistantMsg)
             await applyAgentEffects(result.effects)

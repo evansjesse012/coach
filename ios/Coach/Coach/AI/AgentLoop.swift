@@ -8,6 +8,7 @@ struct AgentResult {
     var response: String
     var effects: [ToolEffect]
     var toolCallCount: Int
+    var suggestedReplies: [String] = []
 
     // Convenience predicates for ChatMessageMetadata
     var hasWorkoutLogs: Bool {
@@ -34,6 +35,47 @@ struct AgentResult {
             }
         }
     }
+}
+
+// MARK: - Suggested-replies marker parser
+
+/// The coach LLM appends suggested follow-up replies to the END of its
+/// final response using an HTML-comment-style marker:
+///
+///     <!--sr:["Reply one", "Reply two", "Reply three"]-->
+///
+/// The marker is stripped from the user-visible text and the parsed
+/// array is returned separately. Returns the original text and an empty
+/// array if no marker is present, malformed, or contains no strings.
+struct ParsedAgentResponse {
+    var text: String
+    var suggestedReplies: [String]
+}
+
+func parseAgentResponse(_ raw: String) -> ParsedAgentResponse {
+    let pattern = #"<!--sr:\s*(\[[^\]]*\])\s*-->\s*$"#
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
+        return ParsedAgentResponse(text: raw, suggestedReplies: [])
+    }
+    let range = NSRange(raw.startIndex..., in: raw)
+    guard let match = regex.firstMatch(in: raw, range: range),
+          let markerRange = Range(match.range, in: raw),
+          let jsonRange = Range(match.range(at: 1), in: raw)
+    else {
+        return ParsedAgentResponse(text: raw, suggestedReplies: [])
+    }
+    let jsonStr = String(raw[jsonRange])
+    let parsed: [String]
+    if let data = jsonStr.data(using: .utf8),
+       let arr = try? JSONDecoder().decode([String].self, from: data) {
+        parsed = arr.prefix(3).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    } else {
+        parsed = []
+    }
+    let stripped = String(raw[..<markerRange.lowerBound])
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return ParsedAgentResponse(text: stripped, suggestedReplies: parsed)
 }
 
 // MARK: - Anthropic API Response Types
@@ -152,14 +194,14 @@ func runAgentLoop(
                 .compactMap(\.text)
                 .joined()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return AgentResult(response: text, effects: effects, toolCallCount: toolCallCount)
+            return makeResult(text: text, effects: effects, toolCallCount: toolCallCount)
         }
 
         if response.stopReason == "tool_use" {
             let toolUses = response.content.filter { $0.type == "tool_use" }
             guard !toolUses.isEmpty else {
                 let text = response.content.filter { $0.type == "text" }.compactMap(\.text).joined()
-                return AgentResult(response: text, effects: effects, toolCallCount: toolCallCount)
+                return makeResult(text: text, effects: effects, toolCallCount: toolCallCount)
             }
 
             var toolResults: [[String: Any]] = []
@@ -209,13 +251,25 @@ func runAgentLoop(
 
         // Unexpected stop reason
         let text = response.content.filter { $0.type == "text" }.compactMap(\.text).joined()
-        return AgentResult(response: text.isEmpty ? "Done." : text, effects: effects, toolCallCount: toolCallCount)
+        return makeResult(text: text.isEmpty ? "Done." : text, effects: effects, toolCallCount: toolCallCount)
     }
 
     return AgentResult(
         response: "I hit my tool limit before finishing. Try again or break your request into smaller pieces.",
         effects: effects,
         toolCallCount: toolCallCount
+    )
+}
+
+/// Builds an `AgentResult` from the LLM's final text, stripping the
+/// suggested-replies marker and populating the structured field.
+private func makeResult(text: String, effects: [ToolEffect], toolCallCount: Int) -> AgentResult {
+    let parsed = parseAgentResponse(text)
+    return AgentResult(
+        response: parsed.text,
+        effects: effects,
+        toolCallCount: toolCallCount,
+        suggestedReplies: parsed.suggestedReplies
     )
 }
 

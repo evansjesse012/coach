@@ -115,10 +115,24 @@ struct ChatMessage: Codable, Identifiable {
     var conversationId: String?
     var richContent: [RichComponent]?
 
+    /// Server-side timestamp the row was inserted. Populated by Supabase's
+    /// `created_at` column. Optional so legacy rows without the column still
+    /// decode; the divider logic in `CoachTab` falls back gracefully when
+    /// any neighbor is missing a timestamp.
+    var createdAt: String?
+
+    /// Short follow-up reply suggestions returned by the coach LLM alongside
+    /// its response. Rendered only under the most recent assistant message
+    /// and cleared visually (not mutated in storage) the moment the user
+    /// sends anything. Nil when the LLM chose not to suggest replies.
+    var suggestedReplies: [String]?
+
     enum CodingKeys: String, CodingKey {
         case id, role, content, metadata
         case conversationId = "conversation_id"
         case richContent = "rich_content"
+        case createdAt = "created_at"
+        case suggestedReplies = "suggested_replies"
     }
 
     static func user(_ content: String, conversationId: String? = nil) -> ChatMessage {
@@ -129,7 +143,8 @@ struct ChatMessage: Codable, Identifiable {
         _ content: String,
         metadata: ChatMessageMetadata? = nil,
         conversationId: String? = nil,
-        richContent: [RichComponent]? = nil
+        richContent: [RichComponent]? = nil,
+        suggestedReplies: [String]? = nil
     ) -> ChatMessage {
         ChatMessage(
             id: nil,
@@ -137,7 +152,8 @@ struct ChatMessage: Codable, Identifiable {
             content: content,
             metadata: metadata,
             conversationId: conversationId,
-            richContent: richContent
+            richContent: richContent,
+            suggestedReplies: suggestedReplies
         )
     }
 }

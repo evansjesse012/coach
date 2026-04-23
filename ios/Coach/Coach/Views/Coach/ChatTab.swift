@@ -139,14 +139,88 @@ struct ArchivedConversationView: View {
     }
 }
 
+// MARK: - Timestamp divider
+
+/// Centered mono-uppercase date + time label inserted into the message
+/// stream by CoachTab. Matches iMessage / WhatsApp convention — a divider
+/// at the top of a conversation, after long gaps, and when the date changes.
+struct ChatTimestampDivider: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Theme.Typography.monoLabelS)
+            .foregroundStyle(Theme.ink3)
+            .textCase(.uppercase)
+            .tracking(Theme.Tracking.monoLabel)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+    }
+}
+
+/// Renders "TODAY · 7:14 AM" / "YESTERDAY · 8:02 PM" / "TUESDAY · 6:30 AM" /
+/// "APR 14 · 7:45 AM" style labels. Uppercasing is applied at render time.
+func chatDividerText(for date: Date) -> String {
+    let cal = Calendar.current
+    let timeFmt = DateFormatter()
+    timeFmt.dateFormat = "h:mm a"
+    let timeStr = timeFmt.string(from: date)
+
+    if cal.isDateInToday(date)     { return "Today · \(timeStr)" }
+    if cal.isDateInYesterday(date) { return "Yesterday · \(timeStr)" }
+
+    let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: Date())).day ?? 0
+    if days < 7 {
+        let f = DateFormatter(); f.dateFormat = "EEEE"
+        return "\(f.string(from: date)) · \(timeStr)"
+    }
+    let f = DateFormatter(); f.dateFormat = "MMM d"
+    return "\(f.string(from: date)) · \(timeStr)"
+}
+
+// MARK: - Suggested replies row
+
+/// Horizontal row of 2–3 tappable reply pills. Pre-fills the composer's
+/// input text when tapped (does not auto-send). Scrolls if the content
+/// exceeds the viewport width.
+struct SuggestedRepliesRow: View {
+    let replies: [String]
+    let onTap: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Array(replies.enumerated()), id: \.offset) { _, reply in
+                    Button {
+                        onTap(reply)
+                    } label: {
+                        Text(reply)
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Theme.surface1)
+                            .foregroundStyle(Theme.ink)
+                            .overlay(
+                                Capsule().strokeBorder(Theme.line2, lineWidth: 1)
+                            )
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollClipDisabled()
+    }
+}
+
 // MARK: - Message renderer
 //
-// Two row shapes:
-// - **Assistant**: no bubble. 2pt accent vertical rule on the left, mono
-//   "COACH" kicker above the body, 15.5pt body with inline markdown, optional
-//   rich-content blocks, optional tool-call receipt cards from metadata flags.
-// - **User**: right-aligned bubble up to 82% width, `surface2` background with
-//   `line` border and 18/18/4/18 corner radius.
+// Coach messages split on `\n\n` into sequential bubbles; only the first
+// bubble shows the "COACH" label and each bubble is accented by the 2pt
+// left rule. User messages render as a single right-aligned bubble. All
+// per-message timestamps are removed — CoachTab inserts stream-level
+// ChatTimestampDivider rows instead.
 
 struct MessageBubble: View {
     let message: ChatMessage
@@ -163,50 +237,65 @@ struct MessageBubble: View {
     // MARK: Assistant
 
     private var assistantRow: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Rectangle()
-                .fill(Theme.accent)
-                .frame(width: 2)
-                .frame(maxHeight: .infinity, alignment: .top)
+        let beats = splitBeats(message.content)
+        return VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(beats.enumerated()), id: \.offset) { idx, beat in
+                assistantBubble(beat, isFirst: idx == 0)
+            }
+            if let components = message.richContent, !components.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(components) { c in
+                        RichComponentView(component: c, onCompletion: onCompletion)
+                    }
+                }
+            }
+            if let meta = message.metadata {
+                toolReceipts(for: meta)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+    }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text(assistantKicker)
-                    .font(Theme.Typography.monoLabel)
+    @ViewBuilder
+    private func assistantBubble(_ beat: String, isFirst: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if isFirst {
+                Text("Coach")
+                    .font(Theme.Typography.monoLabelS)
                     .foregroundStyle(Theme.ink3)
                     .textCase(.uppercase)
                     .tracking(Theme.Tracking.monoLabel)
-
-                if !message.content.isEmpty {
-                    Text(renderedContent)
-                        .font(.system(size: 15.5, weight: .medium))
-                        .foregroundStyle(contentForeground)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .lineSpacing(3)
-                }
-
-                if let components = message.richContent, !components.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(components) { c in
-                            RichComponentView(component: c, onCompletion: onCompletion)
-                        }
-                    }
-                }
-
-                if let meta = message.metadata {
-                    toolReceipts(for: meta)
-                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .top, spacing: 12) {
+                Rectangle()
+                    .fill(Theme.accent)
+                    .frame(width: 2)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                Text(rendered(beat))
+                    .font(.system(size: 15.5, weight: .medium))
+                    .foregroundStyle(contentForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Splits a coach message on double newlines into sequential bubbles.
+    /// Trims surrounding whitespace per beat. A message with no double-newlines
+    /// returns a single-element array, preserving the old single-bubble feel.
+    private func splitBeats(_ content: String) -> [String] {
+        guard !content.isEmpty else { return [] }
+        let beats = content
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return beats.isEmpty ? [content] : beats
     }
 
     private var contentForeground: Color {
         message.metadata?.isError == true ? Theme.warn : Theme.ink
-    }
-
-    private var assistantKicker: String {
-        "Coach"
     }
 
     @ViewBuilder
@@ -246,7 +335,7 @@ struct MessageBubble: View {
     }
 
     private var userBubble: some View {
-        Text(renderedContent)
+        Text(rendered(message.content))
             .font(.system(size: 14.5, weight: .medium))
             .foregroundStyle(Theme.ink)
             .multilineTextAlignment(.leading)
@@ -277,14 +366,14 @@ struct MessageBubble: View {
 
     // MARK: Content rendering
 
-    private var renderedContent: AttributedString {
+    private func rendered(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        if let parsed = try? AttributedString(markdown: message.content, options: options) {
+        if let parsed = try? AttributedString(markdown: text, options: options) {
             return parsed
         }
-        return AttributedString(message.content)
+        return AttributedString(text)
     }
 }
 
