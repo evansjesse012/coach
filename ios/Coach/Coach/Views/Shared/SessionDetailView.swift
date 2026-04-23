@@ -87,12 +87,14 @@ struct SessionDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                 heroSection
+                prescriptionSection
                 if isStrengthWithExercises {
                     strengthWorkoutSection
                 }
                 statusSection
                 watchSection
                 coachNotesSection
+                nutritionSection
                 athleteNotesSection
             }
             .padding(.horizontal, Theme.Spacing.screenH)
@@ -256,6 +258,98 @@ struct SessionDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Prescription section
+
+    /// Purpose / zone + pace / workout description / warning — everything
+    /// the coach prescribed, rendered before the quick-log surfaces. Each
+    /// sub-block is conditional; the whole section disappears if the
+    /// session carries none of the four fields.
+    @ViewBuilder
+    private var prescriptionSection: some View {
+        let hasZoneOrPace = (session.zone?.isEmpty == false) || (session.paceRange?.isEmpty == false)
+        let hasPurpose    = session.purpose?.isEmpty  == false
+        let hasWorkout    = session.workout?.isEmpty  == false
+        let hasWarning    = session.warning?.isEmpty  == false
+        if hasPurpose || hasZoneOrPace || hasWorkout || hasWarning {
+            VStack(alignment: .leading, spacing: 12) {
+                if let purpose = session.purpose, !purpose.isEmpty {
+                    Text(purpose)
+                        .font(Theme.Typography.body)
+                        .italic()
+                        .foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if hasZoneOrPace { zonePaceRow }
+                if let workout = session.workout, !workout.isEmpty {
+                    workoutPrescriptionCard(workout)
+                }
+                if let warning = session.warning, !warning.isEmpty {
+                    warningCallout(warning)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var zonePaceRow: some View {
+        HStack(spacing: 10) {
+            if let zone = session.zone, !zone.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(zone)
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .foregroundStyle(Theme.accent)
+                .background(Theme.accentSoft, in: Capsule())
+            }
+            if let pace = session.paceRange, !pace.isEmpty {
+                Text("\(pace) pace")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func workoutPrescriptionCard(_ workout: String) -> some View {
+        Text(workout)
+            .font(Theme.Typography.mono(13))
+            .foregroundStyle(Theme.ink)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.accentSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1)
+            )
+    }
+
+    private func warningCallout(_ warning: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.modifiedAccent)
+                .padding(.top, 1)
+            Text(warning)
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.modifiedSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Theme.modifiedAccent.opacity(0.45), lineWidth: 1)
+        )
     }
 
     // MARK: - Strength workout section
@@ -811,6 +905,50 @@ struct SessionDetailView: View {
                 )
             }
         }
+    }
+
+    // MARK: - Nutrition
+
+    @ViewBuilder
+    private var nutritionSection: some View {
+        if let fuel = session.fuel, hasAnyFuel(fuel) {
+            card {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "fork.knife")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                        Text("Nutrition")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Theme.ink)
+                    }
+                    nutritionRow(label: "Before",  text: fuel.pre)
+                    nutritionRow(label: "During",  text: fuel.during)
+                    nutritionRow(label: "After",   text: fuel.post)
+                }
+            }
+        }
+    }
+
+    private func nutritionRow(label: String, text: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(Theme.Typography.monoLabelS)
+                .foregroundStyle(Theme.ink3)
+                .textCase(.uppercase)
+                .tracking(Theme.Tracking.monoLabel)
+            Text(text?.isEmpty == false ? text! : "—")
+                .font(Theme.Typography.body)
+                .foregroundStyle(text?.isEmpty == false ? Theme.ink : Theme.ink3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func hasAnyFuel(_ fuel: SessionFuel) -> Bool {
+        (fuel.pre?.isEmpty    == false) ||
+        (fuel.during?.isEmpty == false) ||
+        (fuel.post?.isEmpty   == false)
     }
 
     // MARK: - Athlete notes
