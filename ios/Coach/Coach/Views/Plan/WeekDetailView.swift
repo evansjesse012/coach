@@ -73,13 +73,20 @@ struct WeekDetailView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Text("Week \(weekNum)")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Theme.ink)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.ink3)
+                VStack(spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(weekTitle)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Theme.ink)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.ink3)
+                    }
+                    if let range = weekDateRange {
+                        Text(range)
+                            .font(Theme.Typography.monoMeta)
+                            .foregroundStyle(Theme.ink3)
+                    }
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -104,6 +111,26 @@ struct WeekDetailView: View {
     }
     private var minWeek: Int { allWeekNums.first ?? 1 }
     private var maxWeek: Int { allWeekNums.last ?? 1 }
+
+    private var weekTitle: String {
+        if let plan = data.trainingPlan {
+            return "Week \(weekNum) of \(plan.totalWeeks)"
+        }
+        return "Week \(weekNum)"
+    }
+
+    private var weekDateRange: String? {
+        guard let plan = data.trainingPlan, let startStr = plan.startDate else { return nil }
+        let inF = DateFormatter()
+        inF.dateFormat = "yyyy-MM-dd"
+        guard let planStart = inF.date(from: startStr) else { return nil }
+        let cal = Calendar.current
+        guard let monday = cal.date(byAdding: .day, value: (weekNum - 1) * 7, to: planStart),
+              let sunday = cal.date(byAdding: .day, value: 6, to: monday) else { return nil }
+        let outF = DateFormatter()
+        outF.dateFormat = "MMM d"
+        return "\(outF.string(from: monday)) \u{2014} \(outF.string(from: sunday))"
+    }
 
     // MARK: - Sessions list
 
