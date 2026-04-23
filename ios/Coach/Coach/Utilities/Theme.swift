@@ -27,6 +27,78 @@ enum Theme {
     static let warnBg     = dyn(l: "FBE8E4", d: "2C1611")
     static let info       = dyn(l: "2C5DC7", d: "7CB0FF")
 
+    // Status fills for modified / swapped sessions. Amber family, not a
+    // core brand color — lives here because the canonical status palette
+    // requires it. Dark variant approximates `rgba(232,179,71,0.18)` over
+    // the `bg` token.
+    static let modifiedSoft   = dyn(l: "FAEEDA", d: "3B3222")
+    static let modifiedAccent = dyn(l: "B07820", d: "E8B347")
+
+    // MARK: Session status — canonical presentation
+
+    /// The five session states every surface in the app renders the
+    /// same way: fill / border / tint / icon / label. This is the
+    /// single source of truth — no screen hand-rolls its own status
+    /// colors. `pending` has no border (neutral surface); `done`,
+    /// `modified`, `swapped`, and `skipped` each have a 1pt border
+    /// in their accent color. `modified` and `swapped` share the
+    /// amber family (compact displays like week strips and list rows
+    /// collapse them into one visual treatment; Session Detail and
+    /// quick-log distinguish them).
+    enum SessionStatusKind: Hashable {
+        case pending, done, modified, swapped, skipped
+
+        var label: String {
+            switch self {
+            case .pending:  return "Not yet"
+            case .done:     return "Done"
+            case .modified: return "Modified"
+            case .swapped:  return "Swapped"
+            case .skipped:  return "Skipped"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .pending:  return "circle"
+            case .done:     return "checkmark.circle.fill"
+            case .modified: return "pencil.circle.fill"
+            case .swapped:  return "arrow.triangle.2.circlepath.circle.fill"
+            case .skipped:  return "xmark.circle.fill"
+            }
+        }
+
+        /// Background fill for the status indicator.
+        var fill: Color {
+            switch self {
+            case .pending:  return Theme.surface2
+            case .done:     return Theme.accentSoft
+            case .modified, .swapped: return Theme.modifiedSoft
+            case .skipped:  return Theme.warnBg
+            }
+        }
+
+        /// 1pt border color. `nil` for `pending` (no border).
+        var border: Color? {
+            switch self {
+            case .pending:  return nil
+            case .done:     return Theme.accent
+            case .modified, .swapped: return Theme.modifiedAccent
+            case .skipped:  return Theme.warn
+            }
+        }
+
+        /// Foreground tint for the status icon and label text.
+        var tint: Color {
+            switch self {
+            case .pending:  return Theme.ink3
+            case .done:     return Theme.accent
+            case .modified, .swapped: return Theme.modifiedAccent
+            case .skipped:  return Theme.warn
+            }
+        }
+    }
+
     // MARK: Discipline
 
     enum Discipline: String, CaseIterable, Hashable {

@@ -266,6 +266,14 @@ struct PrescribedSession: Codable, Identifiable {
     var completionNeedsReview: Bool?   // true for medium-confidence HK auto-matches
     var linkedWorkoutId: String?       // Explicit CardioWorkout.id link, set by auto- or manual-match
 
+    // New fields for Session Detail — richer log data the athlete fills in.
+    var actualEffort: String?      // "easier" | "as_planned" | "harder" — modified state
+    var replacedWithLabel: String? // freeform name of the swap, e.g. "Easy hike w/ family"
+    var rpe: Int?                  // 1–10 rate of perceived exertion
+    var fatigue: Int?              // 1–10 post-session fatigue level
+    var athleteNote: String?       // "How did it go?" journal note; distinct from
+                                   // completionNote which captures the change context
+
     // Legacy keys stay in camelCase for backward compat with existing JSONB.
     enum CodingKeys: String, CodingKey {
         case type, label, duration
@@ -288,6 +296,28 @@ struct PrescribedSession: Codable, Identifiable {
         case completionResolvedAt = "completion_resolved_at"
         case completionNeedsReview = "completion_needs_review"
         case linkedWorkoutId = "linked_workout_id"
+        case actualEffort = "actual_effort"
+        case replacedWithLabel = "replaced_with_label"
+        case rpe
+        case fatigue
+        case athleteNote = "athlete_note"
+    }
+}
+
+// MARK: - Status kind (presentation)
+
+extension PrescribedSession {
+    /// Maps the domain `completionStatus` (+ nil) to the canonical
+    /// `Theme.SessionStatusKind`. Every status-rendering surface reads
+    /// through this to get colors, label, and icon — no drift.
+    var statusKind: Theme.SessionStatusKind {
+        switch completionStatus {
+        case .completed: return .done
+        case .modified:  return .modified
+        case .swapped:   return .swapped
+        case .skipped:   return .skipped
+        case .none:      return .pending
+        }
     }
 }
 
