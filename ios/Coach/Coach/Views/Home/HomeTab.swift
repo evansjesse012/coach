@@ -489,12 +489,14 @@ struct HomeTab: View {
     }
 
     /// One day cell in the week-overview grid. Renders a letter label and a
-    /// tinted rounded square with the day's primary sport icon. Colors come
-    /// from `Theme.SessionStatusKind` for resolved days; today gets a dark
-    /// emphasis fill with the accent border + tint so it jumps off the grid.
+    /// tinted rounded square with the day's sport icons stacked vertically.
+    /// Colors come from `Theme.SessionStatusKind` for resolved days; today
+    /// gets a dark emphasis fill with the accent border + tint so it jumps
+    /// off the grid. Multi-session days show up to two icons; a third or
+    /// more rolls into a compact "+N" below.
     private func weekDayCell(day: DayReview, letter: String) -> some View {
         let state = dayCellState(for: day)
-        let iconName = primaryIconName(for: day)
+        let icons = dayIconNames(for: day)
         return VStack(spacing: 6) {
             Text(letter)
                 .font(Theme.Typography.monoLabel)
@@ -507,9 +509,19 @@ struct HomeTab: View {
                     .fill(state.fill)
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(state.border, lineWidth: 1.5)
-                Image(systemName: iconName)
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(state.tint)
+
+                let visibleIcons = Array(icons.prefix(2))
+                VStack(spacing: 2) {
+                    ForEach(Array(visibleIcons.enumerated()), id: \.offset) { _, name in
+                        Image(systemName: name)
+                            .font(.system(size: icons.count > 1 ? 13 : 18, weight: .regular))
+                    }
+                    if icons.count > 2 {
+                        Text("+\(icons.count - 2)")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                }
+                .foregroundStyle(state.tint)
             }
             .aspectRatio(1, contentMode: .fit)
         }
@@ -539,20 +551,24 @@ struct HomeTab: View {
         return .upcoming
     }
 
-    /// Single icon shown in the center of a day cell. For swapped sessions
-    /// use the substitute sport so the athlete sees what they actually did.
-    private func primaryIconName(for day: DayReview) -> String {
-        if day.isRest { return "moon.fill" }
-        guard let first = day.sessions.first else { return "circle.dotted" }
-        let rawType: String = {
-            if first.status == .substituted, let sub = first.substitute, !sub.isEmpty {
-                return sub
-            }
-            return first.type
-        }()
-        if let sport = Sport(rawValue: rawType) { return sport.sfSymbol }
-        if rawType == "strength" { return "dumbbell.fill" }
-        return "circle.dotted"
+    /// Sport icons to render inside a day cell, one per scheduled session.
+    /// For swapped sessions the substitute sport wins so the cell reflects
+    /// what was actually done. Rest days return the moon glyph; empty days
+    /// return a subtle dotted placeholder.
+    private func dayIconNames(for day: DayReview) -> [String] {
+        if day.isRest { return ["moon.fill"] }
+        if day.sessions.isEmpty { return ["circle.dotted"] }
+        return day.sessions.map { session in
+            let rawType: String = {
+                if session.status == .substituted, let sub = session.substitute, !sub.isEmpty {
+                    return sub
+                }
+                return session.type
+            }()
+            if let sport = Sport(rawValue: rawType) { return sport.sfSymbol }
+            if rawType == "strength" { return "dumbbell.fill" }
+            return "circle.dotted"
+        }
     }
 
     private func weekFooterStat(label: String, value: String) -> some View {
