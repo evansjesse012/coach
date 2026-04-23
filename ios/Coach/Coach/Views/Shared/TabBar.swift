@@ -11,13 +11,36 @@ extension View {
     /// Pops the enclosing NavigationStack to root when the user taps the
     /// tab matching `tabId` while already on it. Each tab owns its own
     /// `@State var path = NavigationPath()` and applies this modifier.
+    ///
+    /// Clearing `path` alone isn't reliable: closure-style NavigationLinks
+    /// (`NavigationLink { Destination() } label: { ... }`) don't always sync
+    /// their pushes into the bound path, so `path = NavigationPath()` can be
+    /// a no-op while the pushed destination stays on screen. To guarantee
+    /// the pop we also flip a rebuild id on the modified view, which forces
+    /// SwiftUI to recreate the NavigationStack and unmount anything pushed
+    /// on top of root. This matches the native tab-reselect behavior in
+    /// Mail / Messages / Phone (scroll resets, pushed views dismiss).
     func popsOnTabReselect(tabId: String, path: Binding<NavigationPath>) -> some View {
-        onReceive(NotificationCenter.default.publisher(for: .popTabToRoot)) { notif in
-            guard let id = notif.object as? String, id == tabId else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
+        modifier(PopsOnTabReselect(tabId: tabId, path: path))
+    }
+}
+
+private struct PopsOnTabReselect: ViewModifier {
+    let tabId: String
+    let path: Binding<NavigationPath>
+    @State private var rootID = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .id(rootID)
+            .onReceive(NotificationCenter.default.publisher(for: .popTabToRoot)) { notif in
+                guard let id = notif.object as? String, id == tabId else { return }
+                // Clear the path too in case the closure-style links did
+                // sync their pushes — harmless if the path was empty.
                 path.wrappedValue = NavigationPath()
+                // Rebuild the subtree — unmounts any pushed destinations.
+                rootID = UUID()
             }
-        }
     }
 }
 
