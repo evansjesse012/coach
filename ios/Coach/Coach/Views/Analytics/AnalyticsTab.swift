@@ -32,6 +32,7 @@ struct AnalyticsTab: View {
                         raceDayReadiness
                     }
                     .padding()
+                    .padding(.bottom, Theme.Spacing.bottomReserve)
                 }
             }
             .background((colorScheme == .dark ? CoachColors.darkBg : CoachColors.lightBg).ignoresSafeArea())

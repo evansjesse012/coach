@@ -251,6 +251,7 @@ struct LogTab: View {
                     }
                 }
                 .padding(.vertical)
+                .padding(.bottom, Theme.Spacing.bottomReserve)
             }
             .navigationTitle("Activities")
             .fullScreenCover(isPresented: $showWorkoutLogger) {
