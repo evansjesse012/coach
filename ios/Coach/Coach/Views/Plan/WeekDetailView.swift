@@ -10,7 +10,7 @@ struct WeekDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 weekSelector
 
                 if let plan = data.trainingPlan,
@@ -22,13 +22,17 @@ struct WeekDetailView: View {
                     }
                 } else {
                     Text("No data for this week")
-                        .font(CoachFonts.ui(13))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.ink3)
                         .padding(.top, 40)
                 }
             }
-            .padding()
+            .padding(.horizontal, Theme.Spacing.screenH)
+            .padding(.top, 8)
+            .padding(.bottom, Theme.Spacing.bottomReserve)
         }
+        .background(Theme.bg.ignoresSafeArea())
+        .scrollContentBackground(.hidden)
         .navigationTitle("Plan Overview")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -38,7 +42,7 @@ struct WeekDetailView: View {
         }
     }
 
-    // MARK: - Week Selector
+    // MARK: - Week selector
 
     private var weekSelector: some View {
         HStack(spacing: 16) {
@@ -46,10 +50,12 @@ struct WeekDetailView: View {
                 if weekNum > minWeek { weekNum -= 1 }
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(weekNum > minWeek ? CoachColors.accent : .secondary)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(weekNum > minWeek ? Theme.ink2 : Theme.ink3)
                     .frame(width: 36, height: 36)
+                    .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
             }
+            .buttonStyle(.plain)
             .disabled(weekNum <= minWeek)
 
             Menu {
@@ -69,11 +75,11 @@ struct WeekDetailView: View {
             } label: {
                 HStack(spacing: 4) {
                     Text("Week \(weekNum)")
-                        .font(CoachFonts.display(20, weight: .bold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.ink3)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -82,10 +88,12 @@ struct WeekDetailView: View {
                 if weekNum < maxWeek { weekNum += 1 }
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(weekNum < maxWeek ? CoachColors.accent : .secondary)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(weekNum < maxWeek ? Theme.ink2 : Theme.ink3)
                     .frame(width: 36, height: 36)
+                    .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
             }
+            .buttonStyle(.plain)
             .disabled(weekNum >= maxWeek)
         }
         .padding(.vertical, 4)
@@ -149,7 +157,7 @@ struct WeekDetailView: View {
     }
 }
 
-// MARK: - Day Header
+// MARK: - Day header
 
 private struct DayHeader: View {
     let dayName: String
@@ -158,23 +166,23 @@ private struct DayHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(dayName.capitalized)
-                .font(CoachFonts.ui(14, weight: .bold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.ink)
             if isToday {
                 Text("TODAY")
-                    .font(CoachFonts.ui(9, weight: .bold))
-                    .tracking(0.6)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(CoachColors.accent))
-                    .foregroundStyle(.white)
+                    .font(Theme.Typography.monoLabelS)
+                    .tracking(Theme.Tracking.monoLabel)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Theme.accentSoft))
+                    .foregroundStyle(Theme.accent)
             }
             Spacer()
         }
     }
 }
 
-// MARK: - Session Card
+// MARK: - Session card
 
 private struct WeekDaySessionCard: View {
     let session: PrescribedSession
@@ -184,7 +192,6 @@ private struct WeekDaySessionCard: View {
     let sessionIdx: Int
 
     @Environment(DataService.self) var data
-    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         HStack(spacing: 0) {
@@ -192,54 +199,57 @@ private struct WeekDaySessionCard: View {
                 PrescribedSessionDetailView(session: session, dateString: dateString)
             } label: {
                 HStack(spacing: 0) {
-                    // Vertical color bar
-                    (session.effortCategory ?? .easy).gradient
-                        .frame(width: 6)
+                    // Sport-colored left rule — matches Home's Today SessionCard.
+                    Rectangle()
+                        .fill(discipline.color)
+                        .frame(width: 3)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(session.label)
-                                .font(CoachFonts.ui(16, weight: .bold))
+                                .font(Theme.Typography.sessionTitle)
+                                .foregroundStyle(Theme.ink)
+                                .tracking(Theme.Tracking.headline)
                                 .lineLimit(2)
-                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
                             if let pill = statusPillLabel {
                                 Text(pill)
-                                    .font(CoachFonts.ui(9, weight: .bold))
-                                    .tracking(0.6)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
+                                    .font(Theme.Typography.monoLabelS)
+                                    .tracking(Theme.Tracking.monoLabel)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
                                     .background(Capsule().fill(statusPillColor.opacity(0.18)))
                                     .foregroundStyle(statusPillColor)
                             }
                         }
 
                         Text(secondLine)
-                            .font(CoachFonts.ui(12))
-                            .foregroundStyle(.secondary)
+                            .font(Theme.Typography.monoMeta)
+                            .foregroundStyle(Theme.ink3)
 
                         Text(thirdLine)
-                            .font(CoachFonts.ui(12, weight: .medium))
-                            .foregroundStyle((session.effortCategory ?? .easy).color)
+                            .font(Theme.Typography.bodyS)
+                            .foregroundStyle(Theme.ink2)
 
                         if let note = session.notes, !note.isEmpty {
                             Text(note)
-                                .font(CoachFonts.ui(11))
-                                .foregroundStyle(.secondary)
+                                .font(Theme.Typography.small)
+                                .foregroundStyle(Theme.ink2)
                                 .lineLimit(2)
                                 .padding(.top, 2)
                         }
 
                         if let completionNote = session.completionNote, !completionNote.isEmpty {
-                            Text("“\(completionNote)”")
-                                .font(CoachFonts.ui(11))
+                            Text("\u{201C}\(completionNote)\u{201D}")
+                                .font(Theme.Typography.small)
                                 .italic()
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.ink3)
                                 .lineLimit(2)
                                 .padding(.top, 2)
                         }
                     }
-                    .padding(.leading, 12)
-                    .padding(.vertical, 12)
+                    .padding(.leading, 14)
+                    .padding(.vertical, 14)
 
                     Spacer(minLength: 0)
                 }
@@ -255,38 +265,47 @@ private struct WeekDaySessionCard: View {
                 }
             } label: {
                 statusButtonIcon
-                    .font(.system(size: 26))
+                    .font(.system(size: 24))
             }
             .buttonStyle(.plain)
             .padding(.trailing, 14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(cardBorderColor, lineWidth: cardBorderWidth)
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(cardBorderColor, lineWidth: cardBorderWidth)
         )
+        .dsCardShadow()
         .opacity(session.isResolved ? 0.75 : 1.0)
     }
 
-    // MARK: - Status visuals
+    // MARK: Derived — discipline
+
+    private var discipline: Theme.Discipline {
+        if let sport = Sport(rawValue: session.type) { return sport.discipline }
+        if session.type == "strength" { return .strength }
+        return .run
+    }
+
+    // MARK: Derived — status
 
     @ViewBuilder
     private var statusButtonIcon: some View {
         switch session.displayState {
         case .upcoming:
-            Image(systemName: "circle").foregroundStyle(.secondary)
+            Image(systemName: "circle").foregroundStyle(Theme.ink3)
         case .completed:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(CoachColors.teal)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(CoachColors.green)
         case .needsReview:
             Image(systemName: "questionmark.circle.fill").foregroundStyle(Theme.warn)
         case .modified:
             Image(systemName: "checkmark.circle.fill").foregroundStyle(CoachColors.yellow)
         case .swapped:
-            Image(systemName: "arrow.triangle.2.circlepath.circle.fill").foregroundStyle(CoachColors.purple)
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill").foregroundStyle(Theme.info)
         case .skipped:
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.warn)
         }
     }
 
@@ -304,17 +323,17 @@ private struct WeekDaySessionCard: View {
     private var statusPillColor: Color {
         switch session.displayState {
         case .upcoming: return Theme.ink3
-        case .completed: return CoachColors.teal
+        case .completed: return CoachColors.green
         case .needsReview: return Theme.warn
         case .modified: return CoachColors.yellow
-        case .swapped: return CoachColors.purple
-        case .skipped: return Theme.ink3
+        case .swapped: return Theme.info
+        case .skipped: return Theme.warn
         }
     }
 
     private var cardBorderColor: Color {
         if session.displayState == .needsReview {
-            return Theme.warn.opacity(0.6)
+            return Theme.warn.opacity(0.55)
         }
         return Theme.line
     }
@@ -323,7 +342,7 @@ private struct WeekDaySessionCard: View {
         session.displayState == .needsReview ? 1.5 : 1
     }
 
-    // MARK: derived
+    // MARK: Derived — text
 
     private var secondLine: String {
         var parts: [String] = []
@@ -356,71 +375,71 @@ private struct WeekDaySessionCard: View {
             parts.append(session.type.capitalized)
         }
         if let mi = session.distanceMiles, mi > 0 {
-            parts.append(String(format: "%.1fmi", mi))
+            parts.append(String(format: "%.1f mi", mi))
         }
         return parts.joined(separator: " · ")
     }
 
     private var durationRange: String? {
         if let lo = session.estimatedDurationMin, let hi = session.estimatedDurationMax {
-            return "\(lo)m - \(hi)m"
+            return "\(lo)–\(hi)m"
         }
         return nil
     }
 }
 
-// MARK: - Rest Day Card
+// MARK: - Rest day card
 
 private struct RestDayCard: View {
     let dayPlan: DayPlan
     let dateString: String
 
-    @Environment(\.colorScheme) var colorScheme
-
     var body: some View {
         HStack(spacing: 0) {
-            EffortCategory.rest.gradient
-                .frame(width: 6)
+            Rectangle()
+                .fill(Theme.Discipline.recovery.color)
+                .frame(width: 3)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Image(systemName: "moon.zzz.fill")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                    Text("Rest Day")
-                        .font(CoachFonts.ui(16, weight: .bold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Theme.Discipline.recovery.color)
+                    Text("Rest day")
+                        .font(Theme.Typography.sessionTitle)
+                        .foregroundStyle(Theme.ink)
                 }
 
                 if !dateString.isEmpty {
                     Text(formatDayLong(dateString))
-                        .font(CoachFonts.ui(12))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.monoMeta)
+                        .foregroundStyle(Theme.ink3)
                 }
 
                 if let note = dayPlan.restNote, !note.isEmpty {
                     Text(note)
-                        .font(CoachFonts.ui(12))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
                 }
             }
-            .padding(.leading, 12)
-            .padding(.vertical, 12)
+            .padding(.leading, 14)
+            .padding(.vertical, 14)
             .padding(.trailing, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.line, lineWidth: 1)
         )
+        .dsCardShadow()
     }
 }
 
-// MARK: - Stub Week Card
+// MARK: - Stub week card
 
 /// Shown when the athlete opens a week that only has a focus/phase stored
 /// (no daily sessions yet). Explains the lazy-generation model and offers
@@ -430,7 +449,6 @@ private struct StubWeekCard: View {
     let weeklyPlan: WeeklyPlan
 
     @Environment(DataService.self) var data
-    @Environment(\.colorScheme) var colorScheme
     @State private var isGenerating = false
     @State private var generationError: String?
 
@@ -440,71 +458,63 @@ private struct StubWeekCard: View {
                 HStack(spacing: 8) {
                     Image(systemName: "calendar.badge.clock")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(CoachColors.accent)
+                        .foregroundStyle(Theme.accent)
                     Text("Not yet planned")
-                        .font(CoachFonts.ui(14, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
                 }
 
                 if let phaseNum = weeklyPlan.phase,
                    let phase = plan.phases.first(where: { $0.number == phaseNum }) {
-                    Text("Phase \(phaseNum) — \(phase.name)")
-                        .font(CoachFonts.ui(11, weight: .semibold))
-                        .tracking(0.5)
-                        .foregroundStyle(.secondary)
+                    Text("Phase \(phaseNum) \u{2014} \(phase.name)")
+                        .font(Theme.Typography.monoLabel)
+                        .tracking(Theme.Tracking.monoLabel)
+                        .textCase(.uppercase)
+                        .foregroundStyle(Theme.ink3)
                 }
 
                 if let focus = weeklyPlan.focusOfWeek, !focus.isEmpty {
                     Text(focus)
-                        .font(CoachFonts.ui(13))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 2)
                 }
             }
 
-            Divider()
+            Rectangle()
+                .fill(Theme.line)
+                .frame(height: 1)
 
             Text("Your coach shapes each week closer to its start so it can adapt to how the prior weeks actually went. You can generate it now if you want to see what's coming.")
-                .font(CoachFonts.ui(12))
-                .foregroundStyle(.secondary)
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button {
+            Pill(
+                title: isGenerating ? "Generating\u{2026}" : "Generate this week now",
+                icon: isGenerating ? nil : "sparkles",
+                variant: .primary
+            ) {
                 Task { await generate() }
-            } label: {
-                HStack(spacing: 8) {
-                    if isGenerating {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    Text(isGenerating ? "Generating…" : "Generate this week now")
-                        .font(CoachFonts.ui(14, weight: .semibold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(CoachColors.accent.opacity(isGenerating ? 0.5 : 1.0))
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .buttonStyle(.plain)
             .disabled(isGenerating)
 
             if let err = generationError {
                 Text(err)
-                    .font(CoachFonts.ui(11))
-                    .foregroundStyle(.red)
+                    .font(Theme.Typography.small)
+                    .foregroundStyle(Theme.warn)
             }
         }
-        .padding(16)
-        .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .padding(Theme.Spacing.cardP)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.line, lineWidth: 1)
         )
+        .dsCardShadow()
     }
 
     private func generate() async {
