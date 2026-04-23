@@ -423,23 +423,17 @@ struct HomeTab: View {
     }
 
     private func weekCard(adherence: WeekAdherence, plan: TrainingPlan) -> some View {
-        NavigationLink {
+        let phase = plan.current
+        return NavigationLink {
             WeekDetailView(initialWeekNum: plan.currentWeek)
         } label: {
             VStack(alignment: .leading, spacing: 14) {
-                // Header — phase name + date range + tap-for-detail chevron
-                HStack(spacing: 6) {
-                    Text(plan.current?.name ?? "Current week")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Theme.ink)
-                    Spacer()
-                    Text(weekRangeText(plan: plan))
-                        .font(Theme.Typography.monoMeta)
-                        .foregroundStyle(Theme.ink3)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.ink3)
-                }
+                WeekOverviewHeader(
+                    weekNumber: plan.currentWeek,
+                    dateRange: weekRangeText(plan: plan),
+                    phaseLabel: phase?.plainLanguageLabel,
+                    weeksLeft: phase.map { plan.weeksLeftInPhase($0) }
+                )
 
                 // 7 day columns with icon stacks
                 HStack(spacing: 4) {

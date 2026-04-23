@@ -66,6 +66,12 @@ struct TrainingPhase: Codable, Identifiable {
     var progressionRules: String?
     var raceSpecificNotes: String?
 
+    /// Human-readable, athlete-facing phrasing of the phase, rendered on the
+    /// Home screen week card in place of the technical `name`. Optional on
+    /// the wire so the plan generator / coach can override per-phase; when
+    /// absent the client falls back to `Self.plainLanguageFallbacks`.
+    var plainLanguageDescription: String?
+
     // Legacy fields kept nullable so historical plan_history rows still decode
     var weeklyVolume: String?
     var intensityCeiling: String?
@@ -92,12 +98,46 @@ struct TrainingPhase: Codable, Identifiable {
         case physiologicalGoals = "physiological_goals"
         case progressionRules = "progression_rules"
         case raceSpecificNotes = "race_specific_notes"
+        case plainLanguageDescription = "plain_language_description"
         case weeklyVolume
         case intensityCeiling
         case intensityMix
         case strengthFreq
         case focus
         case keySessionTypes
+    }
+}
+
+// MARK: - Plain-language phase labels
+
+extension TrainingPhase {
+    /// Client-side fallback mapping from technical phase `name` to athlete-facing
+    /// description. Used when the server hasn't supplied `plainLanguageDescription`.
+    /// Keys are lowercased for case-insensitive match. Add new phase types here.
+    static let plainLanguageFallbacks: [String: String] = [
+        "aerobic foundation":  "Building your aerobic base",
+        "base":                "Building your aerobic base",
+        "base development":    "Growing your weekly volume",
+        "build":               "Introducing race-intensity work",
+        "build 1":             "Introducing race-intensity work",
+        "build 2":             "Race-specific peak training",
+        "peak":                "Race-specific peak training",
+        "race-specific peak":  "Race-specific peak training",
+        "taper":               "Tapering for race day",
+        "recovery":            "Recovering and rebuilding",
+        "transition":          "Between training cycles",
+    ]
+
+    /// Athlete-facing phase label for the Home screen. Prefers the server-supplied
+    /// override, then the fallback table, then the technical name as a last resort
+    /// so we never show an empty line.
+    var plainLanguageLabel: String {
+        if let override = plainLanguageDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return override
+        }
+        let key = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return Self.plainLanguageFallbacks[key] ?? name
     }
 }
 
@@ -390,6 +430,12 @@ struct TrainingPlan: Codable, Identifiable {
     /// 1-based position in the phase ("week 3 of 6").
     func weekIndexInPhase(_ phase: TrainingPhase) -> Int {
         max(1, currentWeek - startWeek(for: phase) + 1)
+    }
+
+    /// Whole weeks remaining after the current week in the given phase. The
+    /// current week is the last week when this returns 0 ("last week of phase").
+    func weeksLeftInPhase(_ phase: TrainingPhase) -> Int {
+        max(0, phase.weeks - weekIndexInPhase(phase))
     }
 
     /// Days remaining until the phase's endDate, or nil if unknown.
