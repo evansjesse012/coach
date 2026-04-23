@@ -34,6 +34,12 @@ enum Theme {
     static let modifiedSoft   = dyn(l: "FAEEDA", d: "3B3222")
     static let modifiedAccent = dyn(l: "B07820", d: "E8B347")
 
+    /// Dark emphasis fill used for the "today" cell in the Home week grid.
+    /// Near-black in both modes so today pops off the tinted canonical
+    /// surfaces (accentSoft, modifiedSoft, etc.) without swapping sides
+    /// when the appearance changes.
+    static let todayEmphFill  = dyn(l: "15171B", d: "0B0C10")
+
     // MARK: Session status — canonical presentation
 
     /// The five session states every surface in the app renders the
