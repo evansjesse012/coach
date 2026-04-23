@@ -904,14 +904,21 @@ final class DataService {
     func ensurePlanPreGenerated() async {
         guard var plan = trainingPlan else { return }
 
-        // Calendar math. Both dates at day granularity.
+        // Calendar math. Both dates at day granularity. We anchor to the
+        // *Monday* of the plan's start week — not `startDate` itself —
+        // because every other surface (sessionDateString, weekRangeLabel,
+        // computeWeekAdherence, WeekStripCell's grid) does the same. A
+        // plan whose startDate lands on, say, Sunday would otherwise
+        // compute currentWeek a full week behind those surfaces, and
+        // the Home card would render last week's grid.
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         guard let startStr = plan.startDate,
               let start = formatter.date(from: startStr) else { return }
 
         let calendar = Calendar.current
-        let startDay = calendar.startOfDay(for: start)
+        let planMonday = mondayOf(start)
+        let startDay = calendar.startOfDay(for: planMonday)
         let todayDay = calendar.startOfDay(for: Date())
         let daysSinceStart = calendar.dateComponents([.day], from: startDay, to: todayDay).day ?? 0
         guard daysSinceStart >= 0 else { return } // plan hasn't started yet
