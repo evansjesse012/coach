@@ -606,11 +606,21 @@ struct PrescribedSessionDetailView: View {
 
     // MARK: - Link Workout Action
 
+    /// Sessions scheduled after today cannot be marked — they haven't
+    /// happened yet.
+    private var isFutureSession: Bool {
+        guard let date = dateString, !date.isEmpty else { return false }
+        return date > todayString()
+    }
+
     /// Shown when the session is unresolved cardio, so the athlete can manually
-    /// pick a recorded workout if the auto-matcher didn't pair one.
+    /// pick a recorded workout if the auto-matcher didn't pair one. Hidden for
+    /// future dates.
     @ViewBuilder
     private var linkWorkoutAction: some View {
-        if session.completionStatus == nil, session.type.lowercased() != "strength" {
+        if session.completionStatus == nil,
+           session.type.lowercased() != "strength",
+           !isFutureSession {
             Button {
                 showLinkWorkoutSheet = true
             } label: {

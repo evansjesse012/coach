@@ -284,18 +284,24 @@ private struct WeekDaySessionCard: View {
             }
             .buttonStyle(.plain)
 
-            Button {
-                Task {
-                    try? await data.toggleSessionCompleted(
-                        weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
-                    )
+            if !isFuture {
+                Button {
+                    Task {
+                        try? await data.toggleSessionCompleted(
+                            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+                        )
+                    }
+                } label: {
+                    statusButtonIcon
+                        .font(.system(size: 24))
                 }
-            } label: {
-                statusButtonIcon
-                    .font(.system(size: 24))
+                .buttonStyle(.plain)
+                .padding(.trailing, 14)
+            } else {
+                // Future session: keep trailing padding for visual parity with
+                // markable rows, but show no toggle control.
+                Color.clear.frame(width: 14)
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface1)
@@ -314,6 +320,12 @@ private struct WeekDaySessionCard: View {
         if let sport = Sport(rawValue: session.type) { return sport.discipline }
         if session.type == "strength" { return .strength }
         return .run
+    }
+
+    /// True when this session's date is strictly after today. Future sessions
+    /// must not be markable — they haven't happened yet.
+    private var isFuture: Bool {
+        !dateString.isEmpty && dateString > todayString()
     }
 
     // MARK: Derived — status
