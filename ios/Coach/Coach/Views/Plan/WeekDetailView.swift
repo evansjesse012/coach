@@ -197,12 +197,12 @@ private struct DayHeader: View {
                 .foregroundStyle(Theme.ink)
             if isToday {
                 Text("TODAY")
-                    .font(Theme.Typography.monoLabelS)
+                    .font(Theme.Typography.monoLabel)
                     .tracking(Theme.Tracking.monoLabel)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Theme.accentSoft))
-                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.accent))
+                    .foregroundStyle(Theme.accentInk)
             }
             Spacer()
         }

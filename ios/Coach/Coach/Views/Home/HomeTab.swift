@@ -469,9 +469,14 @@ struct HomeTab: View {
         VStack(spacing: 6) {
             Text(letter)
                 .font(Theme.Typography.monoLabel)
-                .foregroundStyle(day.isToday ? Theme.accent : Theme.ink3)
+                .foregroundStyle(day.isToday ? Theme.accentInk : Theme.ink3)
                 .textCase(.uppercase)
                 .tracking(Theme.Tracking.monoLabel)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule().fill(day.isToday ? Theme.accent : Color.clear)
+                )
 
             VStack(spacing: 3) {
                 if day.isRest {
