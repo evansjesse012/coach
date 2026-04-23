@@ -45,6 +45,8 @@ struct SessionDetailView: View {
     @State private var showBrowseSheet = false
     @State private var showReschedulePlaceholder = false
     @State private var hasLoadedInitial = false
+    @State private var showWorkoutLogger = false
+    @State private var showResumeConfirm = false
 
     // MARK: - Derived
 
@@ -85,6 +87,9 @@ struct SessionDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                 heroSection
+                if isStrengthWithExercises {
+                    strengthWorkoutSection
+                }
                 statusSection
                 watchSection
                 coachNotesSection
@@ -176,6 +181,26 @@ struct SessionDetailView: View {
         } message: {
             Text("This action will ship in a later phase. For now, use the overflow menu on the plan screen.")
         }
+        .fullScreenCover(isPresented: $showWorkoutLogger) {
+            NavigationStack { WorkoutLoggingView() }
+        }
+        .confirmationDialog(
+            "Workout already in progress",
+            isPresented: $showResumeConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Resume") { showWorkoutLogger = true }
+            Button("Discard and start new", role: .destructive) {
+                data.cancelActiveWorkout()
+                data.startStrengthWorkout(StrengthSession.fromPrescribed(session))
+                showWorkoutLogger = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let active = data.activeStrengthSession {
+                Text("You have \u{201C}\(active.name)\u{201D} in progress. Resume it or start a new one?")
+            }
+        }
         .onAppear { loadFromSessionIfNeeded() }
     }
 
@@ -231,6 +256,157 @@ struct SessionDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Strength workout section
+
+    /// True when this session prescribes strength work with at least one
+    /// exercise. Cardio sessions and strength sessions with no exercise
+    /// payload fall through without this block.
+    private var isStrengthWithExercises: Bool {
+        session.type.lowercased() == "strength"
+            && (session.exercises?.isEmpty == false)
+    }
+
+    @ViewBuilder
+    private var strengthWorkoutSection: some View {
+        if let exercises = session.exercises, !exercises.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                startWorkoutButton
+                exerciseList(exercises)
+            }
+        }
+    }
+
+    private var startWorkoutButton: some View {
+        Pill(
+            title: startWorkoutLabel,
+            icon: "play.fill",
+            variant: .primary,
+            action: tapStartWorkout
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var startWorkoutLabel: String {
+        if let active = data.activeStrengthSession, active.templateId == session.templateId {
+            return "Resume workout"
+        }
+        if data.activeStrengthSession != nil {
+            return "Start workout"
+        }
+        return "Start workout"
+    }
+
+    private func tapStartWorkout() {
+        if data.activeStrengthSession != nil {
+            // Resume the in-progress session if it's this same template,
+            // otherwise ask before discarding it.
+            if data.activeStrengthSession?.templateId == session.templateId {
+                showWorkoutLogger = true
+            } else {
+                showResumeConfirm = true
+            }
+        } else {
+            data.startStrengthWorkout(StrengthSession.fromPrescribed(session))
+            showWorkoutLogger = true
+        }
+    }
+
+    private func exerciseList(_ exercises: [PrescribedExercise]) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Text("Exercises")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                    Spacer(minLength: 8)
+                    Text("\(exercises.count) · \(totalSets(exercises)) sets")
+                        .font(Theme.Typography.monoMeta)
+                        .foregroundStyle(Theme.ink3)
+                }
+                VStack(spacing: 10) {
+                    ForEach(Array(exercises.enumerated()), id: \.offset) { idx, exercise in
+                        exerciseRow(exercise, index: idx)
+                    }
+                }
+            }
+        }
+    }
+
+    private func exerciseRow(_ exercise: PrescribedExercise, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Theme.accentSoft)
+                        .frame(width: 28, height: 28)
+                    Text("\(index + 1)")
+                        .font(Theme.Typography.mono(12, weight: .medium))
+                        .foregroundStyle(Theme.accent)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(exercise.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                    HStack(spacing: 8) {
+                        Text(exercise.exerciseType.label)
+                            .font(Theme.Typography.monoLabelS)
+                            .textCase(.uppercase)
+                            .tracking(Theme.Tracking.monoLabel)
+                            .foregroundStyle(Theme.accent)
+                        if let rest = exercise.rest, rest > 0 {
+                            Text("Rest \(formatRest(rest))")
+                                .font(Theme.Typography.monoMeta)
+                                .foregroundStyle(Theme.ink3)
+                        }
+                    }
+                }
+                Spacer(minLength: 8)
+                Text(setsRepsText(exercise))
+                    .font(Theme.Typography.mono(13, weight: .medium))
+                    .foregroundStyle(Theme.ink2)
+            }
+            if let cue = exercise.notes, !cue.isEmpty {
+                Text(cue)
+                    .font(Theme.Typography.small)
+                    .italic()
+                    .foregroundStyle(Theme.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func totalSets(_ exercises: [PrescribedExercise]) -> Int {
+        exercises.reduce(0) { $0 + ($1.sets ?? 0) }
+    }
+
+    private func setsRepsText(_ exercise: PrescribedExercise) -> String {
+        let sets = exercise.sets ?? 0
+        if let reps = exercise.reps, reps > 0 {
+            if let weight = exercise.weight, weight > 0 {
+                let w = weight == weight.rounded() ? "\(Int(weight))" : String(format: "%.1f", weight)
+                return "\(sets)×\(reps) · \(w)lb"
+            }
+            return "\(sets)×\(reps)"
+        }
+        if let d = exercise.duration, d > 0 {
+            return "\(sets)×\(Int(d))s"
+        }
+        if let band = exercise.band, !band.isEmpty {
+            return "\(sets) \(band)"
+        }
+        return sets > 0 ? "\(sets) sets" : "—"
+    }
+
+    private func formatRest(_ seconds: Int) -> String {
+        if seconds >= 60 {
+            let m = seconds / 60
+            let s = seconds % 60
+            return s == 0 ? "\(m)m" : "\(m)m \(s)s"
+        }
+        return "\(seconds)s"
     }
 
     // MARK: - Status section
