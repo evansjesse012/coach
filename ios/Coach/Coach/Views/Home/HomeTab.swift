@@ -459,7 +459,12 @@ struct HomeTab: View {
                 // Theme.SessionStatusKind, today gets the dark-fill emphasis.
                 HStack(spacing: 6) {
                     ForEach(Array(adherence.days.enumerated()), id: \.offset) { idx, day in
-                        weekDayCell(day: day, letter: weekdayLetter(idx))
+                        WeekStripCell(
+                            letter: weekdayLetter(idx),
+                            isToday: day.isToday,
+                            state: weekStripState(for: day),
+                            glyphs: weekStripGlyphs(for: day)
+                        )
                     }
                 }
 
@@ -488,76 +493,36 @@ struct HomeTab: View {
         return idx >= 0 && idx < letters.count ? letters[idx] : "·"
     }
 
-    /// One day cell in the week-overview grid. Renders a letter label and a
-    /// tinted rounded square with the day's sport icons stacked vertically.
-    /// Colors come from `Theme.SessionStatusKind` for resolved days; today
-    /// gets a dark emphasis fill with the accent border + tint so it jumps
-    /// off the grid. Multi-session days show up to two icons; a third or
-    /// more rolls into a compact "+N" below.
-    private func weekDayCell(day: DayReview, letter: String) -> some View {
-        let state = dayCellState(for: day)
-        let icons = dayIconNames(for: day)
-        return VStack(spacing: 6) {
-            Text(letter)
-                .font(Theme.Typography.monoLabel)
-                .foregroundStyle(day.isToday ? Theme.accent : Theme.ink3)
-                .textCase(.uppercase)
-                .tracking(Theme.Tracking.monoLabel)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(state.fill)
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(state.border, lineWidth: 1.5)
-
-                let visibleIcons = Array(icons.prefix(2))
-                VStack(spacing: 2) {
-                    ForEach(Array(visibleIcons.enumerated()), id: \.offset) { _, name in
-                        Image(systemName: name)
-                            .font(.system(size: icons.count > 1 ? 13 : 18, weight: .regular))
-                    }
-                    if icons.count > 2 {
-                        Text("+\(icons.count - 2)")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                }
-                .foregroundStyle(state.tint)
-            }
-            .aspectRatio(1, contentMode: .fit)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    /// Computes the presentation state for a week-strip cell.
-    /// Resolved sessions map to the canonical `Theme.SessionStatusKind`; today
-    /// that isn't fully logged wins over upcoming/pending so it stays highlighted.
-    private func dayCellState(for day: DayReview) -> DayCellState {
+    /// Session status resolved to a strip-cell state. Multi-session days
+    /// use this precedence: skipped > modified/swapped > done > pending.
+    /// "Today" is NOT folded in here — that's handled by `isToday` on
+    /// `WeekStripCell` so today's visual override remains explicit.
+    private func weekStripState(for day: DayReview) -> WeekStripCellState {
         if day.isRest { return .rest }
-        if day.sessions.isEmpty { return day.isToday ? .today : .upcoming }
+        if day.sessions.isEmpty { return .upcoming }
 
         let statuses = day.sessions.map { $0.status }
-        let allCompleted = !statuses.isEmpty && statuses.allSatisfy { $0 == .completed }
-
-        // Today emphasis unless the athlete has fully logged it — completed
-        // today reads as `done` to match completion surfaces elsewhere.
-        if day.isToday && !allCompleted {
-            return .today
+        if statuses.contains(.missed) { return .resolved(.skipped) }
+        if statuses.contains(.shortened) || statuses.contains(.substituted) {
+            return .resolved(.modified)
         }
-
-        if statuses.contains(.missed)      { return .resolved(.skipped) }
-        if statuses.contains(.substituted) { return .resolved(.swapped) }
-        if statuses.contains(.shortened)   { return .resolved(.modified) }
-        if allCompleted                    { return .resolved(.done) }
+        if !statuses.isEmpty, statuses.allSatisfy({ $0 == .completed }) {
+            return .resolved(.done)
+        }
         return .upcoming
     }
 
-    /// Sport icons to render inside a day cell, one per scheduled session.
-    /// For swapped sessions the substitute sport wins so the cell reflects
-    /// what was actually done. Rest days return the moon glyph; empty days
-    /// return a subtle dotted placeholder.
-    private func dayIconNames(for day: DayReview) -> [String] {
-        if day.isRest { return ["moon.fill"] }
-        if day.sessions.isEmpty { return ["circle.dotted"] }
+    /// One glyph per session on the day, in prescribed order. Swapped
+    /// sessions render the substitute sport so the cell reflects what
+    /// was actually done. Rest days return a single moon glyph; empty
+    /// days return a dotted placeholder.
+    private func weekStripGlyphs(for day: DayReview) -> [WeekStripCell.Glyph] {
+        if day.isRest {
+            return [.init(symbolName: "moon.fill", naturalColor: Theme.ink3)]
+        }
+        if day.sessions.isEmpty {
+            return [.init(symbolName: "circle.dotted", naturalColor: Theme.ink3)]
+        }
         return day.sessions.map { session in
             let rawType: String = {
                 if session.status == .substituted, let sub = session.substitute, !sub.isEmpty {
@@ -565,10 +530,23 @@ struct HomeTab: View {
                 }
                 return session.type
             }()
-            if let sport = Sport(rawValue: rawType) { return sport.sfSymbol }
-            if rawType == "strength" { return "dumbbell.fill" }
-            return "circle.dotted"
+            return WeekStripCell.Glyph(
+                symbolName: symbolName(for: rawType),
+                naturalColor: disciplineColor(for: rawType)
+            )
         }
+    }
+
+    private func symbolName(for type: String) -> String {
+        if let sport = Sport(rawValue: type) { return sport.sfSymbol }
+        if type == "strength" { return "dumbbell.fill" }
+        return "circle.dotted"
+    }
+
+    private func disciplineColor(for type: String) -> Color {
+        if let sport = Sport(rawValue: type) { return sport.discipline.color }
+        if type == "strength" { return Theme.Discipline.strength.color }
+        return Theme.ink3
     }
 
     private func weekFooterStat(label: String, value: String) -> some View {
@@ -865,41 +843,3 @@ private struct UndoToastBanner: View {
     }
 }
 
-// MARK: - Week strip cell state
-
-/// Presentation state for one cell in the Home week-overview grid.
-/// `.resolved` wraps a canonical `Theme.SessionStatusKind`; the other
-/// cases cover the states the grid needs that don't map to a session
-/// completion (rest days, upcoming days, today's emphasis).
-enum DayCellState {
-    case rest
-    case upcoming
-    case today
-    case resolved(Theme.SessionStatusKind)
-
-    var fill: Color {
-        switch self {
-        case .rest, .upcoming:      return Theme.surface2
-        case .today:                return Theme.todayEmphFill
-        case .resolved(let kind):   return kind.fill
-        }
-    }
-
-    var border: Color {
-        switch self {
-        case .rest:                 return Color.clear
-        case .upcoming:             return Theme.line
-        case .today:                return Theme.accent
-        case .resolved(let kind):   return kind.border ?? Color.clear
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .rest:                 return Theme.ink3
-        case .upcoming:             return Theme.ink2
-        case .today:                return Theme.accent
-        case .resolved(let kind):   return kind.tint
-        }
-    }
-}

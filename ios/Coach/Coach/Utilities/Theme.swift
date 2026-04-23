@@ -38,7 +38,13 @@ enum Theme {
     /// Near-black in both modes so today pops off the tinted canonical
     /// surfaces (accentSoft, modifiedSoft, etc.) without swapping sides
     /// when the appearance changes.
-    static let todayEmphFill  = dyn(l: "15171B", d: "0B0C10")
+    static let todayEmphFill  = dyn(l: "15171B", d: "0A0B0D")
+
+    /// Accent tint for the today-cell icon in the Home week grid. Lifted
+    /// moss in light mode so the icon contrasts over the near-black
+    /// todayEmphFill; dark mode keeps the standard accent since the
+    /// default green already reads against a near-black cell.
+    static let todayIconAccent = dyn(l: "A8C95A", d: "8DB347")
 
     // MARK: Session status — canonical presentation
 
