@@ -427,7 +427,8 @@ struct HomeTab: View {
             WeekDetailView(initialWeekNum: plan.currentWeek)
         } label: {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
+                // Header — phase name + date range + tap-for-detail chevron
+                HStack(spacing: 6) {
                     Text(plan.current?.name ?? "Current week")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.ink)
@@ -435,11 +436,25 @@ struct HomeTab: View {
                     Text(weekRangeText(plan: plan))
                         .font(Theme.Typography.monoMeta)
                         .foregroundStyle(Theme.ink3)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.ink3)
                 }
-                WeekStrip(
-                    days: weekStripDays(adherence: adherence),
-                    footer: weekStripFooter(adherence: adherence)
-                )
+
+                // 7 day columns with icon stacks
+                HStack(spacing: 4) {
+                    ForEach(Array(adherence.days.enumerated()), id: \.offset) { idx, day in
+                        weekDayColumn(day: day, letter: weekdayLetter(idx))
+                    }
+                }
+
+                // Footer — sessions / adherence / missed
+                HStack(alignment: .top, spacing: 16) {
+                    weekFooterStat(label: "Sessions",  value: "\(adherence.completed) / \(adherence.prescribed)")
+                    weekFooterStat(label: "Adherence", value: "\(adherence.adherence)%")
+                    weekFooterStat(label: "Missed",    value: "\(adherence.missed)")
+                }
+                .padding(.top, 4)
             }
             .padding(Theme.Spacing.cardP)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -453,31 +468,93 @@ struct HomeTab: View {
         .buttonStyle(.plain)
     }
 
-    private func weekStripDays(adherence: WeekAdherence) -> [WeekStrip.Day] {
+    private func weekdayLetter(_ idx: Int) -> String {
         let letters = ["M", "T", "W", "T", "F", "S", "S"]
-        let today = todayString()
-        return adherence.days.enumerated().map { idx, day in
-            let label = idx < letters.count ? letters[idx] : "·"
-            let state: WeekStrip.DayState = {
-                if day.dateStr == today { return .today }
-                if day.isRest { return .none }
-                if day.sessions.isEmpty { return .none }
-                let statuses = day.sessions.map(\.status)
-                if statuses.contains(.missed) { return .miss }
-                let good: Set<SessionStatus> = [.completed, .shortened, .substituted]
-                if statuses.allSatisfy({ good.contains($0) }) { return .done }
-                return .none
-            }()
-            return WeekStrip.Day(label: label, state: state)
-        }
+        return idx >= 0 && idx < letters.count ? letters[idx] : "·"
     }
 
-    private func weekStripFooter(adherence: WeekAdherence) -> [WeekStrip.FooterStat] {
-        [
-            .init(label: "Sessions",  value: "\(adherence.completed) / \(adherence.prescribed)"),
-            .init(label: "Adherence", value: "\(adherence.adherence)%"),
-            .init(label: "Missed",    value: "\(adherence.missed)"),
-        ]
+    private func weekDayColumn(day: DayReview, letter: String) -> some View {
+        VStack(spacing: 6) {
+            Text(letter)
+                .font(Theme.Typography.monoLabel)
+                .foregroundStyle(day.isToday ? Theme.accent : Theme.ink3)
+                .textCase(.uppercase)
+                .tracking(Theme.Tracking.monoLabel)
+
+            VStack(spacing: 3) {
+                if day.isRest {
+                    Image(systemName: "moon.fill")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Theme.ink3)
+                } else if day.sessions.isEmpty {
+                    // Nothing scheduled (ungenerated day etc.) — small neutral dot
+                    Circle()
+                        .fill(Theme.line2)
+                        .frame(width: 4, height: 4)
+                        .padding(.vertical, 5)
+                } else {
+                    ForEach(Array(day.sessions.prefix(2).enumerated()), id: \.offset) { _, session in
+                        sessionIcon(session: session)
+                    }
+                    if day.sessions.count > 2 {
+                        Text("+\(day.sessions.count - 2)")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.ink3)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 64, alignment: .top)
+        .padding(.vertical, 8)
+        .background(
+            day.isToday ? Theme.accentSoft : Color.clear,
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+    }
+
+    private func sessionIcon(session: SessionReview) -> some View {
+        // For a swapped session, the icon should reflect what was *actually*
+        // done rather than what was prescribed.
+        let rawType: String = {
+            if session.status == .substituted, let sub = session.substitute, !sub.isEmpty {
+                return sub
+            }
+            return session.type
+        }()
+        let sport = Sport(rawValue: rawType)
+        let symbol: String = {
+            if let sport { return sport.sfSymbol }
+            if rawType == "strength" { return "dumbbell.fill" }
+            return "questionmark"
+        }()
+        let tint: Color = {
+            switch session.status {
+            case .completed:   return CoachColors.green
+            case .shortened:   return CoachColors.yellow
+            case .substituted: return Theme.info
+            case .missed:      return Theme.warn
+            case .today, .upcoming: return Theme.ink2
+            }
+        }()
+        return Image(systemName: symbol)
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(tint)
+            .frame(height: 14)
+    }
+
+    private func weekFooterStat(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(Theme.Typography.monoLabelS)
+                .foregroundStyle(Theme.ink3)
+                .textCase(.uppercase)
+                .tracking(Theme.Tracking.monoLabel)
+            Text(value)
+                .font(Theme.Typography.mono(15, weight: .medium))
+                .foregroundStyle(Theme.ink)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func weekRangeText(plan: TrainingPlan) -> String {
