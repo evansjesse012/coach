@@ -12,8 +12,6 @@ struct CoachTab: View {
     @State private var inputText = ""
     @State private var isLoading = false
     @State private var showHistory = false
-    @State private var showContext = false
-    @State private var showSettings = false
     @FocusState private var isInputFocused: Bool
     @State private var didBootstrap = false
 
@@ -55,14 +53,6 @@ struct CoachTab: View {
         .sheet(isPresented: $showHistory) {
             NavigationStack { ConversationHistoryView() }
         }
-        .sheet(isPresented: $showContext) {
-            CoachContextSheet()
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showSettings) {
-            NavigationStack { SettingsView() }
-        }
     }
 
     // MARK: - Header (52pt, minimal)
@@ -95,30 +85,17 @@ struct CoachTab: View {
 
                 Spacer(minLength: 8)
 
-                // Right: overflow menu
-                Menu {
-                    Button {
-                        showContext = true
-                    } label: {
-                        Label("Coach context", systemImage: "info.circle")
-                    }
-                    Button {
-                        showHistory = true
-                    } label: {
-                        Label("Message history", systemImage: "clock.arrow.circlepath")
-                    }
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
+                // Right: chat history
+                Button {
+                    showHistory = true
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Theme.ink2)
                         .frame(width: 24, height: 24)
                 }
-                .accessibilityLabel("Chat options")
+                .buttonStyle(.plain)
+                .accessibilityLabel("Chat history")
             }
             .padding(.horizontal, 16)
             .frame(height: 52)
