@@ -1,8 +1,6 @@
 import SwiftUI
 
 /// Reusable collapsible card with animated chevron + fade transition.
-/// Used by PlanReviewView (expandable phases) and PrescribedSessionDetailView
-/// (coach notes, nutrition).
 struct CollapsibleCard<Header: View, Content: View>: View {
     let isExpanded: Bool
     let toggle: () -> Void
@@ -56,8 +54,7 @@ struct CollapsibleCard<Header: View, Content: View>: View {
     }
 }
 
-/// Convenience initializer for the existing "icon + title" header pattern used
-/// throughout PrescribedSessionDetailView.
+/// Convenience initializer for the "icon + title" header pattern.
 extension CollapsibleCard where Header == _CollapsibleIconTitleHeader {
     init(
         icon: String,

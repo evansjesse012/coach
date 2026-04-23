@@ -640,7 +640,7 @@ private struct WeekBreakdownList: View {
                 title: "Rest",
                 duration: nil,
                 isToday: isToday,
-                isResolved: false
+                statusKind: .pending
             )
         } else if dayPlan.sessions.isEmpty {
             sessionRow(
@@ -649,7 +649,7 @@ private struct WeekBreakdownList: View {
                 title: "—",
                 duration: nil,
                 isToday: isToday,
-                isResolved: false
+                statusKind: .pending
             )
         } else {
             VStack(spacing: 0) {
@@ -660,7 +660,7 @@ private struct WeekBreakdownList: View {
                         title: session.label,
                         duration: durationLabel(for: session),
                         isToday: isToday,
-                        isResolved: session.isResolved
+                        statusKind: session.statusKind
                     )
                 }
             }
@@ -673,7 +673,7 @@ private struct WeekBreakdownList: View {
         title: String,
         duration: String?,
         isToday: Bool,
-        isResolved: Bool
+        statusKind: Theme.SessionStatusKind
     ) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Text(dayLetter)
@@ -684,14 +684,18 @@ private struct WeekBreakdownList: View {
             DisciplineDot(discipline: discipline, size: 7)
             Text(title)
                 .font(Theme.Typography.body)
-                .foregroundStyle(isResolved ? Theme.ink3 : Theme.ink)
-                .strikethrough(isResolved, color: Theme.ink3)
+                .foregroundStyle(Theme.ink)
                 .lineLimit(1)
+            if statusKind != .pending {
+                Image(systemName: statusKind.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(statusKind.tint)
+            }
             Spacer(minLength: 8)
             if let duration {
                 Text(duration)
                     .font(Theme.Typography.mono(12))
-                    .foregroundStyle(isResolved ? Theme.ink3 : Theme.ink2)
+                    .foregroundStyle(Theme.ink2)
             }
         }
         .padding(.horizontal, 14)

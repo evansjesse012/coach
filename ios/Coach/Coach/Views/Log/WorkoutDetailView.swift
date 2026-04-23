@@ -11,15 +11,15 @@ struct WorkoutDetailView: View {
     /// Finds the prescribed session linked to this workout. Prefers the
     /// explicit linkedWorkoutId (set by auto- and manual-match), then falls
     /// back to the legacy date+sport+auto-note heuristic for pre-link data.
-    private var matchedSession: (session: PrescribedSession, weekNum: Int)? {
+    private var matchedSession: (session: PrescribedSession, weekNum: Int, dayIdx: Int, sessionIdx: Int)? {
         guard let plan = data.trainingPlan else { return nil }
 
         // Explicit link — works across any week, survives manual overrides.
         for (weekKey, wp) in plan.weeklyPlans {
             guard let weekNum = Int(weekKey) else { continue }
-            for dayPlan in wp.sessions {
-                for session in dayPlan.sessions where session.linkedWorkoutId == workout.id {
-                    return (session, weekNum)
+            for (dayIdx, dayPlan) in wp.sessions.enumerated() {
+                for (sIdx, session) in dayPlan.sessions.enumerated() where session.linkedWorkoutId == workout.id {
+                    return (session, weekNum, dayIdx, sIdx)
                 }
             }
         }
@@ -28,13 +28,13 @@ struct WorkoutDetailView: View {
         guard workout.source != "manual" else { return nil }
         for weekNum in max(1, plan.currentWeek - 2)...plan.currentWeek {
             guard let wp = plan.weeklyPlans[String(weekNum)] else { continue }
-            for dayPlan in wp.sessions {
-                for session in dayPlan.sessions {
+            for (dayIdx, dayPlan) in wp.sessions.enumerated() {
+                for (sIdx, session) in dayPlan.sessions.enumerated() {
                     guard session.completionStatus != nil,
                           session.completionNote == "Auto-matched from Apple Watch",
                           session.type.lowercased() == workout.sport.rawValue else { continue }
                     if let actual = session.actualDuration, abs(actual - workout.duration) < 120 {
-                        return (session, weekNum)
+                        return (session, weekNum, dayIdx, sIdx)
                     }
                 }
             }
@@ -154,7 +154,13 @@ struct WorkoutDetailView: View {
     private var matchedSessionCard: some View {
         if let match = matchedSession {
             NavigationLink {
-                PrescribedSessionDetailView(session: match.session, dateString: workout.date)
+                SessionDetailView(
+                    session: match.session,
+                    dateString: workout.date,
+                    weekNum: match.weekNum,
+                    dayIdx: match.dayIdx,
+                    sessionIdx: match.sessionIdx
+                )
             } label: {
                 CoachCard {
                     HStack(spacing: 10) {

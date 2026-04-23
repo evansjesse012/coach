@@ -547,12 +547,15 @@ struct HomeTab: View {
             if rawType == "strength" { return "dumbbell.fill" }
             return "questionmark"
         }()
+        // Map the adherence `SessionStatus` onto canonical
+        // `Theme.SessionStatusKind` tints so this row reads the same as
+        // Today pills, status strips, and SessionDetail badges.
         let tint: Color = {
             switch session.status {
-            case .completed:   return CoachColors.green
-            case .shortened:   return CoachColors.yellow
-            case .substituted: return Theme.info
-            case .missed:      return Theme.warn
+            case .completed:        return Theme.SessionStatusKind.done.tint
+            case .shortened:        return Theme.SessionStatusKind.modified.tint
+            case .substituted:      return Theme.SessionStatusKind.swapped.tint
+            case .missed:           return Theme.SessionStatusKind.skipped.tint
             case .today, .upcoming: return Theme.ink2
             }
         }()

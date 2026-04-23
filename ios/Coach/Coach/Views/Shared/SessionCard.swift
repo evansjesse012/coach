@@ -226,20 +226,6 @@ struct SessionStatusStrip: View {
     }
 }
 
-// MARK: - Theme helpers exposed to cross-file users
-
-extension SessionCard.Status {
-    /// Tint color for this status — read from the canonical kind.
-    var tintColor: Color { kind.tint }
-    /// Strikethrough has been retired across every surface. The canonical
-    /// status colors carry the signal now. Kept here so legacy call sites
-    /// compile during the migration; will be deleted in Phase 3.
-    var shouldStrikeThroughName: Bool { false }
-    /// Body dimming has been retired for the same reason. Kept here so
-    /// legacy call sites compile during the migration; will be deleted
-    /// in Phase 3.
-    var dimmedBodyOpacity: Double { 1.0 }
-}
 
 // MARK: - PrescribedSession → presentation mapping
 
