@@ -55,6 +55,7 @@ private enum DateRange: String, CaseIterable, Identifiable {
 
 struct LogTab: View {
     @Environment(DataService.self) var data
+    @State private var path = NavigationPath()
     @State private var typeFilter: Sport?
     @State private var dateRange: DateRange = .allTime
     @State private var showWorkoutLogger = false
@@ -81,7 +82,7 @@ struct LogTab: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     // In-progress workout banner or start workout button
@@ -258,6 +259,7 @@ struct LogTab: View {
                 }
             }
         }
+        .popsOnTabReselect(tabId: "log", path: $path)
     }
 }
 

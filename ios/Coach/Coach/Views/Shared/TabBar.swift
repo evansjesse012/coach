@@ -1,5 +1,26 @@
 import SwiftUI
 
+/// Broadcast when the user taps the tab they're already on. Each tab listens
+/// for its own id and pops its NavigationStack to root — the native TabView
+/// behavior the anchored custom bar has to reimplement.
+extension Notification.Name {
+    static let popTabToRoot = Notification.Name("coach.popTabToRoot")
+}
+
+extension View {
+    /// Pops the enclosing NavigationStack to root when the user taps the
+    /// tab matching `tabId` while already on it. Each tab owns its own
+    /// `@State var path = NavigationPath()` and applies this modifier.
+    func popsOnTabReselect(tabId: String, path: Binding<NavigationPath>) -> some View {
+        onReceive(NotificationCenter.default.publisher(for: .popTabToRoot)) { notif in
+            guard let id = notif.object as? String, id == tabId else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                path.wrappedValue = NavigationPath()
+            }
+        }
+    }
+}
+
 /// Anchored, edge-to-edge tab bar. Full width, solid `surface1` background,
 /// 1pt hairline on top, 56pt content row above the bottom safe area. Active
 /// state is communicated by color only — icon + label shift from `ink3` to
@@ -18,6 +39,10 @@ struct TabBar: View {
 
     let items: [Item]
     @Binding var selection: String
+    /// Called when the user taps the tab that is already selected. The
+    /// caller typically uses this to pop the current tab's NavigationStack
+    /// back to root.
+    var onReselect: ((String) -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +65,9 @@ struct TabBar: View {
     private func cell(_ item: Item) -> some View {
         let active = item.id == selection
         Button {
-            if selection != item.id {
+            if selection == item.id {
+                onReselect?(item.id)
+            } else {
                 selection = item.id
             }
         } label: {

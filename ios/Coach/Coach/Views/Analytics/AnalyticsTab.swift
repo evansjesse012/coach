@@ -4,6 +4,7 @@ import Charts
 struct AnalyticsTab: View {
     @Environment(DataService.self) var data
     @Environment(\.colorScheme) var colorScheme
+    @State private var path = NavigationPath()
 
     private var fitness: [TrainingStressCalculator.FitnessDataPoint] {
         TrainingStressCalculator.fitnessTimeSeries(cardio: data.cardio, strength: data.strength)
@@ -18,7 +19,7 @@ struct AnalyticsTab: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 if data.cardio.isEmpty && data.strength.isEmpty {
                     emptyState
@@ -37,6 +38,7 @@ struct AnalyticsTab: View {
             .navigationTitle("Analytics")
             .navigationBarTitleDisplayMode(.large)
         }
+        .popsOnTabReselect(tabId: "stats", path: $path)
     }
 
     // MARK: - Empty State

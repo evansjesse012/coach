@@ -3,12 +3,13 @@ import SwiftUI
 struct PlanTab: View {
     @Environment(DataService.self) private var data
 
+    @State private var path = NavigationPath()
     @State private var showPlanChat = false
     /// Phase currently expanded in the detail card. Defaults to `plan.currentPhase`.
     @State private var selectedPhaseNumber: Int?
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 if let plan = data.trainingPlan {
                     VStack(alignment: .leading, spacing: Theme.Spacing.section) {
@@ -46,6 +47,7 @@ struct PlanTab: View {
                 }
             }
         }
+        .popsOnTabReselect(tabId: "plan", path: $path)
     }
 
     // MARK: - Header

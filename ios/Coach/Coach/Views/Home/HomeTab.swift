@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeTab: View {
     @Environment(DataService.self) private var data
+    @State private var path = NavigationPath()
     @State private var showSettings = false
     @State private var activeSheet: ActiveSheet?
 
@@ -21,7 +22,7 @@ struct HomeTab: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                     headerBlock
@@ -44,6 +45,7 @@ struct HomeTab: View {
                 sheetView(for: sheet)
             }
         }
+        .popsOnTabReselect(tabId: "today", path: $path)
     }
 
     // MARK: - Header

@@ -54,8 +54,16 @@ struct MainTabView: View {
         // background extends into the home-indicator region so the bar
         // appears to reach the device's bottom edge.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            TabBar(items: tabItems, selection: $data.selectedTab)
-                .background(Theme.surface1.ignoresSafeArea(edges: .bottom))
+            TabBar(
+                items: tabItems,
+                selection: $data.selectedTab,
+                onReselect: { tappedId in
+                    // Each tab's NavigationStack listens for its own id and
+                    // pops to root — matches native TabView reselect behavior.
+                    NotificationCenter.default.post(name: .popTabToRoot, object: tappedId)
+                }
+            )
+            .background(Theme.surface1.ignoresSafeArea(edges: .bottom))
         }
         .animation(.easeInOut(duration: 0.25), value: data.activeStrengthSession != nil)
         .fullScreenCover(isPresented: $showActiveWorkoutLogger) {

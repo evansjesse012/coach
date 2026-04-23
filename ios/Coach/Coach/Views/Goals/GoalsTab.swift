@@ -3,6 +3,7 @@ import SwiftUI
 struct GoalsTab: View {
     @Environment(DataService.self) private var data
 
+    @State private var path = NavigationPath()
     @State private var showPicker = false
     @State private var showFormSheet = false
     @State private var showChatSheet = false
@@ -54,7 +55,7 @@ struct GoalsTab: View {
     private var activeCount: Int { activeRaces.count + activeGoals.count }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                     headerBlock
@@ -87,6 +88,7 @@ struct GoalsTab: View {
                 RaceCreationChatSheet()
             }
         }
+        .popsOnTabReselect(tabId: "goals", path: $path)
     }
 
     // MARK: - Header
