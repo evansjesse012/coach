@@ -151,7 +151,7 @@ struct PlanCreationChatSheet: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 32))
-                    .foregroundStyle(input.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.3) : CoachColors.accent)
+                    .foregroundStyle(input.trimmingCharacters(in: .whitespaces).isEmpty ? Theme.ink3.opacity(0.4) : Theme.accent)
             }
             .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty || isSending)
         }

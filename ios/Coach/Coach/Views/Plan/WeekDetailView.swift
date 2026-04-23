@@ -280,11 +280,11 @@ private struct WeekDaySessionCard: View {
         case .completed:
             Image(systemName: "checkmark.circle.fill").foregroundStyle(CoachColors.teal)
         case .needsReview:
-            Image(systemName: "questionmark.circle.fill").foregroundStyle(Color.orange)
+            Image(systemName: "questionmark.circle.fill").foregroundStyle(Theme.warn)
         case .modified:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.yellow)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(CoachColors.yellow)
         case .swapped:
-            Image(systemName: "arrow.triangle.2.circlepath.circle.fill").foregroundStyle(Color.purple)
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill").foregroundStyle(CoachColors.purple)
         case .skipped:
             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
         }
@@ -303,20 +303,20 @@ private struct WeekDaySessionCard: View {
 
     private var statusPillColor: Color {
         switch session.displayState {
-        case .upcoming: return .secondary
+        case .upcoming: return Theme.ink3
         case .completed: return CoachColors.teal
-        case .needsReview: return .orange
-        case .modified: return .yellow
-        case .swapped: return .purple
-        case .skipped: return .secondary
+        case .needsReview: return Theme.warn
+        case .modified: return CoachColors.yellow
+        case .swapped: return CoachColors.purple
+        case .skipped: return Theme.ink3
         }
     }
 
     private var cardBorderColor: Color {
         if session.displayState == .needsReview {
-            return Color.orange.opacity(0.6)
+            return Theme.warn.opacity(0.6)
         }
-        return colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder
+        return Theme.line
     }
 
     private var cardBorderWidth: CGFloat {

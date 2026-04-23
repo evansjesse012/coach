@@ -271,7 +271,7 @@ private struct StartWorkoutButton: View {
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(0.22))
+                        .fill(Theme.accentInk.opacity(0.22))
                         .frame(width: 36, height: 36)
                     Image(systemName: "play.fill")
                         .font(.system(size: 14, weight: .bold))
@@ -317,7 +317,7 @@ private struct ActiveWorkoutResumeCard: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(0.22))
+                        .fill(Theme.accentInk.opacity(0.22))
                         .frame(width: 38, height: 38)
                     Image(systemName: "figure.strengthtraining.traditional")
                         .font(.system(size: 16, weight: .bold))

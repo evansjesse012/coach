@@ -327,9 +327,7 @@ struct RaceDetailView: View {
         let visibleCount = showAllTips ? tips.count : min(4, tips.count)
         let visible = Array(tips.prefix(visibleCount))
         let hiddenCount = tips.count - visibleCount
-        let borderColor = colorScheme == .dark
-            ? Color.white.opacity(0.04)
-            : Color.black.opacity(0.04)
+        let borderColor = Theme.line
 
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(visible.enumerated()), id: \.offset) { idx, tip in
@@ -374,11 +372,11 @@ struct RaceDetailView: View {
         let isHighPriority = number <= 3
 
         let badgeBg = isHighPriority
-            ? CoachColors.accent.opacity(0.2)
-            : (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.05))
+            ? Theme.accentSoft
+            : Theme.surface2
         let badgeFg = isHighPriority
-            ? CoachColors.accent
-            : (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+            ? Theme.accent
+            : Theme.ink3
 
         return HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("\(number)")
@@ -927,26 +925,16 @@ struct RaceDetailView: View {
         )
     }
 
-    // MARK: - Color tokens (local helpers using the existing CoachColors system)
+    // MARK: - Color tokens (route through Theme so a palette edit cascades)
 
-    private var mutedLabel: Color {
-        colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4)
-    }
-    private var mutedFootnote: Color {
-        colorScheme == .dark ? Color.white.opacity(0.25) : Color.black.opacity(0.25)
-    }
-    private var mutedIcon: Color {
-        colorScheme == .dark ? Color.white.opacity(0.35) : Color.black.opacity(0.3)
-    }
-    private var chipBackground: Color {
-        colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03)
-    }
-    private var dividerColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.06)
-    }
+    private var mutedLabel: Color    { Theme.ink2 }
+    private var mutedFootnote: Color { Theme.ink3 }
+    private var mutedIcon: Color     { Theme.ink3 }
+    private var chipBackground: Color { Theme.surface2 }
+    private var dividerColor: Color  { Theme.line }
 
     private func textColor(_ opacity: Double) -> Color {
-        colorScheme == .dark ? Color.white.opacity(opacity) : Color.black.opacity(opacity)
+        Theme.ink.opacity(opacity)
     }
 
     // MARK: - Actions

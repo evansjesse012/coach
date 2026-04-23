@@ -81,7 +81,7 @@ struct ChatWorkoutCard: View {
             case .swapped:
                 Rectangle().fill(CoachColors.blue).frame(width: 6)
             case .skipped:
-                Rectangle().fill(Color.gray.opacity(0.6)).frame(width: 6)
+                Rectangle().fill(Theme.ink3.opacity(0.6)).frame(width: 6)
             }
         } else {
             (session.effortCategory ?? .easy).gradient
@@ -410,7 +410,7 @@ private struct ChatWeekSummary: View {
                 .frame(width: 24, height: 24)
         case .pending:
             Circle()
-                .stroke(Color.gray.opacity(0.4), lineWidth: 1.5)
+                .stroke(Theme.line2, lineWidth: 1.5)
                 .frame(width: 24, height: 24)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
@@ -570,9 +570,9 @@ private struct ChatPhaseProgress: View {
                 let progress = Double(data.phaseNumber) / Double(data.totalPhases)
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Theme.surface2)
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(CoachColors.green)
+                        .fill(Theme.accent)
                         .frame(width: geo.size.width * progress)
                 }
             }

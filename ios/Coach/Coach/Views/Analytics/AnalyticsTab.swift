@@ -256,7 +256,7 @@ struct AnalyticsTab: View {
                             x: .value("Week", v.weekStart, unit: .weekOfYear),
                             y: .value("Hours", v.otherMinutes / 60)
                         )
-                        .foregroundStyle(Color.gray.opacity(0.5))
+                        .foregroundStyle(Theme.ink3.opacity(0.5))
                     }
                 }
                 .chartForegroundStyleScale([
@@ -264,7 +264,7 @@ struct AnalyticsTab: View {
                     "Bike": CoachColors.blue,
                     "Swim": CoachColors.cyan,
                     "Strength": CoachColors.yellow,
-                    "Other": Color.gray.opacity(0.5),
+                    "Other": Theme.ink3.opacity(0.5),
                 ])
                 .frame(height: 180)
                 .padding(12)
@@ -377,7 +377,7 @@ struct AnalyticsTab: View {
             ZStack(alignment: .leading) {
                 // Background
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.15))
+                    .fill(Theme.surface2)
 
                 // Optimal zone (TSB +5 to +25)
                 let optLeft = midpoint + (5.0 / 30) * (w / 2)

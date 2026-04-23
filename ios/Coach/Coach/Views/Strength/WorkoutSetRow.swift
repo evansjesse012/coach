@@ -95,7 +95,7 @@ struct WorkoutSetRow: View {
         if set.completed {
             return CoachColors.green.opacity(0.08)
         }
-        return colorScheme == .dark ? Color.white.opacity(0.02) : Color.black.opacity(0.02)
+        return Theme.ink.opacity(0.02)
     }
 
     // MARK: - Previous value
@@ -235,7 +235,7 @@ private struct NumericField: View {
             .padding(.horizontal, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04))
+                    .fill(Theme.ink.opacity(0.05))
             )
             .onAppear {
                 text = format(value)
@@ -287,7 +287,7 @@ private struct IntField: View {
             .padding(.horizontal, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04))
+                    .fill(Theme.ink.opacity(0.05))
             )
             .onAppear {
                 text = value.map(String.init) ?? ""
