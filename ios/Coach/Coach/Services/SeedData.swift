@@ -33,7 +33,7 @@ enum SeedData {
         let today = Date()
         func day(_ offset: Int) -> String {
             let d = cal.date(byAdding: .day, value: offset, to: today)!
-            return ISO8601DateFormatter.dateOnly.string(from: d)
+            return localDateString(from: d)
         }
 
         // 1. Push message
@@ -394,13 +394,17 @@ enum SeedData {
         ]
         for pr in prs { try await data.savePR(pr) }
 
-        // 5. Training plan with rich phase data + 6 weeks of base sessions
+        // 5. Training plan with rich phase data + 6 weeks of base sessions.
+        // Plan start is snapped to Monday so week math lines up: day 0 of
+        // week N is always a Monday for consumers downstream.
+        let rawStart = cal.date(byAdding: .day, value: -14, to: today)!
+        let planStartStr = localDateString(from: mondayOf(rawStart))
         let plan = TrainingPlan(
             id: UUID().uuidString,
             goalId: marathon.id,
             raceName: "Big Sur Marathon",
             raceDate: day(45),
-            startDate: day(-14),
+            startDate: planStartStr,
             totalWeeks: 12,
             currentWeek: 3,
             currentPhase: 1,
@@ -492,7 +496,7 @@ enum SeedData {
         let cal = Calendar.current
         let today = Date()
         func day(_ offset: Int) -> String {
-            ISO8601DateFormatter.dateOnly.string(from: cal.date(byAdding: .day, value: offset, to: today)!)
+            localDateString(from: cal.date(byAdding: .day, value: offset, to: today)!)
         }
         return TrainingPhase(
             number: 1,
@@ -525,7 +529,7 @@ enum SeedData {
         let cal = Calendar.current
         let today = Date()
         func day(_ offset: Int) -> String {
-            ISO8601DateFormatter.dateOnly.string(from: cal.date(byAdding: .day, value: offset, to: today)!)
+            localDateString(from: cal.date(byAdding: .day, value: offset, to: today)!)
         }
         return TrainingPhase(
             number: 2,
@@ -558,7 +562,7 @@ enum SeedData {
         let cal = Calendar.current
         let today = Date()
         func day(_ offset: Int) -> String {
-            ISO8601DateFormatter.dateOnly.string(from: cal.date(byAdding: .day, value: offset, to: today)!)
+            localDateString(from: cal.date(byAdding: .day, value: offset, to: today)!)
         }
         return TrainingPhase(
             number: 3,

@@ -173,14 +173,7 @@ struct WeekDetailView: View {
     }
 
     private func dateString(plan: TrainingPlan, dayIdx: Int) -> String {
-        guard let startDateStr = plan.startDate else { return "" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let planStart = formatter.date(from: startDateStr) else { return "" }
-        let cal = Calendar.current
-        let totalDays = (weekNum - 1) * 7 + dayIdx
-        guard let date = cal.date(byAdding: .day, value: totalDays, to: planStart) else { return "" }
-        return formatter.string(from: date)
+        sessionDateString(planStartDate: plan.startDate, weekNumber: weekNum, dayIdx: dayIdx) ?? ""
     }
 }
 

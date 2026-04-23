@@ -635,15 +635,20 @@ enum TrainingPlanGenerator {
         return lines.joined(separator: "\n")
     }
 
-    /// Picks a start date: event.date - totalWeeks*7 if race date is set, otherwise today.
+    /// Picks a start date: event.date - totalWeeks*7 if race date is set,
+    /// otherwise today. Always snapped to the Monday of the resulting week
+    /// so downstream week math (`planStart + (weekNum-1)*7 + dayIdx`) always
+    /// lands on the expected weekday.
     private static func computeStartDate(for event: Event, totalWeeks: Int) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        if let raceDateStr = event.date, let raceDate = formatter.date(from: raceDateStr) {
-            let start = Calendar.current.date(byAdding: .day, value: -(totalWeeks - 1) * 7, to: raceDate) ?? Date()
-            return formatter.string(from: start)
-        }
-        return formatter.string(from: Date())
+        let raw: Date = {
+            if let raceDateStr = event.date, let raceDate = formatter.date(from: raceDateStr) {
+                return Calendar.current.date(byAdding: .day, value: -(totalWeeks - 1) * 7, to: raceDate) ?? Date()
+            }
+            return Date()
+        }()
+        return formatter.string(from: mondayOf(raw))
     }
 
     /// Extract JSON object from model response text, stripping markdown fences.
