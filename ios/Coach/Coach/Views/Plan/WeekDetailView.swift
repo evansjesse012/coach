@@ -120,16 +120,7 @@ struct WeekDetailView: View {
     }
 
     private var weekDateRange: String? {
-        guard let plan = data.trainingPlan, let startStr = plan.startDate else { return nil }
-        let inF = DateFormatter()
-        inF.dateFormat = "yyyy-MM-dd"
-        guard let planStart = inF.date(from: startStr) else { return nil }
-        let cal = Calendar.current
-        guard let monday = cal.date(byAdding: .day, value: (weekNum - 1) * 7, to: planStart),
-              let sunday = cal.date(byAdding: .day, value: 6, to: monday) else { return nil }
-        let outF = DateFormatter()
-        outF.dateFormat = "MMM d"
-        return "\(outF.string(from: monday)) \u{2014} \(outF.string(from: sunday))"
+        weekRangeLabel(planStartDate: data.trainingPlan?.startDate, weekNumber: weekNum)
     }
 
     // MARK: - Sessions list

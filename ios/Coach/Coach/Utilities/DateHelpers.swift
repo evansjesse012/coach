@@ -68,6 +68,25 @@ func sessionDateString(planStartDate: String?, weekNumber: Int, dayIdx: Int) -> 
     return formatter.string(from: date)
 }
 
+/// Monday–Sunday date range for a plan week, formatted as "MMM d — MMM d"
+/// (e.g. "Apr 13 — Apr 19"). Uses the same `mondayOf` snap as
+/// `sessionDateString` so the header text over a week strip agrees with
+/// the per-day labels below it. Returns nil when the plan has no
+/// `startDate` or the string can't be parsed.
+func weekRangeLabel(planStartDate: String?, weekNumber: Int) -> String? {
+    guard let startStr = planStartDate else { return nil }
+    let input = DateFormatter()
+    input.dateFormat = "yyyy-MM-dd"
+    guard let planStart = input.date(from: startStr) else { return nil }
+    let cal = Calendar.current
+    let raw = cal.date(byAdding: .day, value: (weekNumber - 1) * 7, to: planStart) ?? planStart
+    let monday = mondayOf(raw)
+    guard let sunday = cal.date(byAdding: .day, value: 6, to: monday) else { return nil }
+    let output = DateFormatter()
+    output.dateFormat = "MMM d"
+    return "\(output.string(from: monday)) \u{2014} \(output.string(from: sunday))"
+}
+
 /// Days between a date string and today
 func daysUntil(_ dateStr: String) -> Int? {
     let formatter = DateFormatter()

@@ -266,16 +266,7 @@ struct PlanTab: View {
     }
 
     private func weekRangeText(plan: TrainingPlan, weekNum: Int) -> String {
-        guard let startStr = plan.startDate else { return "" }
-        let inF = DateFormatter()
-        inF.dateFormat = "yyyy-MM-dd"
-        guard let planStart = inF.date(from: startStr) else { return "" }
-        let cal = Calendar.current
-        guard let monday = cal.date(byAdding: .day, value: (weekNum - 1) * 7, to: planStart),
-              let sunday = cal.date(byAdding: .day, value: 6, to: monday) else { return "" }
-        let outF = DateFormatter()
-        outF.dateFormat = "MMM d"
-        return "\(outF.string(from: monday)) — \(outF.string(from: sunday))"
+        weekRangeLabel(planStartDate: plan.startDate, weekNumber: weekNum) ?? ""
     }
 
     // MARK: - Phase date helpers
