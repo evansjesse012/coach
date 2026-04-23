@@ -163,7 +163,6 @@ struct CoachTab: View {
                 .padding(.horizontal, Theme.Spacing.screenH)
                 .padding(.vertical, 20)
             }
-            .scrollDismissesKeyboard(.interactively)
             .onChange(of: data.currentMessages.count) { _, _ in
                 scrollToBottom(proxy: proxy)
             }
@@ -233,6 +232,16 @@ struct CoachTab: View {
                     .focused($isInputFocused)
                     .lineLimit(1...6)
                     .submitLabel(.send)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") {
+                                isInputFocused = false
+                            }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                        }
+                    }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
