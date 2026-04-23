@@ -272,11 +272,12 @@ struct MessageBubble: View {
                     .fill(Theme.accent)
                     .frame(width: 2)
                     .frame(maxHeight: .infinity, alignment: .top)
-                Text(rendered(beat))
-                    .font(.system(size: 15.5, weight: .medium))
-                    .foregroundStyle(contentForeground)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .lineSpacing(3)
+                MarkdownView(
+                    text: beat,
+                    baseFont: .system(size: 15.5, weight: .medium),
+                    textColor: contentForeground
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -367,13 +368,14 @@ struct MessageBubble: View {
     // MARK: Content rendering
 
     private func rendered(_ text: String) -> AttributedString {
+        // Use a forgiving failure policy so a single malformed fragment
+        // doesn't drop the whole bubble to raw text (which is how stray
+        // `**` would leak through to the user).
         let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
         )
-        if let parsed = try? AttributedString(markdown: text, options: options) {
-            return parsed
-        }
-        return AttributedString(text)
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 }
 
