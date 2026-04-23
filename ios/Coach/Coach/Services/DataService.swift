@@ -10,6 +10,23 @@ struct AutoMatchRecord {
     var detectedStatus: CompletionStatus = .completed
 }
 
+/// Domain errors raised by `DataService` when a session's timing invariant
+/// is violated. Currently only one case, but typed as an enum so the
+/// pattern-match site can distinguish "can't mark future session" from
+/// a generic persistence error.
+enum SessionTimingError: Error, LocalizedError {
+    /// The session's scheduled date is strictly after today, so it cannot
+    /// yet be marked done / modified / swapped / skipped.
+    case cannotMarkFutureSession(weekNum: Int, dayIdx: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .cannotMarkFutureSession:
+            return "This session is in the future and can't be marked yet."
+        }
+    }
+}
+
 /// Centralized data access layer wrapping all Supabase CRUD operations.
 /// Loads all data into memory on launch; writes go to Supabase async with optimistic local updates.
 @MainActor
@@ -993,7 +1010,15 @@ final class DataService {
     }
 
     /// Applies an arbitrary mutation to a single prescribed session and persists the plan.
-    /// Used by the completion flow (mark completed / modified / swapped / skipped).
+    /// Used by the completion flow (mark completed / modified / swapped / skipped),
+    /// manual workout match, auto-match, and clear-match.
+    ///
+    /// **Invariant:** a session whose scheduled date is strictly after today
+    /// cannot have a completion marker set (`completionStatus != nil` or
+    /// `completed == true`). Clearing an existing mark is always allowed.
+    /// Callers don't need to pre-check the date — this method is the single
+    /// chokepoint that enforces the rule and throws
+    /// `SessionTimingError.cannotMarkFutureSession` on violation.
     func updateSessionCompletion(
         weekNum: Int,
         dayIdx: Int,
@@ -1008,10 +1033,38 @@ final class DataService {
         guard sessionIdx >= 0, sessionIdx < dayPlan.sessions.count else { return }
         var session = dayPlan.sessions[sessionIdx]
         mutate(&session)
+
+        // Guard: prescribed sessions scheduled after today cannot carry a
+        // completion mark. The mutation happens on a local copy above; if
+        // the check fails we throw before assigning back, so in-memory
+        // `trainingPlan` stays consistent.
+        //
+        // Permissive when plan.startDate is absent (can't compute date).
+        // Clearing a mark (end state has no completion fields set) is fine.
+        let endStateIsMarked = session.completionStatus != nil || session.completed == true
+        if endStateIsMarked,
+           let sessionDateStr = scheduledDate(plan: plan, weekNum: weekNum, dayIdx: dayIdx),
+           sessionDateStr > todayString() {
+            throw SessionTimingError.cannotMarkFutureSession(weekNum: weekNum, dayIdx: dayIdx)
+        }
+
         dayPlan.sessions[sessionIdx] = session
         wp.sessions[dayIdx] = dayPlan
         plan.weeklyPlans[key] = wp
         try await savePlan(plan)
+    }
+
+    /// Computes the `yyyy-MM-dd` date for a session at the given plan
+    /// coordinates, using the plan's start date + week/day offset. Returns
+    /// nil if the plan has no startDate or the calendar math fails.
+    private func scheduledDate(plan: TrainingPlan, weekNum: Int, dayIdx: Int) -> String? {
+        guard let startDateStr = plan.startDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let planStart = formatter.date(from: startDateStr) else { return nil }
+        let totalDays = (weekNum - 1) * 7 + dayIdx
+        guard let date = Calendar.current.date(byAdding: .day, value: totalDays, to: planStart) else { return nil }
+        return formatter.string(from: date)
     }
 
     func deletePlan(_ id: String, archiveTo history: PlanHistory) async throws {
