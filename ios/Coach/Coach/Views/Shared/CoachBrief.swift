@@ -31,7 +31,7 @@ struct CoachBrief: View {
                         .fill(Theme.accent)
                         .frame(width: 7, height: 7)
                     Text(kicker)
-                        .font(Theme.Typography.monoLabel)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(Theme.ink)
                         .textCase(.uppercase)
                         .tracking(Theme.Tracking.monoLabel)

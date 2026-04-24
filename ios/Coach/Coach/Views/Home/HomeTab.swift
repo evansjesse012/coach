@@ -119,12 +119,12 @@ struct HomeTab: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(dateKicker)
-                    .font(Theme.Typography.monoLabel)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundStyle(Theme.ink3)
                     .textCase(.uppercase)
                     .tracking(Theme.Tracking.monoLabel)
                 Text(greetingText)
-                    .font(Theme.Typography.pageTitle)
+                    .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Theme.ink)
                     .tracking(-0.5)
             }

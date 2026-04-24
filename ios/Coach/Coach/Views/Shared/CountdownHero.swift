@@ -24,13 +24,13 @@ struct CountdownHero: View {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(kicker)
-                        .font(Theme.Typography.monoLabel)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(kickerColor)
                         .textCase(.uppercase)
                         .tracking(Theme.Tracking.monoLabel)
 
                     Text(name)
-                        .font(Theme.Typography.serifRace)
+                        .font(.system(size: 28, weight: .medium, design: .serif))
                         .foregroundStyle(Theme.ink)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -52,7 +52,7 @@ struct CountdownHero: View {
                         .minimumScaleFactor(0.6)
 
                     Text(unit)
-                        .font(Theme.Typography.monoLabel)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(Theme.ink3)
                         .textCase(.uppercase)
                         .tracking(Theme.Tracking.monoLabel)
