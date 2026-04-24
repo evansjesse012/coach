@@ -90,15 +90,18 @@ struct PostStatusChatSheet: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Status-specific prompt. The chat message going to the coach is the
-    /// user's reply to this question, so the phrasing should scope the
-    /// answer appropriately.
+    /// Status-specific prompt. The chat message going to the coach is
+    /// the user's reply to this question, so the phrasing should scope
+    /// the answer appropriately. For `done`, ask the same kind of
+    /// follow-up a real coach would — how it felt, any pain, energy,
+    /// soreness — so the LLM has texture beyond the green tick.
     private var promptCopy: String {
         switch status {
-        case .modified: return "What did you change about the session?"
-        case .swapped:  return "What did you do instead of the prescribed session?"
-        case .skipped:  return "Why did you skip this one?"
-        case .done, .pending: return "Anything you want to tell your coach?"
+        case .done:     return "Nice. How did it feel? Anything worth flagging — pace, effort, pain, energy?"
+        case .modified: return "Got it. What did you change about the session?"
+        case .swapped:  return "Tell me about the swap — what did you do instead?"
+        case .skipped:  return "No stress. What got in the way today?"
+        case .pending:  return "Anything you want to tell your coach?"
         }
     }
 

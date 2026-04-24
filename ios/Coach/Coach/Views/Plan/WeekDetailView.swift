@@ -340,13 +340,14 @@ private struct WeekDaySessionCard: View {
                     return
                 }
             }
-            if kind != .done {
-                postStatusSheet = HomeTab.PostStatusContext(
-                    sessionLabel: session.label,
-                    status: kind,
-                    weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
-                )
-            }
+            // Same check-in pattern as Today: every status opens the
+            // sheet so the coach gets context on every logged session,
+            // not just the ones the athlete botched.
+            postStatusSheet = HomeTab.PostStatusContext(
+                sessionLabel: session.label,
+                status: kind,
+                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+            )
         } catch {
             print("WeekDetail.commitStatus failed (\(kind) week \(weekNum) day \(dayIdx) idx \(sessionIdx)): \(error)")
         }

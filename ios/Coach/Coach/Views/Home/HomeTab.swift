@@ -657,13 +657,14 @@ struct HomeTab: View {
                 message: "Marked as \(kind.label)",
                 week: week, day: day, sessionIdx: sessionIdx, snapshot: before
             )
-            if kind != .done {
-                postStatusSheet = PostStatusContext(
-                    sessionLabel: label,
-                    status: kind,
-                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx
-                )
-            }
+            // Every status opens the check-in sheet — a good coach asks
+            // "how did it go?" on a done session as much as "what got in
+            // the way?" on a skipped one. Skip in the sheet is one tap.
+            postStatusSheet = PostStatusContext(
+                sessionLabel: label,
+                status: kind,
+                weekNum: week, dayIdx: day, sessionIdx: sessionIdx
+            )
         } catch {
             print("commitStatus failed (\(kind) week \(week) day \(day) idx \(sessionIdx)): \(error)")
         }
