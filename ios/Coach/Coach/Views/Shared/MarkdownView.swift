@@ -161,11 +161,7 @@ struct MarkdownView: View {
     // MARK: Inline parsing
 
     private func inline(_ text: String) -> AttributedString {
-        let opts = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        return (try? AttributedString(markdown: text, options: opts)) ?? AttributedString(text)
+        renderInlineMarkdown(text)
     }
 
     private func headingFont(for level: Int) -> Font {
@@ -341,4 +337,77 @@ enum MarkdownParser {
         if cells.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { cells.removeLast() }
         return cells.map { $0.trimmingCharacters(in: .whitespaces) }
     }
+}
+
+// MARK: - Shared inline renderer
+
+/// Renders a string of inline markdown (bold, italic, code, links) into
+/// an `AttributedString`, with guards against the asterisk quirks LLMs
+/// routinely emit:
+///
+///   1. `** Hello **` — inner whitespace, which CommonMark treats as
+///       literal. Collapsed to `**Hello**`.
+///   2. `**Hello`, `Hello**`, `*`, `**` — unbalanced or orphan markers
+///       left by truncated output. Any `**` or lone `*` that survives
+///       the stock parser is stripped so the user never sees raw
+///       markdown syntax.
+///
+/// Both `MarkdownView` (assistant bubbles) and `ChatTab.rendered`
+/// (user bubbles) go through this so the bold-fragment leak Coach was
+/// showing can't come back on one surface while staying fixed on the
+/// other.
+func renderInlineMarkdown(_ text: String) -> AttributedString {
+    let normalized = normalizeEmphasisWhitespace(text)
+    let opts = AttributedString.MarkdownParsingOptions(
+        interpretedSyntax: .inlineOnlyPreservingWhitespace,
+        failurePolicy: .returnPartiallyParsedIfPossible
+    )
+    guard var attr = try? AttributedString(markdown: normalized, options: opts) else {
+        return AttributedString(stripOrphanAsterisks(normalized))
+    }
+    // If literal `**` or a lone `*` surfaces in the parsed output, the
+    // parser couldn't match it to emphasis bounds — strip those markers
+    // so they don't leak through to the athlete. (Proper bold emphasis
+    // from matched `**pairs**` already removed the syntax.)
+    let rendered = String(attr.characters)
+    if rendered.contains("**") || containsOrphanAsterisk(rendered) {
+        attr = AttributedString(stripOrphanAsterisks(rendered))
+    }
+    return attr
+}
+
+/// Collapses whitespace immediately inside an emphasis pair. The stock
+/// parser requires emphasis to hug its content (`**bold**` works,
+/// `** bold **` doesn't), but LLMs occasionally emit the spaced form.
+private func normalizeEmphasisWhitespace(_ text: String) -> String {
+    var s = text
+    s = s.replacingOccurrences(
+        of: #"\*\*\s+([^*\n]+?)\s+\*\*"#,
+        with: "**$1**",
+        options: .regularExpression
+    )
+    s = s.replacingOccurrences(
+        of: #"(?<!\*)\*\s+([^*\n]+?)\s+\*(?!\*)"#,
+        with: "*$1*",
+        options: .regularExpression
+    )
+    return s
+}
+
+/// True when `text` contains a solitary `*` that isn't part of a `**`
+/// pair — i.e. orphan italic emphasis the parser left behind.
+private func containsOrphanAsterisk(_ text: String) -> Bool {
+    // After `**` pairs have been canonicalized (all of them are even
+    // count here), any remaining single `*` is orphan by definition.
+    let withoutDouble = text.replacingOccurrences(of: "**", with: "")
+    return withoutDouble.contains("*")
+}
+
+/// Strips any remaining `**` or lone `*` from a string. Invoked only
+/// on parser output that failed to consume the markers, so we're not
+/// destroying intentional emphasis — just cleaning up leftover syntax.
+private func stripOrphanAsterisks(_ text: String) -> String {
+    text
+        .replacingOccurrences(of: "**", with: "")
+        .replacingOccurrences(of: "*", with: "")
 }

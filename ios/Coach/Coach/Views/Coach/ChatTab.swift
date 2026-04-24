@@ -368,14 +368,8 @@ struct MessageBubble: View {
     // MARK: Content rendering
 
     private func rendered(_ text: String) -> AttributedString {
-        // Use a forgiving failure policy so a single malformed fragment
-        // doesn't drop the whole bubble to raw text (which is how stray
-        // `**` would leak through to the user).
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        // Shared helper — see MarkdownView.swift for the quirk handling.
+        renderInlineMarkdown(text)
     }
 }
 
