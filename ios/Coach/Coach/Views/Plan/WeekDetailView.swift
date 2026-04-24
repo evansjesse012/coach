@@ -202,75 +202,93 @@ private struct WeekDaySessionCard: View {
     let dayIdx: Int
     let sessionIdx: Int
 
+    @Environment(DataService.self) private var data
+    @State private var postStatusSheet: HomeTab.PostStatusContext?
+
     var body: some View {
         let status = session.sessionCardStatus
-        return NavigationLink {
-            SessionDetailView(
-                session: session,
-                dateString: dateString,
-                weekNum: weekNum,
-                dayIdx: dayIdx,
-                sessionIdx: sessionIdx
-            )
-        } label: {
-            VStack(spacing: 0) {
-                if let status {
-                    SessionStatusStrip(status: status)
-                }
-
-                HStack(spacing: 0) {
-                    // Sport-colored left rule — matches Home's Today SessionCard.
-                    Rectangle()
-                        .fill(discipline.color)
-                        .frame(width: 3)
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(session.label)
-                            .font(Theme.Typography.sessionTitle)
-                            .foregroundStyle(Theme.ink)
-                            .tracking(Theme.Tracking.headline)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Text(secondLine)
-                            .font(Theme.Typography.monoMeta)
-                            .foregroundStyle(Theme.ink3)
-
-                        Text(thirdLine)
-                            .font(Theme.Typography.bodyS)
-                            .foregroundStyle(Theme.ink2)
-
-                        if let note = session.notes, !note.isEmpty {
-                            Text(note)
-                                .font(Theme.Typography.small)
-                                .foregroundStyle(Theme.ink2)
-                                .lineLimit(2)
-                                .padding(.top, 2)
-                        }
-
-                        if let completionNote = session.completionNote, !completionNote.isEmpty {
-                            Text("\u{201C}\(completionNote)\u{201D}")
-                                .font(Theme.Typography.small)
-                                .italic()
-                                .foregroundStyle(Theme.ink3)
-                                .lineLimit(2)
-                                .padding(.top, 2)
-                        }
+        return ZStack(alignment: .topTrailing) {
+            NavigationLink {
+                SessionDetailView(
+                    session: session,
+                    dateString: dateString,
+                    weekNum: weekNum,
+                    dayIdx: dayIdx,
+                    sessionIdx: sessionIdx
+                )
+            } label: {
+                VStack(spacing: 0) {
+                    if let status {
+                        SessionStatusStrip(status: status)
                     }
-                    .padding(.leading, 14)
-                    .padding(.vertical, 14)
 
-                    Spacer(minLength: 0)
+                    HStack(spacing: 0) {
+                        // Sport-colored left rule — matches Home's Today SessionCard.
+                        Rectangle()
+                            .fill(discipline.color)
+                            .frame(width: 3)
 
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.ink3)
-                        .padding(.trailing, 14)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(session.label)
+                                .font(Theme.Typography.sessionTitle)
+                                .foregroundStyle(Theme.ink)
+                                .tracking(Theme.Tracking.headline)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Text(secondLine)
+                                .font(Theme.Typography.monoMeta)
+                                .foregroundStyle(Theme.ink3)
+
+                            Text(thirdLine)
+                                .font(Theme.Typography.bodyS)
+                                .foregroundStyle(Theme.ink2)
+
+                            if let note = session.notes, !note.isEmpty {
+                                Text(note)
+                                    .font(Theme.Typography.small)
+                                    .foregroundStyle(Theme.ink2)
+                                    .lineLimit(2)
+                                    .padding(.top, 2)
+                            }
+
+                            if let completionNote = session.completionNote, !completionNote.isEmpty {
+                                Text("\u{201C}\(completionNote)\u{201D}")
+                                    .font(Theme.Typography.small)
+                                    .italic()
+                                    .foregroundStyle(Theme.ink3)
+                                    .lineLimit(2)
+                                    .padding(.top, 2)
+                            }
+                        }
+                        .padding(.leading, 14)
+                        .padding(.vertical, 14)
+                        // Leave trailing space for the absolute-positioned menu.
+                        .padding(.trailing, 50)
+
+                        Spacer(minLength: 0)
+                    }
                 }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            // Menu lives outside the NavigationLink so its taps don't
+            // trigger the push. Positioned in the top-right corner of
+            // the body (below the status strip when one is present).
+            SessionStatusMenu(
+                sessionLabel: session.label,
+                currentStatus: session.statusKind,
+                onDone:     { Task { await commitStatus(.done) } },
+                onModified: { Task { await commitStatus(.modified) } },
+                onSwapped:  { Task { await commitStatus(.swapped) } },
+                onSkipped:  { Task { await commitStatus(.skipped) } },
+                onEdit:     {}, // Body tap handles navigation.
+                onClear:    { Task { await clearStatus() } }
+            )
+            .padding(.top, status == nil ? 10 : 40)
+            .padding(.trailing, 10)
         }
-        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface1)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
@@ -279,6 +297,81 @@ private struct WeekDaySessionCard: View {
                 .strokeBorder(Theme.line, lineWidth: 1)
         )
         .dsCardShadow()
+        .sheet(item: $postStatusSheet) { ctx in
+            PostStatusChatSheet(
+                sessionLabel: ctx.sessionLabel,
+                status: ctx.status,
+                weekNum: ctx.weekNum,
+                dayIdx: ctx.dayIdx,
+                sessionIdx: ctx.sessionIdx
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    // MARK: - Status mutations
+
+    @MainActor
+    private func commitStatus(_ kind: Theme.SessionStatusKind) async {
+        do {
+            try await data.updateSessionCompletion(
+                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+            ) { s in
+                let iso = ISO8601DateFormatter().string(from: Date())
+                switch kind {
+                case .done:
+                    s.completionStatus = .completed
+                    s.completed = true
+                    s.completionResolvedAt = iso
+                case .modified:
+                    s.completionStatus = .modified
+                    s.completed = true
+                    s.completionResolvedAt = iso
+                case .swapped:
+                    s.completionStatus = .swapped
+                    s.completed = true
+                    s.completionResolvedAt = iso
+                case .skipped:
+                    s.completionStatus = .skipped
+                    s.completed = false
+                    s.completionResolvedAt = iso
+                case .pending:
+                    return
+                }
+            }
+            if kind != .done {
+                postStatusSheet = HomeTab.PostStatusContext(
+                    sessionLabel: session.label,
+                    status: kind,
+                    weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+                )
+            }
+        } catch {
+            print("WeekDetail.commitStatus failed (\(kind) week \(weekNum) day \(dayIdx) idx \(sessionIdx)): \(error)")
+        }
+    }
+
+    @MainActor
+    private func clearStatus() async {
+        do {
+            try await data.updateSessionCompletion(
+                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+            ) { s in
+                s.completionStatus = nil
+                s.completed = nil
+                s.actualDuration = nil
+                s.actualDistance = nil
+                s.actualSport = nil
+                s.actualEffort = nil
+                s.replacedWithLabel = nil
+                s.skipReason = nil
+                s.completionNote = nil
+                s.completionResolvedAt = nil
+            }
+        } catch {
+            print("WeekDetail.clearStatus failed (week \(weekNum) day \(dayIdx) idx \(sessionIdx)): \(error)")
+        }
     }
 
     // MARK: Derived — discipline

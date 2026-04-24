@@ -26,6 +26,19 @@ struct HomeTab: View {
         let snapshot: PrescribedSession
     }
 
+    /// Session + status for the post-status chat sheet. Identifiable so
+    /// `.sheet(item:)` can drive presentation directly off this state.
+    struct PostStatusContext: Identifiable {
+        let id = UUID()
+        let sessionLabel: String
+        let status: Theme.SessionStatusKind
+        let weekNum: Int
+        let dayIdx: Int
+        let sessionIdx: Int
+    }
+
+    @State private var postStatusSheet: PostStatusContext?
+
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
@@ -48,6 +61,17 @@ struct HomeTab: View {
             }
             .sheet(isPresented: $showSettings) {
                 NavigationStack { SettingsView() }
+            }
+            .sheet(item: $postStatusSheet) { ctx in
+                PostStatusChatSheet(
+                    sessionLabel: ctx.sessionLabel,
+                    status: ctx.status,
+                    weekNum: ctx.weekNum,
+                    dayIdx: ctx.dayIdx,
+                    sessionIdx: ctx.sessionIdx
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
             .overlay(alignment: .bottom) {
                 if let toast = undoToast {
@@ -277,25 +301,19 @@ struct HomeTab: View {
 
     @ViewBuilder
     private func sessionRow(session: PrescribedSession, week: Int, day: Int, sessionIdx: Int) -> some View {
-        let footerRow = TodayQuickLogRow(
-            session: session,
-            onDone: { Task { await markDidIt(week: week, day: day, sessionIdx: sessionIdx) } },
-            onSkip: { Task { await markSkipped(week: week, day: day, sessionIdx: sessionIdx) } },
-            onModified: {
-                path.append(TodayRoute.sessionDetail(
-                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: .modified
-                ))
-            },
-            onSwapped: {
-                path.append(TodayRoute.sessionDetail(
-                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: .swapped
-                ))
-            },
+        let menu = SessionStatusMenu(
+            sessionLabel: session.label,
+            currentStatus: session.statusKind,
+            onDone:     { Task { await commitStatus(.done,     week: week, day: day, sessionIdx: sessionIdx, label: session.label) } },
+            onModified: { Task { await commitStatus(.modified, week: week, day: day, sessionIdx: sessionIdx, label: session.label) } },
+            onSwapped:  { Task { await commitStatus(.swapped,  week: week, day: day, sessionIdx: sessionIdx, label: session.label) } },
+            onSkipped:  { Task { await commitStatus(.skipped,  week: week, day: day, sessionIdx: sessionIdx, label: session.label) } },
             onEdit: {
                 path.append(TodayRoute.sessionDetail(
                     weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: nil
                 ))
-            }
+            },
+            onClear: { Task { await clearStatus(week: week, day: day, sessionIdx: sessionIdx, label: session.label) } }
         )
 
         SessionCard(
@@ -304,7 +322,7 @@ struct HomeTab: View {
             name: session.label,
             stats: statsFor(session),
             status: session.sessionCardStatus,
-            footer: AnyView(footerRow),
+            trailingAction: AnyView(menu),
             onTap: {
                 path.append(TodayRoute.sessionDetail(
                     weekNum: week, dayIdx: day, sessionIdx: sessionIdx, preselected: nil
@@ -596,39 +614,87 @@ struct HomeTab: View {
     // recoverable with one tap. Modified / Swapped don't come through here —
     // they push SessionDetailView via the `path` and commit from there.
 
+    /// Shared write path for every status tap from the compact menu.
+    /// Commits the status, fires the undo toast, and — for non-Done
+    /// statuses — opens the post-status chat sheet so the athlete can
+    /// jot what changed. Done skips the sheet ("done is done").
     @MainActor
-    private func markDidIt(week: Int, day: Int, sessionIdx: Int) async {
+    private func commitStatus(
+        _ kind: Theme.SessionStatusKind,
+        week: Int, day: Int, sessionIdx: Int, label: String
+    ) async {
         guard let before = snapshotSession(week: week, day: day, sessionIdx: sessionIdx) else { return }
         do {
-            try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
-                s.completionStatus = .completed
-                s.completed = true
-                s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
-                if s.actualDuration == nil { s.actualDuration = s.duration }
-                if s.actualDistance == nil { s.actualDistance = s.distanceMiles }
+            try await data.updateSessionCompletion(
+                weekNum: week, dayIdx: day, sessionIdx: sessionIdx
+            ) { s in
+                let iso = ISO8601DateFormatter().string(from: Date())
+                switch kind {
+                case .done:
+                    s.completionStatus = .completed
+                    s.completed = true
+                    s.completionResolvedAt = iso
+                    if s.actualDuration == nil { s.actualDuration = s.duration }
+                    if s.actualDistance == nil { s.actualDistance = s.distanceMiles }
+                case .modified:
+                    s.completionStatus = .modified
+                    s.completed = true
+                    s.completionResolvedAt = iso
+                case .swapped:
+                    s.completionStatus = .swapped
+                    s.completed = true
+                    s.completionResolvedAt = iso
+                case .skipped:
+                    s.completionStatus = .skipped
+                    s.completed = false
+                    s.completionResolvedAt = iso
+                case .pending:
+                    // `.pending` isn't offered in the menu — use clearStatus.
+                    return
+                }
             }
-            presentUndoToast(message: "Marked as Done", week: week, day: day, sessionIdx: sessionIdx, snapshot: before)
+            presentUndoToast(
+                message: "Marked as \(kind.label)",
+                week: week, day: day, sessionIdx: sessionIdx, snapshot: before
+            )
+            if kind != .done {
+                postStatusSheet = PostStatusContext(
+                    sessionLabel: label,
+                    status: kind,
+                    weekNum: week, dayIdx: day, sessionIdx: sessionIdx
+                )
+            }
         } catch {
-            // Surface save failures to the console. Previously we silently
-            // swallowed these, which masked the future-session guard bug for
-            // weeks. If a save fails for any other reason (network, etc.)
-            // we at least want a breadcrumb during dev.
-            print("markDidIt failed (week \(week) day \(day) idx \(sessionIdx)): \(error)")
+            print("commitStatus failed (\(kind) week \(week) day \(day) idx \(sessionIdx)): \(error)")
         }
     }
 
+    /// Unmark a session — "Clear status" menu item. Wipes every logged
+    /// field so the session returns to Not-yet.
     @MainActor
-    private func markSkipped(week: Int, day: Int, sessionIdx: Int) async {
+    private func clearStatus(week: Int, day: Int, sessionIdx: Int, label: String) async {
         guard let before = snapshotSession(week: week, day: day, sessionIdx: sessionIdx) else { return }
         do {
-            try await data.updateSessionCompletion(weekNum: week, dayIdx: day, sessionIdx: sessionIdx) { s in
-                s.completionStatus = .skipped
-                s.completed = false
-                s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+            try await data.updateSessionCompletion(
+                weekNum: week, dayIdx: day, sessionIdx: sessionIdx
+            ) { s in
+                s.completionStatus = nil
+                s.completed = nil
+                s.actualDuration = nil
+                s.actualDistance = nil
+                s.actualSport = nil
+                s.actualEffort = nil
+                s.replacedWithLabel = nil
+                s.skipReason = nil
+                s.completionNote = nil
+                s.completionResolvedAt = nil
             }
-            presentUndoToast(message: "Marked as Skipped", week: week, day: day, sessionIdx: sessionIdx, snapshot: before)
+            presentUndoToast(
+                message: "Cleared",
+                week: week, day: day, sessionIdx: sessionIdx, snapshot: before
+            )
         } catch {
-            print("markSkipped failed (week \(week) day \(day) idx \(sessionIdx)): \(error)")
+            print("clearStatus failed (week \(week) day \(day) idx \(sessionIdx)): \(error)")
         }
     }
 
@@ -670,138 +736,52 @@ struct HomeTab: View {
     }
 }
 
-// MARK: - Today quick-log row (pending pills / Edit link)
+// MARK: - Session status menu
 
-/// Footer row rendered inside the Home Today `SessionCard`. For pending
-/// sessions it shows four 2-tap-confirm / one-tap pills (Done, Modified,
-/// Swapped, Skipped) using canonical `Theme.SessionStatusKind` colors.
-/// For a session already marked done / modified / swapped / skipped it
-/// collapses to a single "Edit" link — the SessionCard's status strip
-/// at the top already signals the state.
-private struct TodayQuickLogRow: View {
-    let session: PrescribedSession
+/// Compact ellipsis button on a session card that opens a native iOS
+/// `Menu` with the five status actions. Used by both Home's Today and
+/// the Week Detail list so the session-status UX is uniform across
+/// every surface: tap body → detail; tap ellipsis → menu → commit.
+///
+/// Single-tap commit inside the menu (no two-tap confirm) — opening
+/// the menu is already a deliberate gesture, and the 5s undo toast
+/// handles misfires.
+struct SessionStatusMenu: View {
+    let sessionLabel: String
+    let currentStatus: Theme.SessionStatusKind
     let onDone: () -> Void
-    let onSkip: () -> Void
     let onModified: () -> Void
     let onSwapped: () -> Void
+    let onSkipped: () -> Void
     let onEdit: () -> Void
-
-    /// Which pill is currently armed (awaiting a second tap). Local state —
-    /// tapping a second pill disarms the first without any cross-row coupling.
-    @State private var armed: Theme.SessionStatusKind?
-    @State private var armTimer: Task<Void, Never>?
+    let onClear: () -> Void
 
     var body: some View {
-        if session.completionStatus != nil {
-            editRow
-        } else {
-            // The Today tab only renders today's sessions, so the
-            // "no future marks" guard in DataService never trips here —
-            // the pill row is always live.
-            pillsRow
-        }
-    }
-
-    private var pillsRow: some View {
-        HStack(spacing: 8) {
-            TodayStatusPill(
-                kind: .done,
-                isArmed: armed == .done,
-                action: { handleTap(.done) }
-            )
-            TodayStatusPill(
-                kind: .modified,
-                isArmed: false,
-                action: onModified
-            )
-            TodayStatusPill(
-                kind: .swapped,
-                isArmed: false,
-                action: onSwapped
-            )
-            TodayStatusPill(
-                kind: .skipped,
-                isArmed: armed == .skipped,
-                action: { handleTap(.skipped) }
-            )
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var editRow: some View {
-        HStack(spacing: 6) {
-            Spacer(minLength: 0)
+        Menu {
+            Button(action: onDone)     { Label("Mark done",     systemImage: Theme.SessionStatusKind.done.icon) }
+            Button(action: onModified) { Label("Mark modified", systemImage: Theme.SessionStatusKind.modified.icon) }
+            Button(action: onSwapped)  { Label("Mark swapped",  systemImage: Theme.SessionStatusKind.swapped.icon) }
+            Button(role: .destructive, action: onSkipped) { Label("Mark skipped", systemImage: Theme.SessionStatusKind.skipped.icon) }
+            if currentStatus != .pending {
+                Divider()
+                Button(role: .destructive, action: onClear) {
+                    Label("Clear status", systemImage: "arrow.uturn.backward")
+                }
+            }
+            Divider()
             Button(action: onEdit) {
-                HStack(spacing: 4) {
-                    Text("Edit")
-                        .font(.system(size: 13, weight: .medium))
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                }
+                Label("Edit details", systemImage: "square.and.pencil")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.ink2)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Theme.surface2, in: Capsule())
-            }
-            .buttonStyle(.plain)
+                .frame(width: 28, height: 28)
+                .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
+                .contentShape(Circle())
         }
-    }
-
-    private func handleTap(_ kind: Theme.SessionStatusKind) {
-        guard kind == .done || kind == .skipped else { return }
-        if armed == kind {
-            // Second tap — commit.
-            armed = nil
-            armTimer?.cancel()
-            armTimer = nil
-            switch kind {
-            case .done: onDone()
-            case .skipped: onSkip()
-            default: break
-            }
-        } else {
-            // First tap — arm and start a 4s auto-disarm timer.
-            armed = kind
-            armTimer?.cancel()
-            armTimer = Task { [kind] in
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
-                await MainActor.run {
-                    if self.armed == kind { self.armed = nil }
-                }
-            }
-        }
-    }
-
-}
-
-/// One of four Today quick-log pills (Done / Modified / Swapped / Skipped).
-/// Colors come from `Theme.SessionStatusKind` — the canonical source —
-/// so the pill row is visually aligned with the status strip, badges, and
-/// SessionDetailView's status picker. An armed pill (Done / Skipped only)
-/// inverts to a filled treatment with a "Tap to confirm" label.
-private struct TodayStatusPill: View {
-    let kind: Theme.SessionStatusKind
-    let isArmed: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: kind.icon)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(isArmed ? "Confirm?" : kind.label)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(isArmed ? Color.white : kind.tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(isArmed ? kind.tint : kind.fill)
-            .overlay(
-                Capsule().strokeBorder(kind.tint.opacity(isArmed ? 0 : 0.5), lineWidth: 1)
-            )
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        .menuStyle(.button)
+        .accessibilityLabel("Session actions for \(sessionLabel)")
     }
 }
 

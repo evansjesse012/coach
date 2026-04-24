@@ -29,6 +29,11 @@ struct SessionCard: View {
     /// takes precedence over `chips` when present. Used by Home's Today
     /// section for the 2-tap-confirm status pill row / Edit link.
     var footer: AnyView? = nil
+    /// Optional action slot rendered at the far right of the discipline
+    /// tag row (top of the card body). Used for the compact status menu
+    /// (ellipsis → Menu) so the whole card body stays tappable for
+    /// navigation while the menu has its own hit region.
+    var trailingAction: AnyView? = nil
     /// Called when the card body itself is tapped (excluding chips/footer).
     /// If nil, no tap gesture is attached and the parent (e.g. a
     /// `NavigationLink`) is free to capture the tap.
@@ -98,6 +103,10 @@ struct SessionCard: View {
                             .foregroundStyle(discipline.color)
                             .textCase(.uppercase)
                             .tracking(Theme.Tracking.monoLabel)
+                        if let trailingAction {
+                            Spacer(minLength: 8)
+                            trailingAction
+                        }
                     }
 
                     Text(name)
