@@ -3,13 +3,18 @@ import SwiftUI
 /// Daily coach brief block.
 /// Accent dot + mono uppercase kicker + source/time on top,
 /// sans body message with optional highlighted phrases in the middle,
-/// optional action pills below.
+/// optional action pills below. The body collapses to `collapsedLines`
+/// on first render and surfaces a "Read more / Show less" toggle only
+/// when the full text is actually taller than the collapsed version.
 struct CoachBrief: View {
     let kicker: String              // e.g. "Today's brief"
     let source: String              // e.g. "Coach"
     let time: String                // e.g. "6:12 AM"
     let message: AttributedString
     var actions: [BriefAction] = []
+    /// Collapsed line count before "Read more" appears. Nil = always
+    /// expanded (no truncation).
+    var collapsedLines: Int? = 5
 
     struct BriefAction: Identifiable {
         let id = UUID()
@@ -39,12 +44,16 @@ struct CoachBrief: View {
                     .foregroundStyle(Theme.ink3)
             }
 
-            Text(message)
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.ink)
-                .tracking(Theme.Tracking.headline)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(4)
+            if let limit = collapsedLines {
+                ExpandableBriefText(message: message, collapsedLines: limit)
+            } else {
+                Text(message)
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.ink)
+                    .tracking(Theme.Tracking.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(4)
+            }
 
             if !actions.isEmpty {
                 HStack(spacing: 10) {
@@ -54,6 +63,74 @@ struct CoachBrief: View {
                     Spacer(minLength: 0)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Expandable body
+
+/// Body text with collapse/expand. Measures the rendered height (which
+/// respects the current `lineLimit`) against the intrinsic height of
+/// the same text rendered with no line limit, and only surfaces the
+/// toggle when those two heights differ — so short briefs never show
+/// a pointless "Read more" button.
+private struct ExpandableBriefText: View {
+    let message: AttributedString
+    let collapsedLines: Int
+
+    @State private var isExpanded = false
+    @State private var isTruncatable = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(message)
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.ink)
+                .tracking(Theme.Tracking.headline)
+                .lineSpacing(4)
+                .lineLimit(isExpanded ? nil : collapsedLines)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(truncationProbe)
+
+            if isTruncatable {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(isExpanded ? "Show less" : "Read more")
+                            .font(.system(size: 14, weight: .medium))
+                        Image(systemName: isExpanded ? "arrow.up" : "arrow.down")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// A hidden duplicate of the same text rendered with no line limit.
+    /// Its intrinsic height is compared against the visible Text's
+    /// rendered height; if the unlimited copy is taller, we know the
+    /// visible copy truncated and the toggle should appear.
+    private var truncationProbe: some View {
+        GeometryReader { visible in
+            Text(message)
+                .font(Theme.Typography.body)
+                .tracking(Theme.Tracking.headline)
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .hidden()
+                .background(
+                    GeometryReader { full in
+                        Color.clear.onAppear {
+                            isTruncatable = full.size.height > visible.size.height + 1
+                        }
+                        .onChange(of: full.size.height) { _, newValue in
+                            isTruncatable = newValue > visible.size.height + 1
+                        }
+                    }
+                )
         }
     }
 }
