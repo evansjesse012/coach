@@ -156,11 +156,10 @@ enum Theme {
     // Mono: SF Mono for data, dates, durations, and system labels.
 
     enum Typography {
-        // Sans — ~10% larger than the original redesign sizes. Hardcoded
-        // `.font(.system(size:))` call sites around the app stay at their
-        // original values; anything that wants the global lift should go
-        // through these tokens.
-        static let pageTitle     = Font.system(size: 26, weight: .semibold)
+        // Sans — sizes scaled up from the original redesign. Every
+        // surface that wants to grow with the app should route through
+        // these tokens rather than hardcoding `.font(.system(size:))`.
+        static let pageTitle     = Font.system(size: 30, weight: .semibold)
         static let cardTitle     = Font.system(size: 15, weight: .semibold)
         static let sessionTitle  = Font.system(size: 20, weight: .semibold)
         static let body          = Font.system(size: 17, weight: .medium)
@@ -171,13 +170,13 @@ enum Theme {
         static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
             .system(size: size, weight: weight, design: .monospaced)
         }
-        static let monoLabel  = mono(11, weight: .medium)
+        static let monoLabel  = mono(13, weight: .medium)
         static let monoLabelS = mono(10, weight: .medium)
         static let monoData   = mono(14, weight: .regular)
         static let monoMeta   = mono(12, weight: .regular)
 
         // Serif (restricted)
-        static let serifRace    = Font.system(size: 24, weight: .medium, design: .serif)
+        static let serifRace    = Font.system(size: 28, weight: .medium, design: .serif)
         static func serifNumber(_ size: CGFloat = 80) -> Font {
             .system(size: size, weight: .regular, design: .serif)
         }
