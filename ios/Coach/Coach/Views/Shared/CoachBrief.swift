@@ -138,9 +138,16 @@ private struct ExpandableBriefText: View {
 // MARK: - Highlight helper
 
 extension AttributedString {
-    /// Build a brief message with specific phrases wrapped in the accent-soft underline wash.
+    /// Build a brief message with specific phrases wrapped in the accent-soft
+    /// underline wash. Runs the text through `renderInlineMarkdown` first so
+    /// `**bold**` / `*italic*` / `` `code` `` come out formatted instead of
+    /// leaking the raw `**` markers to the UI — same shared helper the chat
+    /// bubbles use.
     static func briefMessage(_ text: String, highlight phrases: [String] = []) -> AttributedString {
-        var attr = AttributedString(text)
+        var attr = renderInlineMarkdown(text)
+        // Highlight phrases are matched against the post-parse rendered text,
+        // not the original source — so a phrase like "Today is straightforward"
+        // still matches even if it crosses a bold run in the original markdown.
         for phrase in phrases {
             if let r = attr.range(of: phrase) {
                 attr[r].backgroundColor = Theme.accentSoft
