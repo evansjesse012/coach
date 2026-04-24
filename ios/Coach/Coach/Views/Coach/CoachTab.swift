@@ -394,7 +394,7 @@ struct CoachTab: View {
                 suggestedReplies: result.suggestedReplies.isEmpty ? nil : result.suggestedReplies
             )
             try? await data.addMessage(assistantMsg)
-            await applyAgentEffects(result.effects)
+            await data.applyAgentEffects(result.effects)
         } catch {
             NSLog("[auto-match-eval] agent call failed: \(error)")
         }
@@ -405,82 +405,9 @@ struct CoachTab: View {
         guard !text.isEmpty else { return }
         inputText = ""
         isInputFocused = false
-        await data.ensureActiveConversation()
-        let userMsg = ChatMessage.user(text, conversationId: data.currentConversation?.id)
-        try? await data.addMessage(userMsg)
         isLoading = true
-        do {
-            let recentSummaries = data.archivedConversations.prefix(3).compactMap(\.summary)
-            let result = try await runAgentLoop(
-                personality: data.settings.personality,
-                customText: data.settings.customPrompt,
-                messages: data.currentMessages,
-                dataService: data,
-                recentConversationSummaries: recentSummaries
-            )
-            let assistantMsg = ChatMessage.assistant(
-                result.response,
-                metadata: ChatMessageMetadata(
-                    logged: result.hasWorkoutLogs,
-                    nutritionLogged: result.hasNutritionLogs,
-                    planChanged: result.hasPlanChanges,
-                    appActionTaken: result.hasAppActions
-                ),
-                conversationId: data.currentConversation?.id,
-                suggestedReplies: result.suggestedReplies.isEmpty ? nil : result.suggestedReplies
-            )
-            try? await data.addMessage(assistantMsg)
-            await applyAgentEffects(result.effects)
-            Task {
-                await extractMemory(
-                    messages: data.currentMessages,
-                    existingMemory: data.memory,
-                    dataService: data
-                )
-            }
-        } catch {
-            NSLog("[chat] sendMessage failed: \(error)")
-            let errorMsg = ChatMessage.assistant(
-                "Sorry, I ran into an error. Please try again.\n\n\(error.localizedDescription)",
-                metadata: ChatMessageMetadata(isError: true),
-                conversationId: data.currentConversation?.id
-            )
-            try? await data.addMessage(errorMsg)
-        }
+        await data.sendUserMessage(text)
         isLoading = false
-    }
-
-    /// Applies the agent's side-effect list to DataService. Kept separate so
-    /// both sendMessage() and sendAgentMessage() can share it.
-    private func applyAgentEffects(_ effects: [ToolEffect]) async {
-        for effect in effects {
-            switch effect {
-            case .workoutLogged(let w):   try? await data.addCardio(w)
-            case .cardioUpdated(let w):   try? await data.updateCardio(w)
-            case .cardioDeleted(let id):  try? await data.deleteCardio(id)
-            case .strengthDeleted(let id): try? await data.deleteStrength(id)
-            case .nutritionLogged(let e): try? await data.addNutrition(e)
-            case .planCreated(let p), .planUpdated(let p): try? await data.savePlan(p)
-            case .planDeleted(let id, let h): try? await data.deletePlan(id, archiveTo: h)
-            case .weekUpdated(let n, let wp):
-                if var c = data.trainingPlan {
-                    c.weeklyPlans[String(n)] = wp
-                    try? await data.savePlan(c)
-                }
-            case .progressUpdated(let w, let p):
-                if var c = data.trainingPlan {
-                    c.currentWeek = w
-                    c.currentPhase = p
-                    try? await data.savePlan(c)
-                }
-            case .eventCreated(let e):    try? await data.addEvent(e)
-            case .eventUpdated(let e):    try? await data.updateEvent(e)
-            case .eventDeleted(let id):   try? await data.deleteEvent(id)
-            case .memoryUpdated(let m):   try? await data.saveMemory(m)
-            case .settingsUpdated(let s): try? await data.saveSettings(s)
-            case .tabChanged(let t):      data.selectedTab = t
-            }
-        }
     }
 
     private func generateCompletionResponse(

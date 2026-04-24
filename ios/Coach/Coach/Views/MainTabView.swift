@@ -81,6 +81,17 @@ struct MainTabView: View {
                 showCoachChat = true
             }
         }
+        .onChange(of: data.shouldOpenChat) { _, open in
+            // Flows like the post-status sheet set this flag after
+            // posting a user message to the coach thread. Open the chat
+            // so the athlete sees their own message + the agent's reply
+            // as it streams in, then reset the flag so the next toggle
+            // re-fires.
+            if open {
+                showCoachChat = true
+                data.shouldOpenChat = false
+            }
+        }
         .onChange(of: showCoachChat) { _, shown in
             if !shown {
                 // Chat dismissed — clear any pending prompt so subsequent

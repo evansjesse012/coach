@@ -95,6 +95,13 @@ final class DataService {
     /// "Build with your coach" button). Consumed on next chat appear.
     var pendingChatPrompt: String?
 
+    /// Flip this to ask the shell (MainTabView) to present the coach
+    /// chat sheet. Used by flows that have already sent a user message
+    /// via `sendUserMessage` and just want the UI to pop so the athlete
+    /// can see the reply stream in. MainTabView resets it back to false
+    /// on each observation so subsequent toggles re-fire.
+    var shouldOpenChat: Bool = false
+
     // showCoachSheet removed — coach is now a primary tab, not a sheet.
 
     // MARK: - Conversations
@@ -1211,6 +1218,104 @@ final class DataService {
     }
 
     // MARK: - Chat Messages
+
+    /// Full send-and-reply path used by both ChatTab (athlete types in
+    /// the chat) and PostStatusChatSheet (post-session check-in). Posts
+    /// the athlete's message into the active conversation immediately,
+    /// then runs the agent loop and lands the assistant reply in the
+    /// same thread. Any tool side-effects get applied via
+    /// `applyAgentEffects`.
+    ///
+    /// Callers that need a loading indicator should `await` this (the
+    /// full round-trip). Callers that need to dismiss a sheet fast
+    /// (PostStatusChatSheet) can kick this in a detached `Task` — the
+    /// reply lands in the chat thread in the background.
+    @MainActor
+    func sendUserMessage(_ text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        await ensureActiveConversation()
+        let userMsg = ChatMessage.user(trimmed, conversationId: currentConversation?.id)
+        try? await addMessage(userMsg)
+
+        do {
+            let recentSummaries = archivedConversations.prefix(3).compactMap(\.summary)
+            let result = try await runAgentLoop(
+                personality: settings.personality,
+                customText: settings.customPrompt,
+                messages: currentMessages,
+                dataService: self,
+                recentConversationSummaries: recentSummaries
+            )
+            let assistantMsg = ChatMessage.assistant(
+                result.response,
+                metadata: ChatMessageMetadata(
+                    logged: result.hasWorkoutLogs,
+                    nutritionLogged: result.hasNutritionLogs,
+                    planChanged: result.hasPlanChanges,
+                    appActionTaken: result.hasAppActions
+                ),
+                conversationId: currentConversation?.id,
+                suggestedReplies: result.suggestedReplies.isEmpty ? nil : result.suggestedReplies
+            )
+            try? await addMessage(assistantMsg)
+            await applyAgentEffects(result.effects)
+            // Memory extraction is fire-and-forget so the reply returns
+            // as soon as possible.
+            Task { [weak self] in
+                guard let self else { return }
+                await extractMemory(
+                    messages: self.currentMessages,
+                    existingMemory: self.memory,
+                    dataService: self
+                )
+            }
+        } catch {
+            NSLog("[chat] sendUserMessage failed: \(error)")
+            let errorMsg = ChatMessage.assistant(
+                "Sorry, I ran into an error. Please try again.\n\n\(error.localizedDescription)",
+                metadata: ChatMessageMetadata(isError: true),
+                conversationId: currentConversation?.id
+            )
+            try? await addMessage(errorMsg)
+        }
+    }
+
+    /// Applies the agent's tool side-effects to DataService. Moved off
+    /// of `CoachTab` so `sendUserMessage` above can be called from any
+    /// surface (chat, post-status sheet) and the effects still land.
+    @MainActor
+    func applyAgentEffects(_ effects: [ToolEffect]) async {
+        for effect in effects {
+            switch effect {
+            case .workoutLogged(let w):   try? await addCardio(w)
+            case .cardioUpdated(let w):   try? await updateCardio(w)
+            case .cardioDeleted(let id):  try? await deleteCardio(id)
+            case .strengthDeleted(let id): try? await deleteStrength(id)
+            case .nutritionLogged(let e): try? await addNutrition(e)
+            case .planCreated(let p), .planUpdated(let p): try? await savePlan(p)
+            case .planDeleted(let id, let h): try? await deletePlan(id, archiveTo: h)
+            case .weekUpdated(let n, let wp):
+                if var c = trainingPlan {
+                    c.weeklyPlans[String(n)] = wp
+                    try? await savePlan(c)
+                }
+            case .progressUpdated(let w, let p):
+                if var c = trainingPlan {
+                    c.currentWeek = w
+                    c.currentPhase = p
+                    try? await savePlan(c)
+                }
+            case .eventCreated(let e):    try? await addEvent(e)
+            case .eventUpdated(let e):    try? await updateEvent(e)
+            case .eventDeleted(let id):   try? await deleteEvent(id)
+            case .memoryUpdated(let m):   try? await saveMemory(m)
+            case .settingsUpdated(let s): try? await saveSettings(s)
+            case .tabChanged(let t):      selectedTab = t
+            }
+        }
+    }
 
     func addMessage(_ message: ChatMessage) async throws {
         var msg = message

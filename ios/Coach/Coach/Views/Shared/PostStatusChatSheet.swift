@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// Lightweight "what changed?" sheet surfaced after a session gets marked
-/// modified / swapped / skipped — either from the compact status menu on
-/// a session card, or from an Apple Watch match confirmation that lands
-/// on a non-done status.
+/// Lightweight "what changed?" sheet surfaced after a session gets
+/// marked (any status) — either from the compact status menu on a
+/// session card, or from an Apple Watch match confirmation.
 ///
 /// Saves a free-form note to the prescribed session's `completionNote`
-/// and, when `postToChat` is true, queues the note as a user message in
-/// the coach thread (via `DataService.pendingChatPrompt`) so the coach
-/// has context on next turn.
+/// AND posts the note into the active coach conversation as a real
+/// user message — then kicks the agent loop in the background so the
+/// coach replies without the athlete needing to open the chat. The
+/// sheet dismisses immediately after the user message is written; the
+/// reply lands in the thread a few seconds later.
 struct PostStatusChatSheet: View {
     let sessionLabel: String
     let status: Theme.SessionStatusKind
@@ -185,7 +186,8 @@ struct PostStatusChatSheet: View {
         isSaving = true
         defer { isSaving = false }
 
-        // 1. Persist the note onto the prescribed session.
+        // 1. Persist the note onto the prescribed session so it shows up
+        //    on Session Detail / Week Detail later.
         do {
             try await data.updateSessionCompletion(
                 weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
@@ -196,13 +198,19 @@ struct PostStatusChatSheet: View {
             print("PostStatusChatSheet.save (completionNote) failed: \(error)")
         }
 
-        // 2. Queue the note as a user message so the coach thread picks
-        //    it up next time the chat opens. Framed with status + session
-        //    name so the coach has context without the user retyping it.
+        // 2. Post the framed note into the coach thread as a real user
+        //    message AND kick the agent reply in the background. The
+        //    detached Task outlives this sheet — DataService is global.
         let statusWord = status.label.lowercased()
         let framed = "I marked \"\(sessionLabel)\" as \(statusWord). \(trimmed)"
-        data.pendingChatPrompt = framed
+        Task { [data] in
+            await data.sendUserMessage(framed)
+        }
 
+        // 3. Dismiss this sheet and ask the shell to open the coach
+        //    chat so the athlete sees their message + the reply as it
+        //    streams in.
         dismiss()
+        data.shouldOpenChat = true
     }
 }
