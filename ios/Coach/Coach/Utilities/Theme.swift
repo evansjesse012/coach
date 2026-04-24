@@ -156,26 +156,29 @@ enum Theme {
     // Mono: SF Mono for data, dates, durations, and system labels.
 
     enum Typography {
-        // Sans
-        static let pageTitle     = Font.system(size: 24, weight: .semibold)
-        static let cardTitle     = Font.system(size: 14, weight: .semibold)
-        static let sessionTitle  = Font.system(size: 18, weight: .semibold)
-        static let body          = Font.system(size: 15, weight: .medium)
-        static let bodyS         = Font.system(size: 14, weight: .medium)
-        static let small         = Font.system(size: 11, weight: .regular)
+        // Sans — ~10% larger than the original redesign sizes. Hardcoded
+        // `.font(.system(size:))` call sites around the app stay at their
+        // original values; anything that wants the global lift should go
+        // through these tokens.
+        static let pageTitle     = Font.system(size: 26, weight: .semibold)
+        static let cardTitle     = Font.system(size: 15, weight: .semibold)
+        static let sessionTitle  = Font.system(size: 20, weight: .semibold)
+        static let body          = Font.system(size: 17, weight: .medium)
+        static let bodyS         = Font.system(size: 15, weight: .medium)
+        static let small         = Font.system(size: 12, weight: .regular)
 
         // Mono
         static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
             .system(size: size, weight: weight, design: .monospaced)
         }
-        static let monoLabel  = mono(10, weight: .medium)
-        static let monoLabelS = mono(9,  weight: .medium)
-        static let monoData   = mono(13, weight: .regular)
-        static let monoMeta   = mono(11, weight: .regular)
+        static let monoLabel  = mono(11, weight: .medium)
+        static let monoLabelS = mono(10, weight: .medium)
+        static let monoData   = mono(14, weight: .regular)
+        static let monoMeta   = mono(12, weight: .regular)
 
         // Serif (restricted)
-        static let serifRace    = Font.system(size: 22, weight: .medium, design: .serif)
-        static func serifNumber(_ size: CGFloat = 72) -> Font {
+        static let serifRace    = Font.system(size: 24, weight: .medium, design: .serif)
+        static func serifNumber(_ size: CGFloat = 80) -> Font {
             .system(size: size, weight: .regular, design: .serif)
         }
     }
