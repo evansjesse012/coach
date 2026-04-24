@@ -48,7 +48,7 @@ struct WeekStripCell: View {
     var body: some View {
         VStack(spacing: 6) {
             Text(letter)
-                .font(.system(size: 10, weight: Self.dayLetterWeight(isToday: isToday)))
+                .font(.system(size: 11, weight: Self.dayLetterWeight(isToday: isToday)))
                 .tracking(0.8)
                 .textCase(.uppercase)
                 .foregroundStyle(Self.dayLetterColor(isToday: isToday))
@@ -107,7 +107,10 @@ struct WeekStripCell: View {
     }
 
     static func dayLetterWeight(isToday: Bool) -> Font.Weight {
-        isToday ? .bold : .regular
+        // All letters render semibold so the row reads as a row of labels.
+        // Today bumps to bold on top of the accent color + accent border +
+        // accent icon, keeping it the most emphasized column.
+        isToday ? .bold : .semibold
     }
 
     // MARK: - Layer 2 · Cell fill + border
