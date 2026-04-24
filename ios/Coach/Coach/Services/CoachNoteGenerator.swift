@@ -214,6 +214,40 @@ enum CoachNoteGenerator {
                     let skipped = resolvedThisWeek.filter { $0.displayState == .skipped }.count
                     sections.append("THIS WEEK SO FAR: \(done)/\(total) sessions resolved, \(skipped) skipped.")
                 }
+
+                // Upcoming days — the prompt asks the note to be forward-looking
+                // ("what's tomorrow, what this sets up"). Without these the model
+                // hallucinates tomorrow's session.
+                let dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                var upcomingLines: [String] = []
+                for offset in 1...6 {
+                    let absoluteIdx = todayDayIdx + offset
+                    let weekOffset = absoluteIdx / 7
+                    let dayIdxInWeek = absoluteIdx % 7
+                    let weekKey = String(plan.currentWeek + weekOffset)
+                    guard let upcomingWp = plan.weeklyPlans[weekKey],
+                          dayIdxInWeek < upcomingWp.sessions.count else { continue }
+                    let dp = upcomingWp.sessions[dayIdxInWeek]
+                    let prefix = offset == 1 ? "TOMORROW (\(dayLabels[dayIdxInWeek]))" : dayLabels[dayIdxInWeek]
+                    if dp.isRest == true {
+                        let restDesc = dp.restNote.map { "rest — \($0)" } ?? "rest"
+                        upcomingLines.append("- \(prefix): \(restDesc)")
+                    } else if dp.sessions.isEmpty {
+                        upcomingLines.append("- \(prefix): not yet generated (stub)")
+                    } else {
+                        let descs = dp.sessions.map { sess -> String in
+                            var d = "\(sess.label) (\(sess.type))"
+                            if let dur = sess.duration { d += ", \(dur)min" }
+                            if let effort = sess.effortCategory { d += ", \(effort.rawValue)" }
+                            if sess.priority == .red { d += " [KEY]" }
+                            return d
+                        }
+                        upcomingLines.append("- \(prefix): \(descs.joined(separator: "; "))")
+                    }
+                }
+                if !upcomingLines.isEmpty {
+                    sections.append("UPCOMING:\n" + upcomingLines.joined(separator: "\n"))
+                }
             }
 
             // Race countdown
