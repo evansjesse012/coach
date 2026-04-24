@@ -609,8 +609,11 @@ struct HomeTab: View {
             }
             presentUndoToast(message: "Marked as Done", week: week, day: day, sessionIdx: sessionIdx, snapshot: before)
         } catch {
-            // Guarded paths (e.g. future-dated session) throw — silently drop;
-            // the UI already prevents those taps via `canQuickLog`.
+            // Surface save failures to the console. Previously we silently
+            // swallowed these, which masked the future-session guard bug for
+            // weeks. If a save fails for any other reason (network, etc.)
+            // we at least want a breadcrumb during dev.
+            print("markDidIt failed (week \(week) day \(day) idx \(sessionIdx)): \(error)")
         }
     }
 
@@ -624,7 +627,9 @@ struct HomeTab: View {
                 s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
             }
             presentUndoToast(message: "Marked as Skipped", week: week, day: day, sessionIdx: sessionIdx, snapshot: before)
-        } catch { }
+        } catch {
+            print("markSkipped failed (week \(week) day \(day) idx \(sessionIdx)): \(error)")
+        }
     }
 
     private func snapshotSession(week: Int, day: Int, sessionIdx: Int) -> PrescribedSession? {

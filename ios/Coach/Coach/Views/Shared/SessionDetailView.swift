@@ -1006,9 +1006,22 @@ struct SessionDetailView: View {
     /// caller, and `updateSessionCompletion` is idempotent for equal
     /// writes anyway.
     private func persist() async {
-        try? await data.updateSessionCompletion(
-            weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
-        ) { s in
+        do {
+            try await data.updateSessionCompletion(
+                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+            ) { s in
+                applyWorkingState(&s)
+            }
+        } catch {
+            // Surface save failures to the console. Previously `try?` silently
+            // swallowed everything, which masked the future-session guard bug
+            // for weeks (every auto-save was being rejected and thrown away).
+            print("SessionDetailView.persist failed (week \(weekNum) day \(dayIdx) idx \(sessionIdx)): \(error)")
+        }
+    }
+
+    /// Extracted so `persist()` stays readable while we try/catch the call.
+    private func applyWorkingState(_ s: inout PrescribedSession) {
             switch workingStatus {
             case .pending:
                 clearMutation(&s)
@@ -1050,11 +1063,10 @@ struct SessionDetailView: View {
                 s.skipReason = workingSkipReason
                 s.completionNote = nilIfEmpty(workingCompletionNote)
             }
-            s.linkedWorkoutId = workingLinkedWorkoutId
-            s.rpe = workingRPE
-            s.fatigue = workingFatigue
-            s.athleteNote = nilIfEmpty(workingAthleteNote)
-        }
+        s.linkedWorkoutId = workingLinkedWorkoutId
+        s.rpe = workingRPE
+        s.fatigue = workingFatigue
+        s.athleteNote = nilIfEmpty(workingAthleteNote)
     }
 
     /// Schedule a debounced save. Cancels any prior pending save so a

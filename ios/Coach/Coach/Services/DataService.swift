@@ -655,6 +655,12 @@ final class DataService {
             duration = 0
         }
         session.duration = duration
+        // Snapshot the prescribed-vs-logged comparison BEFORE we prune
+        // uncompleted sets off `session` below. Using the pre-prune
+        // `activeStrengthSession` preserves the prescribed set count for
+        // the `completed vs prescribed` ratio; the post-prune `session`
+        // is what we save to history.
+        let prePruneSession = activeStrengthSession
         // Drop any exercises that had zero completed sets so the logged
         // history reflects what was actually done.
         session.exercises = session.exercises.filter { ex in
@@ -675,9 +681,126 @@ final class DataService {
         try await addStrength(session)
         await rollPRsForSession(session)
 
+        // Link back to the prescribed session (if any) and mark it
+        // complete / modified based on how much of the prescription was
+        // actually logged. Uses the pre-prune snapshot so we have both
+        // sides of the comparison (prescribed sets vs. completed sets).
+        if let pre = prePruneSession {
+            await markPrescribedSessionForFinishedStrength(finished: session, preprune: pre)
+        }
+
         activeStrengthSession = nil
         activeWorkoutStartedAt = nil
         clearPersistedActiveSession()
+    }
+
+    // MARK: - Strength → prescribed session auto-link
+
+    /// Finds the prescribed session that matches a just-finished strength
+    /// workout (by scheduled date + template) and marks it `.completed`
+    /// or `.modified` depending on how much of the prescription was
+    /// actually logged.
+    @MainActor
+    private func markPrescribedSessionForFinishedStrength(
+        finished: StrengthSession,
+        preprune: StrengthSession
+    ) async {
+        guard let coords = findPrescribedStrengthMatch(for: finished) else { return }
+        guard let plan = trainingPlan,
+              let wp = plan.weeklyPlans[String(coords.weekNum)],
+              coords.dayIdx < wp.sessions.count,
+              coords.sessionIdx < wp.sessions[coords.dayIdx].sessions.count
+        else { return }
+
+        let prescribed = wp.sessions[coords.dayIdx].sessions[coords.sessionIdx]
+        let status = completionStatusForStrength(prescribed: prescribed, preprune: preprune)
+
+        do {
+            try await updateSessionCompletion(
+                weekNum: coords.weekNum,
+                dayIdx: coords.dayIdx,
+                sessionIdx: coords.sessionIdx
+            ) { s in
+                s.completionStatus = status
+                s.completed = (status != .skipped)
+                s.actualDuration = finished.duration ?? s.actualDuration
+                s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+                if status == .modified && (s.completionNote ?? "").isEmpty {
+                    s.completionNote = "Logged via workout — some prescribed sets not completed."
+                }
+            }
+        } catch {
+            // `updateSessionCompletion`'s future-session guard shouldn't
+            // trip here (the workout was logged today), but log just in
+            // case so the failure is visible during dev instead of
+            // silently skipped.
+            print("markPrescribedSessionForFinishedStrength: \(error)")
+        }
+    }
+
+    /// Walks the plan for a strength session scheduled on the same date
+    /// as the finished workout. Prefers a `templateId` match (exact same
+    /// prescribed workout) and falls back to the first strength session
+    /// scheduled that day if the template doesn't line up (e.g. quick-
+    /// start + no template).
+    private func findPrescribedStrengthMatch(
+        for finished: StrengthSession
+    ) -> (weekNum: Int, dayIdx: Int, sessionIdx: Int)? {
+        guard let plan = trainingPlan else { return nil }
+        let targetDate = finished.date
+
+        var fallback: (Int, Int, Int)?
+        for (weekKey, wp) in plan.weeklyPlans {
+            guard let weekNum = Int(weekKey) else { continue }
+            for (dayIdx, dayPlan) in wp.sessions.enumerated() {
+                guard let scheduled = sessionDateString(
+                    planStartDate: plan.startDate,
+                    weekNumber: weekNum,
+                    dayIdx: dayIdx
+                ), scheduled == targetDate else { continue }
+
+                for (sessionIdx, session) in dayPlan.sessions.enumerated() where session.type == "strength" {
+                    if let ft = finished.templateId, let st = session.templateId, ft == st {
+                        return (weekNum, dayIdx, sessionIdx)
+                    }
+                    if fallback == nil {
+                        fallback = (weekNum, dayIdx, sessionIdx)
+                    }
+                }
+            }
+        }
+        return fallback
+    }
+
+    /// "Done" when every prescribed exercise was touched and ≥90% of the
+    /// prescribed sets were completed — that allows for small misses
+    /// (skipped last set, tweaked form) without flipping to `modified`.
+    /// Otherwise `.modified`. If absolutely nothing was logged, `.skipped`.
+    private func completionStatusForStrength(
+        prescribed: PrescribedSession,
+        preprune: StrengthSession
+    ) -> CompletionStatus {
+        let loggedCompletedCount = preprune.exercises.reduce(0) {
+            $0 + $1.sets.filter(\.completed).count
+        }
+        if loggedCompletedCount == 0 { return .skipped }
+
+        guard let prescribedExercises = prescribed.exercises, !prescribedExercises.isEmpty else {
+            // No prescription to compare against — anything logged is done.
+            return .completed
+        }
+
+        let prescribedSetCount = prescribedExercises.reduce(0) { $0 + ($1.sets ?? 0) }
+        guard prescribedSetCount > 0 else { return .completed }
+
+        let allExercisesTouched = prescribedExercises.allSatisfy { pe in
+            preprune.exercises.contains { fe in
+                fe.name.caseInsensitiveCompare(pe.name) == .orderedSame
+                    && fe.sets.contains(where: \.completed)
+            }
+        }
+        let ratio = Double(loggedCompletedCount) / Double(prescribedSetCount)
+        return (allExercisesTouched && ratio >= 0.9) ? .completed : .modified
     }
 
     /// Abandon the active workout without saving anything.
@@ -1062,16 +1185,15 @@ final class DataService {
     }
 
     /// Computes the `yyyy-MM-dd` date for a session at the given plan
-    /// coordinates, using the plan's start date + week/day offset. Returns
-    /// nil if the plan has no startDate or the calendar math fails.
+    /// coordinates. Delegates to `sessionDateString`, which applies the
+    /// same `mondayOf` snap every display surface uses. Without the
+    /// snap, a plan whose `startDate` is not a Monday produced a date
+    /// up to 6 days off — the future-session guard below was wrongly
+    /// rejecting today's sessions as "scheduled in the future" and
+    /// silently throwing, which is why status marks and workout links
+    /// weren't persisting.
     private func scheduledDate(plan: TrainingPlan, weekNum: Int, dayIdx: Int) -> String? {
-        guard let startDateStr = plan.startDate else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let planStart = formatter.date(from: startDateStr) else { return nil }
-        let totalDays = (weekNum - 1) * 7 + dayIdx
-        guard let date = Calendar.current.date(byAdding: .day, value: totalDays, to: planStart) else { return nil }
-        return formatter.string(from: date)
+        sessionDateString(planStartDate: plan.startDate, weekNumber: weekNum, dayIdx: dayIdx)
     }
 
     func deletePlan(_ id: String, archiveTo history: PlanHistory) async throws {
