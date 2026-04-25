@@ -120,6 +120,7 @@ extension TrainingPhase {
         "base development":    "Growing your weekly volume",
         "build":               "Introducing race-intensity work",
         "build 1":             "Introducing race-intensity work",
+        "threshold introduction": "Introducing race-intensity work",
         "build 2":             "Race-specific peak training",
         "peak":                "Race-specific peak training",
         "race-specific peak":  "Race-specific peak training",

@@ -44,7 +44,7 @@ struct HomeTab: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                     headerBlock
-                    raceHeroBlock
+                    todayHeaderBlocks
                     coachBriefBlock
                     todayBlock
                     thisWeekBlock
@@ -157,22 +157,84 @@ struct HomeTab: View {
         }
     }
 
-    // MARK: - Race hero
+    // MARK: - Today header (race + phase blocks)
+    //
+    // Stacked at the top of the page in place of the old CountdownHero.
+    // Each block renders a hairline at its bottom, so the two share a
+    // tight 16pt seam and sit visually together.
 
     @ViewBuilder
-    private var raceHeroBlock: some View {
-        if let plan = data.trainingPlan,
-           let name = plan.raceName, !name.isEmpty,
-           let date = plan.raceDate {
-            let (count, unit) = countdownParts(date)
-            CountdownHero(
-                kicker: "A-Race",
-                name: name,
-                date: formattedRaceDate(date),
+    private var todayHeaderBlocks: some View {
+        if let plan = data.trainingPlan {
+            VStack(alignment: .leading, spacing: 16) {
+                raceHeaderBlock(plan: plan)
+                phaseHeaderBlock(plan: plan)
+            }
+        }
+    }
+
+    /// Race-block built from the plan's linked Event when present (so we
+    /// get location), falling back to plan-level fields. Wrapped in a
+    /// NavigationLink to RaceDetailView; tapping anywhere on the block
+    /// pushes the race detail page.
+    @ViewBuilder
+    private func raceHeaderBlock(plan: TrainingPlan) -> some View {
+        let raceEvent = linkedRaceEvent(plan: plan)
+
+        // Source of truth: prefer the linked Event, then plan-level fields.
+        let raceName = raceEvent?.name
+            ?? plan.raceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dateStr  = raceEvent?.date ?? plan.raceDate
+        let location = raceEvent?.location
+
+        if let raceName, !raceName.isEmpty,
+           let dateStr, !dateStr.isEmpty {
+            let (count, unit) = countdownParts(dateStr)
+            let block = RaceBlockView(
+                raceName: raceName,
+                location: location,
+                date: formattedRaceDate(dateStr),
                 count: count,
                 unit: unit
             )
+
+            if let event = raceEvent {
+                NavigationLink {
+                    RaceDetailView(eventId: event.id)
+                } label: {
+                    block
+                }
+                .pressableBlock()
+            } else {
+                // No linked event — render flat (no navigation target yet).
+                block
+            }
         }
+    }
+
+    /// Phase-block showing the current phase's plain-language description
+    /// and weeks remaining. Tapping pushes PhaseDetailView for the
+    /// current phase.
+    @ViewBuilder
+    private func phaseHeaderBlock(plan: TrainingPlan) -> some View {
+        if let phase = plan.current {
+            NavigationLink {
+                PhaseDetailView(plan: plan, phase: phase)
+            } label: {
+                TrainingPhaseBlockView(
+                    phaseDescription: phase.plainLanguageLabel,
+                    weeksLeft: plan.weeksLeftInPhase(phase)
+                )
+            }
+            .pressableBlock()
+        }
+    }
+
+    /// Resolves the Event row that backs the plan's race, if any.
+    /// Plans store `goalId` referencing the user's events table.
+    private func linkedRaceEvent(plan: TrainingPlan) -> Event? {
+        guard let goalId = plan.goalId, !goalId.isEmpty else { return nil }
+        return data.events.first(where: { $0.id == goalId })
     }
 
     private func countdownParts(_ dateStr: String) -> (Int, String) {
