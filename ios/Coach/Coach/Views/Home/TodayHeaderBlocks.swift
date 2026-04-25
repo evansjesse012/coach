@@ -48,50 +48,45 @@ struct RaceBlockView: View {
     let count: Int
     let unit: String       // "Weeks out", "Day out", "Today", etc.
 
-    /// Pixel offset used to align the right column's content so the
-    /// number's bottom sits on the date line. Equals the unit text height
-    /// (~12pt at 9pt mono) plus the 8pt margin between number and unit.
-    private let rightColumnOffset: CGFloat = 20
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .bottom, spacing: 16) {
-                // Left column — text stack, padded so the date sits 20pt
-                // above the row's true bottom (matching where the number
-                // bottom will land).
+            // Last-baseline alignment puts the unit ("Weeks out") on the
+            // same line as the date, with the big number sitting above.
+            // The row's bottom is the shared baseline + descent, so the
+            // hairline ends up tight under the date/unit row.
+            HStack(alignment: .lastTextBaseline, spacing: 16) {
                 VStack(alignment: .leading, spacing: 0) {
                     BlockKicker(title: "Training for")
                         .padding(.bottom, 8)
 
                     Text(raceName)
-                        .font(.system(size: 22, weight: .medium, design: .serif))
-                        .tracking(-0.015 * 22) // -0.015em
-                        .lineSpacing(22 * 0.05) // 1.05 line-height
+                        .font(.system(size: 26, weight: .medium, design: .serif))
+                        .tracking(-0.015 * 26) // -0.015em
+                        .lineSpacing(26 * 0.05) // 1.05 line-height
                         .foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.bottom, 6)
 
                     if let location, !location.isEmpty {
                         Text(location)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(Theme.ink2)
-                            .lineSpacing(13 * 0.3)
+                            .lineSpacing(16 * 0.3)
                             .padding(.bottom, 4)
                     }
 
                     Text(date)
-                        .font(.system(size: 10, weight: .regular, design: .monospaced))
-                        .tracking(0.06 * 10)
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .tracking(0.06 * 11)
                         .foregroundStyle(Theme.ink3)
                 }
-                .padding(.bottom, rightColumnOffset)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Right column — big number + unit. Sits to the right
-                // bottom-aligned with the row; the left column's extra
-                // bottom padding is what lifts the number bottom up to
-                // the date line.
-                VStack(alignment: .trailing, spacing: 8) {
+                // Right column — big number on top, unit beneath. The
+                // VStack's lastTextBaseline is the unit's baseline, so
+                // unit lines up horizontally with the date in the left
+                // column.
+                VStack(alignment: .trailing, spacing: 6) {
                     Text("\(count)")
                         .font(.system(size: 64, weight: .regular, design: .serif))
                         .tracking(-0.04 * 64)
@@ -108,7 +103,7 @@ struct RaceBlockView: View {
                 .fixedSize()
             }
             .padding(.top, 4)
-            .padding(.bottom, 18)
+            .padding(.bottom, 14)
 
             Hairline()
         }
