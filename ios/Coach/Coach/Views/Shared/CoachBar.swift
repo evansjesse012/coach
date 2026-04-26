@@ -45,22 +45,22 @@ struct CoachBar: View {
                         Color.clear.frame(width: 0, height: 0)
                     } else {
                         SignalDot(animate: !reduceMotion)
-                            .frame(width: 8, height: 8)
+                            .frame(width: 12, height: 12)
                     }
                 }
                 .padding(.leading, isUnread ? 18 : 18)
                 .padding(.trailing, isUnread ? 0 : 12)
 
                 // Preview block: kicker + single-line message preview.
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(kickerText)
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .textCase(.uppercase)
-                        .tracking(isUnread ? 0.04 * 9 : 0.16 * 9)
+                        .tracking(isUnread ? 0.04 * 11 : 0.16 * 11)
                         .foregroundStyle(kickerColor)
 
                     Text(preview)
-                        .font(.system(size: 13, weight: isUnread ? .semibold : .medium))
+                        .font(.system(size: 15, weight: isUnread ? .semibold : .medium))
                         .foregroundStyle(previewColor)
                         .lineLimit(1)
                         .truncationMode(.tail)
