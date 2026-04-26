@@ -72,7 +72,7 @@ struct CoachBar: View {
                 // in resting.
                 if isUnread {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Theme.accentInk.opacity(0.85))
                         .padding(.trailing, 18)
                 } else {
@@ -80,14 +80,16 @@ struct CoachBar: View {
                         .padding(.trailing, 8)
                 }
             }
-            .frame(height: 56)
+            .frame(height: 64)
             .background(barBackground)
             .clipShape(Capsule())
             .overlay(
-                // 1pt outline only in resting state. The accent fill is its
-                // own boundary in the unread state.
+                // Faint accent outline in resting — ties the chrome to the
+                // coach brand without competing with the pulse. Cleared in
+                // the unread state where the full accent fill is the
+                // boundary.
                 Capsule()
-                    .stroke(isUnread ? Color.clear : Theme.line2, lineWidth: 1)
+                    .stroke(isUnread ? Color.clear : Theme.accent.opacity(0.22), lineWidth: 1)
             )
             .shadow(color: shadowColor, radius: 15, x: 0, y: 12)
         }
@@ -102,9 +104,9 @@ struct CoachBar: View {
     private var micButton: some View {
         Button(action: onMic) {
             Image(systemName: "mic.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Theme.accentInk)
-                .frame(width: 36, height: 36)
+                .frame(width: 40, height: 40)
                 .background(Circle().fill(Theme.accent))
         }
         .buttonStyle(.plain)

@@ -205,10 +205,10 @@ enum Theme {
         /// content needs its own padding budget.
         ///
         /// Breakdown: tab row (56) + home-indicator inset (34) + CoachBar
-        /// height (56) + 12pt gap above the bar = 158pt. iPhone SE (no
+        /// height (64) + 12pt gap above the bar = 166pt. iPhone SE (no
         /// home indicator) just sees a touch more whitespace below
         /// content, which is acceptable.
-        static let bottomReserve: CGFloat = 158
+        static let bottomReserve: CGFloat = 166
     }
 
     // MARK: Radius
