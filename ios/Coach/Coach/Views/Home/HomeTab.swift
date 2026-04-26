@@ -239,12 +239,10 @@ struct HomeTab: View {
 
     private func countdownParts(_ dateStr: String) -> (Int, String) {
         let days = daysUntil(dateStr) ?? 0
-        if days >= 14 {
-            let weeks = days / 7
-            return (weeks, weeks == 1 ? "Week out" : "Weeks out")
-        }
         if days <= 0 { return (0, "Today") }
-        return (days, days == 1 ? "Day out" : "Days out")
+        if days <= 30 { return (days, days == 1 ? "Day out" : "Days out") }
+        let weeks = days / 7
+        return (weeks, weeks == 1 ? "Week out" : "Weeks out")
     }
 
     private func formattedRaceDate(_ dateStr: String) -> String {
