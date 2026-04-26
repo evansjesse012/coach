@@ -32,23 +32,26 @@ struct MainTabView: View {
             }
         }
         // Pinned above the anchored tab bar: the active-workout pill (when
-        // present) and the chat FAB. Both align to the bottom of the content
-        // area, which — thanks to safeAreaInset below — ends at the tab bar
-        // top edge.
+        // present) sits above the persistent CoachBar. Both align to the
+        // bottom of the content area, which — thanks to safeAreaInset
+        // below — ends at the tab bar top edge.
         .overlay(alignment: .bottom) {
-            if data.activeStrengthSession != nil {
-                MiniActiveWorkoutBar { showActiveWorkoutLogger = true }
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            VStack(spacing: 8) {
+                if data.activeStrengthSession != nil {
+                    MiniActiveWorkoutBar { showActiveWorkoutLogger = true }
+                        .padding(.horizontal, 14)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                CoachBar(
+                    preview: coachBarPreview,
+                    timestamp: coachBarTimestamp,
+                    isUnread: data.hasUnreadCoachMessage,
+                    onTap: { showCoachChat = true },
+                    onMic: { showCoachChat = true } // voice mode falls back to chat
+                )
+                .padding(.horizontal, 12)
             }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            FAB(icon: "bubble.left.fill") {
-                showCoachChat = true
-            }
-            .padding(.trailing, 16)
-            .padding(.bottom, 16)
+            .padding(.bottom, 12)
         }
         // Anchored tab bar: content sits above the safe area; its `surface1`
         // background extends into the home-indicator region so the bar
@@ -93,12 +96,36 @@ struct MainTabView: View {
             }
         }
         .onChange(of: showCoachChat) { _, shown in
-            if !shown {
+            if shown {
+                // Opening the chat clears the unread badge — every existing
+                // assistant message is now considered seen.
+                data.markChatAsSeen()
+            } else {
                 // Chat dismissed — clear any pending prompt so subsequent
                 // sets re-trigger the sheet.
                 data.pendingChatPrompt = nil
             }
         }
+    }
+
+    // MARK: - CoachBar bindings
+
+    /// Single-line preview of the latest assistant message, with markdown
+    /// stripped. Falls back to a friendly prompt when no messages exist
+    /// yet so the bar never renders empty.
+    private var coachBarPreview: String {
+        if let msg = data.latestAssistantMessage {
+            let stripped = msg.content.chatPreview()
+            if !stripped.isEmpty { return stripped }
+        }
+        return "Tap to chat with your coach"
+    }
+
+    /// Timestamp shown in the unread state. Hidden in resting.
+    private var coachBarTimestamp: String? {
+        guard data.hasUnreadCoachMessage,
+              let msg = data.latestAssistantMessage else { return nil }
+        return formatCoachBarTimestamp(msg.createdAt)
     }
 
     // MARK: - Tab content

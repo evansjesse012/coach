@@ -198,14 +198,17 @@ enum Theme {
         static let section: CGFloat       = 24
 
         /// Bottom padding added to each tab's scroll content so it clears
-        /// the anchored `TabBar` on every device. `safeAreaInset` mounts
-        /// the bar at the MainTabView level, but its safe-area reservation
-        /// doesn't reliably propagate through ZStack → NavigationStack →
-        /// ScrollView, so scroll content needs its own padding budget.
-        /// 90pt covers the 56pt tab row + 34pt home-indicator inset on
-        /// notched devices; renders as a bit of extra whitespace below
-        /// content on iPhone SE (no home indicator).
-        static let bottomReserve: CGFloat = 90
+        /// the anchored `TabBar` AND the persistent `CoachBar` on every
+        /// device. `safeAreaInset` mounts the tab bar at the MainTabView
+        /// level, but its safe-area reservation doesn't reliably propagate
+        /// through ZStack → NavigationStack → ScrollView, so scroll
+        /// content needs its own padding budget.
+        ///
+        /// Breakdown: tab row (56) + home-indicator inset (34) + CoachBar
+        /// height (56) + 12pt gap above the bar = 158pt. iPhone SE (no
+        /// home indicator) just sees a touch more whitespace below
+        /// content, which is acceptable.
+        static let bottomReserve: CGFloat = 158
     }
 
     // MARK: Radius

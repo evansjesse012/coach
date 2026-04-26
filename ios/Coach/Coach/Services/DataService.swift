@@ -173,6 +173,7 @@ final class DataService {
 
     private let activeSessionKey = "coach.activeStrengthSession.v1"
     private let activeStartedAtKey = "coach.activeWorkoutStartedAt.v1"
+    private let lastSeenChatAtKey = "coach.lastSeenChatAt.v1"
 
     private var client: SupabaseClient { SupabaseService.shared.client }
 
@@ -938,6 +939,51 @@ final class DataService {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: activeSessionKey)
         defaults.removeObject(forKey: activeStartedAtKey)
+    }
+
+    // MARK: - Chat read state (CoachBar)
+    //
+    // Tracks the wall-clock instant the athlete last opened the chat sheet.
+    // The CoachBar uses this + the latest assistant message timestamp to
+    // decide whether to render the "new message" treatment. Stored locally
+    // in UserDefaults — single-user app, no cross-device sync needed.
+
+    /// Most recent assistant message across the active conversation. Used
+    /// by CoachBar both for the preview text and for the unread check.
+    var latestAssistantMessage: ChatMessage? {
+        currentMessages.last(where: { $0.role == "assistant" })
+            ?? messages.last(where: { $0.role == "assistant" })
+    }
+
+    /// True when the latest assistant message arrived after the last time
+    /// the athlete opened chat. Returns false when there is no message
+    /// yet, or when the message has no createdAt (legacy row).
+    var hasUnreadCoachMessage: Bool {
+        guard let msg = latestAssistantMessage,
+              let createdStr = msg.createdAt,
+              let created = Self.parseISO(createdStr) else {
+            return false
+        }
+        let lastSeenTs = UserDefaults.standard.double(forKey: lastSeenChatAtKey)
+        let lastSeen = lastSeenTs > 0 ? Date(timeIntervalSince1970: lastSeenTs) : .distantPast
+        return created > lastSeen
+    }
+
+    /// Called by MainTabView when the chat sheet opens, marking every
+    /// existing assistant message as seen.
+    func markChatAsSeen() {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastSeenChatAtKey)
+    }
+
+    /// Tolerant ISO8601 parser — Supabase emits both fractional-second and
+    /// whole-second timestamps depending on the column. Try both.
+    private static func parseISO(_ s: String) -> Date? {
+        let f1 = ISO8601DateFormatter()
+        f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f1.date(from: s) { return d }
+        let f2 = ISO8601DateFormatter()
+        f2.formatOptions = [.withInternetDateTime]
+        return f2.date(from: s)
     }
 
     /// Called from CoachApp on launch (after loadAll) to restore an in-
