@@ -38,6 +38,7 @@ struct HomeTab: View {
     }
 
     @State private var postStatusSheet: PostStatusContext?
+    @State private var watchMatchSheet: PendingWatchMatch?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -45,6 +46,7 @@ struct HomeTab: View {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                     headerBlock
                     todayHeaderBlocks
+                    watchMatchBannerBlock
                     coachBriefBlock
                     todayBlock
                     thisWeekBlock
@@ -71,6 +73,19 @@ struct HomeTab: View {
                     sessionIdx: ctx.sessionIdx
                 )
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $watchMatchSheet) { match in
+                WatchMatchConfirmSheet(
+                    match: match,
+                    onConfirm: { kind in
+                        Task { await confirmMatchAndChain(match, status: kind) }
+                    },
+                    onDismiss: {
+                        data.dismissPendingMatch(match)
+                    }
+                )
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
             .overlay(alignment: .bottom) {
@@ -109,6 +124,50 @@ struct HomeTab: View {
                     preselectedStatus: pre
                 )
             }
+        }
+    }
+
+    // MARK: - Watch match banner
+
+    /// Inline banner above the daily brief when one or more HealthKit
+    /// matches are pending the athlete's confirmation. Tapping opens
+    /// `WatchMatchConfirmSheet` for the oldest pending match; once
+    /// confirmed/dismissed, the next pending match's banner appears.
+    @ViewBuilder
+    private var watchMatchBannerBlock: some View {
+        if let next = data.pendingWatchMatches.first {
+            WatchMatchBanner(
+                match: next,
+                totalCount: data.pendingWatchMatches.count,
+                onTap: { watchMatchSheet = next }
+            )
+        }
+    }
+
+    /// Commits a pending watch match. For modified / swapped / skipped,
+    /// chains into the post-status chat sheet so the coach can ask
+    /// follow-ups about what changed. Done is silent — the match
+    /// applies and the banner clears.
+    @MainActor
+    private func confirmMatchAndChain(_ match: PendingWatchMatch, status: Theme.SessionStatusKind) async {
+        let completion: CompletionStatus = {
+            switch status {
+            case .done:     return .completed
+            case .modified: return .modified
+            case .swapped:  return .swapped
+            case .skipped:  return .skipped
+            case .pending:  return .completed
+            }
+        }()
+        await data.confirmPendingMatch(match, status: completion)
+        if status != .done {
+            postStatusSheet = PostStatusContext(
+                sessionLabel: match.session.label,
+                status: status,
+                weekNum: match.coords.weekNum,
+                dayIdx: match.coords.dayIdx,
+                sessionIdx: match.coords.sessionIdx
+            )
         }
     }
 

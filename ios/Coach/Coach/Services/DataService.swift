@@ -2,12 +2,31 @@ import Foundation
 import Supabase
 
 /// Record of a HealthKit auto-match waiting to be acknowledged in chat.
+/// Used by the manual-link path (`applyManualMatch`) to queue a coach
+/// reply. Auto-matches now go through `PendingWatchMatch` instead.
 struct AutoMatchRecord {
     let session: PrescribedSession
     let actualDuration: Int
     let actualDistance: Double?
     let needsReview: Bool
     var detectedStatus: CompletionStatus = .completed
+}
+
+/// HealthKit-imported workout that the matcher tied to a prescribed
+/// session, awaiting the athlete's confirmation. Holds everything the
+/// confirmation UI needs (the workout, the matched session, the
+/// coordinates to write back, and the matcher's suggested status) so
+/// the sheet can render and commit without re-running the matcher.
+struct PendingWatchMatch: Identifiable, Hashable {
+    let id: String                           // workout.id — unique
+    let workout: CardioWorkout
+    let session: PrescribedSession
+    let coords: SessionCoordinates
+    let suggestedStatus: CompletionStatus    // matcher's classification
+    let confidence: MatchConfidence
+
+    static func == (lhs: PendingWatchMatch, rhs: PendingWatchMatch) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 /// Domain errors raised by `DataService` when a session's timing invariant
@@ -56,6 +75,14 @@ final class DataService {
     /// Auto-matched HealthKit workouts that haven't been acknowledged in
     /// chat yet. ChatTab drains this on appear to generate coach reactions.
     var unacknowledgedAutoMatches: [AutoMatchRecord] = []
+
+    /// HealthKit workouts that the matcher tied to a prescribed session
+    /// at high or medium confidence — but which haven't yet been
+    /// confirmed by the athlete. Surfaced on Today as a banner; the
+    /// athlete confirms or changes the suggested status from a sheet.
+    /// Replaces the old silent auto-apply behavior — nothing is written
+    /// to the prescribed session until the athlete confirms.
+    var pendingWatchMatches: [PendingWatchMatch] = []
 
     /// True while a HealthKit sync is running, so the UI can show a spinner.
     var isHealthKitSyncing: Bool = false
@@ -336,10 +363,29 @@ final class DataService {
         let result = WorkoutMatcher.match(workout: workout, against: candidates)
 
         switch result.confidence {
-        case .high:
-            await applyAutoMatch(workout: workout, at: result.session, needsReview: false)
-        case .medium:
-            await applyAutoMatch(workout: workout, at: result.session, needsReview: true)
+        case .high, .medium:
+            // Don't write to the prescribed session yet — surface the
+            // match as a pending confirmation on Today instead. The
+            // athlete confirms or changes the suggested status; we
+            // commit only after that. The old silent auto-apply caused
+            // status to mysteriously change without notice.
+            if let coords = result.session,
+               let session = sessionAt(weekNum: coords.weekNum, dayIdx: coords.dayIdx, sessionIdx: coords.sessionIdx) {
+                let suggested = classifyCompletion(workout: workout, prescribed: session)
+                let pending = PendingWatchMatch(
+                    id: workout.id,
+                    workout: workout,
+                    session: session,
+                    coords: coords,
+                    suggestedStatus: suggested,
+                    confidence: result.confidence
+                )
+                if !pendingWatchMatches.contains(where: { $0.id == pending.id }) {
+                    pendingWatchMatches.append(pending)
+                }
+            } else {
+                pendingHealthKitImports.append(workout)
+            }
         case .low, .none:
             pendingHealthKitImports.append(workout)
         }
@@ -386,55 +432,6 @@ final class DataService {
     }
 
     /// Writes a completion record back onto the prescribed session at the
-    /// matcher-chosen coordinates. Populates actual fields from the imported
-    /// workout and sets needsReview for medium-confidence matches.
-    private func applyAutoMatch(
-        workout: CardioWorkout,
-        at coords: SessionCoordinates?,
-        needsReview: Bool
-    ) async {
-        guard let coords else { return }
-
-        // Snapshot the session before mutation for the chat acknowledgment
-        let sessionBefore = sessionAt(weekNum: coords.weekNum, dayIdx: coords.dayIdx, sessionIdx: coords.sessionIdx)
-
-        // Determine the right completion status by comparing actual vs prescribed
-        let status = classifyCompletion(workout: workout, prescribed: sessionBefore)
-
-        try? await updateSessionCompletion(
-            weekNum: coords.weekNum,
-            dayIdx: coords.dayIdx,
-            sessionIdx: coords.sessionIdx
-        ) { session in
-            session.completionStatus = status
-            session.completed = true
-            session.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
-            session.actualDuration = workout.duration
-            if let distanceStr = workout.distance, let miles = parseMiles(distanceStr) {
-                session.actualDistance = miles
-            }
-            // If the sport was different, record the actual sport
-            if status == .swapped {
-                session.actualSport = workout.sport.rawValue
-            }
-            session.completionNeedsReview = needsReview
-            session.completionNote = autoMatchNote(status: status, workout: workout, prescribed: sessionBefore)
-            session.linkedWorkoutId = workout.id
-        }
-
-        // Queue for chat acknowledgment
-        if let session = sessionBefore {
-            let distanceMiles: Double? = workout.distance.flatMap { parseMiles($0) }
-            unacknowledgedAutoMatches.append(AutoMatchRecord(
-                session: session,
-                actualDuration: workout.duration,
-                actualDistance: distanceMiles,
-                needsReview: needsReview,
-                detectedStatus: status
-            ))
-        }
-    }
-
     /// Athlete-driven link: the user picked a CardioWorkout to fulfill a
     /// prescribed session. Reuses the auto-match classifier and write path so
     /// downstream UI (status pills, coach review prompts) behaves identically.
@@ -471,6 +468,50 @@ final class DataService {
             needsReview: false,
             detectedStatus: status
         ))
+    }
+
+    /// Confirm a pending HealthKit match. Writes the link + completion
+    /// to the prescribed session and removes it from the pending queue.
+    /// `chosenStatus` is what the athlete picked (defaults to the
+    /// matcher's suggestion in the UI). Calling this is the only way
+    /// an auto-match becomes a real completion now — nothing gets
+    /// written silently anymore.
+    func confirmPendingMatch(_ match: PendingWatchMatch, status: CompletionStatus) async {
+        do {
+            try await updateSessionCompletion(
+                weekNum: match.coords.weekNum,
+                dayIdx: match.coords.dayIdx,
+                sessionIdx: match.coords.sessionIdx
+            ) { s in
+                s.completionStatus = status
+                s.completed = (status != .skipped)
+                s.completionResolvedAt = ISO8601DateFormatter().string(from: Date())
+                s.actualDuration = match.workout.duration
+                if let distanceStr = match.workout.distance, let miles = parseMiles(distanceStr) {
+                    s.actualDistance = miles
+                }
+                if status == .swapped {
+                    s.actualSport = match.workout.sport.rawValue
+                }
+                s.completionNeedsReview = false
+                s.completionNote = "Linked from Apple Watch"
+                s.linkedWorkoutId = match.workout.id
+            }
+            pendingWatchMatches.removeAll { $0.id == match.id }
+        } catch {
+            print("confirmPendingMatch failed (\(match.coords.weekNum)/\(match.coords.dayIdx)/\(match.coords.sessionIdx)): \(error)")
+        }
+    }
+
+    /// Athlete declined to link this watch workout to the suggested
+    /// session — usually because the matcher guessed wrong. Removes the
+    /// pending match and routes the workout to the standard unmatched
+    /// imports list (visible on the Log tab) so it isn't lost.
+    func dismissPendingMatch(_ match: PendingWatchMatch) {
+        pendingWatchMatches.removeAll { $0.id == match.id }
+        if !pendingHealthKitImports.contains(where: { $0.id == match.workout.id }) {
+            pendingHealthKitImports.append(match.workout)
+        }
     }
 
     /// Clears a manual (or auto) match. Used when the athlete re-picks a
@@ -573,20 +614,6 @@ final class DataService {
         }
 
         return .completed
-    }
-
-    private func autoMatchNote(status: CompletionStatus, workout: CardioWorkout, prescribed: PrescribedSession?) -> String {
-        switch status {
-        case .completed:
-            return "Auto-matched from Apple Watch"
-        case .modified:
-            let prescribed = prescribed?.duration ?? prescribed?.estimatedDurationMin ?? 0
-            return "Auto-matched from Apple Watch — \(workout.duration) min vs \(prescribed) min prescribed"
-        case .swapped:
-            return "Auto-matched from Apple Watch — did \(workout.sport.label) instead of \(prescribed?.type ?? "prescribed")"
-        case .skipped:
-            return "Auto-matched from Apple Watch"
-        }
     }
 
     private func sessionAt(weekNum: Int, dayIdx: Int, sessionIdx: Int) -> PrescribedSession? {
