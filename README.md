@@ -73,3 +73,11 @@ supabase/
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the layer-by-layer
 breakdown and [FEATURES.md](./FEATURES.md) for the product walkthrough.
+
+## 💰 Bounty Contribution
+
+- **Task:** Weekly Preview and Review
+- **Reward:** $200
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+
