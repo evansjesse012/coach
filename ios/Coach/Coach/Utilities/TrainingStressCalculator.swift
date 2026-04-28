@@ -11,6 +11,16 @@ import Foundation
 /// 4. Duration-only flat estimate
 enum TrainingStressCalculator {
 
+    // MARK: - EWMA constants
+
+    /// Daily decay weight for chronic load (CTL, "fitness").
+    /// `1 - exp(-1/42)` for the standard 42-day time constant.
+    static let lambdaCTL: Double = 1.0 - exp(-1.0 / 42.0)   // ≈ 0.02353
+
+    /// Daily decay weight for acute load (ATL, "fatigue").
+    /// `1 - exp(-1/7)` for the standard 7-day time constant.
+    static let lambdaATL: Double = 1.0 - exp(-1.0 / 7.0)    // ≈ 0.13316
+
     // MARK: - Per-Session TSS
 
     /// TSS for a cardio workout. Uses the best available data.
@@ -167,9 +177,11 @@ enum TrainingStressCalculator {
             let key = fmt.string(from: current)
             let dayTSS = daily[key] ?? 0
 
-            // Exponentially weighted moving averages
-            ctl = ctl + (dayTSS - ctl) / 42.0
-            atl = atl + (dayTSS - atl) / 7.0
+            // Exponentially weighted moving averages, continuous-time decay
+            // form (matches TrainingPeaks). The previous /42 / /7 form is a
+            // first-order linear approximation that drifts at high TSS.
+            ctl = ctl * (1 - Self.lambdaCTL) + dayTSS * Self.lambdaCTL
+            atl = atl * (1 - Self.lambdaATL) + dayTSS * Self.lambdaATL
             let tsb = ctl - atl
 
             results.append(FitnessDataPoint(
@@ -308,8 +320,8 @@ enum TrainingStressCalculator {
             } else {
                 tssToday = avgDailyTSS
             }
-            ctl = ctl + (tssToday - ctl) / 42.0
-            atl = atl + (tssToday - atl) / 7.0
+            ctl = ctl * (1 - Self.lambdaCTL) + tssToday * Self.lambdaCTL
+            atl = atl * (1 - Self.lambdaATL) + tssToday * Self.lambdaATL
         }
 
         return (raceDate, ctl - atl)

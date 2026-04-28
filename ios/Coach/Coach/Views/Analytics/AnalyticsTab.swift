@@ -6,8 +6,24 @@ struct AnalyticsTab: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var path = NavigationPath()
 
+    /// CTL/ATL/TSB time series, sourced from the persisted
+    /// `daily_training_load` table. Mapped into the in-view
+    /// `FitnessDataPoint` shape so the chart and downstream logic don't
+    /// have to know that the source moved from in-memory recompute to a
+    /// stored daily row.
     private var fitness: [TrainingStressCalculator.FitnessDataPoint] {
-        TrainingStressCalculator.fitnessTimeSeries(cardio: data.cardio, strength: data.strength)
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return data.trainingLoad.compactMap { row in
+            guard let date = fmt.date(from: row.date) else { return nil }
+            return TrainingStressCalculator.FitnessDataPoint(
+                date: date,
+                ctl: row.ctl,
+                atl: row.atl,
+                tsb: row.tsb,
+                tss: row.totalTss
+            )
+        }
     }
 
     private var weeklyVolume: [TrainingStressCalculator.WeeklyVolume] {

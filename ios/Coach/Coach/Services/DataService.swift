@@ -67,6 +67,12 @@ final class DataService {
     var customExercises: [CustomExercise] = []
     var catalogExercises: [CatalogExercise] = []
 
+    /// Daily CTL/ATL/TSB rows, ascending by date. Authoritative source for
+    /// the Stats chart, Today readiness chip, and the coach prompt's
+    /// readiness section. Populated on `loadAll`; mutated by the
+    /// `TrainingLoadService` recompute paths.
+    var trainingLoad: [DailyTrainingLoad] = []
+
     /// HealthKit-imported workouts that the WorkoutMatcher couldn't pair to
     /// any prescribed session. In-memory only — repopulated on each sync.
     /// The UI shows these as "New workout detected" cards in Today's Focus.
@@ -198,6 +204,7 @@ final class DataService {
             async let ce: [CustomExercise] = client.from("custom_exercises").select().execute().value
             async let cat: [CatalogExercise] = client.from("exercises").select().execute().value
             async let pr: [PersonalRecord] = client.from("personal_records").select().execute().value
+            async let tl: [DailyTrainingLoad] = client.from("daily_training_load").select().order("date", ascending: true).execute().value
 
             cardio = try await c
             strength = try await s
@@ -220,6 +227,8 @@ final class DataService {
             // Build PRs dictionary keyed by exercise slug
             let prList = try await pr
             prs = Dictionary(uniqueKeysWithValues: prList.map { ($0.exerciseSlug, $0) })
+
+            trainingLoad = try await tl
         } catch {
             self.error = error.localizedDescription
         }
@@ -235,8 +244,45 @@ final class DataService {
         Task { [weak self] in
             guard let self else { return }
             await self.syncHealthKitWorkouts()
+            await self.refreshTrainingLoad()
             await self.ensurePlanPreGenerated()
             await self.refreshCoachNoteIfNeeded()
+        }
+    }
+
+    /// Ensures the `daily_training_load` table is current through today.
+    ///
+    /// First launch / empty table → full backfill from the earliest logged
+    /// workout (or 365 days back). Subsequent launches → incremental
+    /// recompute from the day after the most-recent stored row, which
+    /// catches "user opened the app the next morning, ATL has decayed
+    /// another tick" without recomputing history.
+    private func refreshTrainingLoad() async {
+        do {
+            if trainingLoad.isEmpty {
+                try await TrainingLoadService.backfill(
+                    cardio: cardio,
+                    strength: strength
+                )
+            } else {
+                // Recompute today (and any missed days since the last row)
+                // so the chart and readiness chip reflect today's workouts
+                // and the natural EWMA decay across any skipped days.
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                let lastDateStr = trainingLoad.last?.date ?? ""
+                let lastDate = fmt.date(from: lastDateStr) ?? Date()
+                let from = Calendar.current.date(byAdding: .day, value: 1, to: lastDate) ?? Date()
+                try await TrainingLoadService.recompute(
+                    from: from,
+                    cardio: cardio,
+                    strength: strength,
+                    reason: "daily_refresh"
+                )
+            }
+            trainingLoad = try await TrainingLoadService.loadAll()
+        } catch {
+            print("refreshTrainingLoad failed: \(error)")
         }
     }
 
