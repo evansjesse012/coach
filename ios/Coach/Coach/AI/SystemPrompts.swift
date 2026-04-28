@@ -2,36 +2,24 @@ import Foundation
 
 // MARK: - Personality Prompts
 
+/// Returns the persona content for a given `Personality`. Single source
+/// of truth — delegates to the `Persona_*.content` files so the
+/// post-completion reaction generator and the morning coach-note
+/// generator can't drift from the main chat's persona voice.
+///
+/// Used by `CompletionResponseGenerator`, `CoachNoteGenerator`, and any
+/// other surface that needs the persona text outside the main system
+/// prompt assembly. The main chat path goes through `CoachState`,
+/// which uses the same `Persona_*.content` strings — so all surfaces
+/// share one authoritative voice.
 func getPersonalityPrompt(_ personality: Personality, _ customText: String) -> String {
     switch personality {
-    case .normal:
-        return """
-        You are the athlete's head coach — direct, professional, no fluff. \
-        You push when they're sandbagging, pull back when they're overdoing it, \
-        and always ground your advice in their actual data. \
-        Be real with them. Acknowledge good work briefly, then move forward. \
-        Never patronize.
-        """
-    case .goggins:
-        return """
-        You are a Goggins-style accountability coach. You don't accept excuses. \
-        "You chose comfort" is your default when they skip sessions. \
-        Push them to find 10% more. Reference their data to prove they're capable of more. \
-        Calloused mind. Carry the boats. But — respect injury protocols and safety. \
-        Even Goggins doesn't tell people to run through chest pain.
-        """
-    case .hype:
-        return """
-        You are a hype coach! Positive energy grounded in REAL data. \
-        Celebrate specific achievements ("Your long run is 20min longer than last month!"). \
-        Make them feel like an athlete. Use their actual numbers to build confidence. \
-        Still be honest — hype without truth is empty. If they missed sessions, \
-        acknowledge it positively ("Let's get back on track this week").
-        """
+    case .normal:  return Persona_Normal.content
+    case .goggins: return Persona_Goggins.content
+    case .hype:    return Persona_Hype.content
     case .custom:
-        return customText.isEmpty
-            ? getPersonalityPrompt(.normal, "")
-            : "Your coaching style: \(customText)"
+        let trimmed = customText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? Persona_Normal.content : "Your coaching style: \(trimmed)"
     }
 }
 
@@ -60,52 +48,6 @@ func buildSystemPrompt(personality: Personality, customText: String) -> String {
         customText: customText,
         state: state
     )
-}
-
-// MARK: - Plan Builder Prompt
-
-func buildPlanBuilderPrompt(goal: Event?, mode: String = "create") -> String {
-    let today = todayString()
-    let dayFormatter = DateFormatter()
-    dayFormatter.dateFormat = "EEEE"
-    let dayName = dayFormatter.string(from: Date())
-
-    var goalCtx = ""
-    if let goal {
-        goalCtx = "The athlete wants a plan for: \(goal.name)"
-        if let date = goal.date { goalCtx += " (race date: \(date))" }
-        if let g = goal.goal { goalCtx += " with goal time \(g)" }
-        if let b = goal.baseline { goalCtx += " and current PR/baseline \(b)" }
-        if let l = goal.location { goalCtx += " in \(l)" }
-        goalCtx += "."
-    }
-
-    if mode == "week" {
-        return """
-        You are building a weekly training plan. \(goalCtx)
-
-        Review last week's adherence and recent training load before generating. Adapt based on what actually happened — don't just repeat the template. Summarize what changed and why.
-        Be concise. Generate and save the plan.
-        Today: \(today) (\(dayName))
-        """
-    }
-
-    return """
-    You are an expert athletic coach building a training plan. Think like a coach — consider the athlete's timeline, current fitness, history, and what they actually need right now. \(goalCtx)
-
-    CRITICAL: Analyze the event demands FIRST — distance, duration, energy systems required — then design the plan to match.
-
-    Gather the athlete's data before your first message — don't ask what you can look up. Call get_plan_history to check for past plans. Lead with your assessment, propose your plan, and only ask questions the data can't answer (max 5). On confirmation, save the plan and generate week 1.
-
-    PHASE DESIGN:
-    Each phase must include: prerequisiteFor, progression (model, volumeProgression, intensityProgression, strengthProgression), successCriteria (3-5 measurable), rules (hard constraints), strengthProtocol (focus, repRange, keyExercises, notes).
-
-    Phase advancement should be based on readiness (success criteria met), not just calendar.
-
-    Have a clear recommendation. You're the coach — lead with your best option.
-    Keep messages under 200 words — this is mobile.
-    Today: \(today) (\(dayName))
-    """
 }
 
 // MARK: - Memory Extraction Prompt

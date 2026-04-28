@@ -33,7 +33,9 @@ struct ToolProperty: Codable {
 
 // MARK: - Tool Definitions
 
-/// All 15 tools available to the AI coach, matching page.jsx lines 363-378
+/// All 18 tools available to the AI coach. Each tool's `description` is
+/// the model's primary reference for when to call it; cross-tool
+/// invariants live in `Section14_ToolAndAppContract`.
 let coachToolDefinitions: [ToolDefinition] = [
     ToolDefinition(
         name: "get_workouts",
