@@ -45,6 +45,7 @@ struct HomeTab: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                     headerBlock
+                    readinessBlock
                     todayHeaderBlocks
                     watchMatchBannerBlock
                     coachBriefBlock
@@ -214,6 +215,20 @@ struct HomeTab: View {
         case 12..<17: return "Good afternoon"
         default:      return "Good evening"
         }
+    }
+
+    // MARK: - Readiness chip
+    //
+    // Sits between the date/greeting header and the race/phase blocks.
+    // Always-on access to today's TSB; tap routes to the Stats tab so
+    // the athlete can see the chart in context.
+
+    @ViewBuilder
+    private var readinessBlock: some View {
+        ReadinessChip(
+            tsb: data.trainingLoad.last?.tsb,
+            onTap: { data.selectedTab = "stats" }
+        )
     }
 
     // MARK: - Today header (race + phase blocks)

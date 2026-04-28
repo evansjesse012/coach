@@ -178,53 +178,112 @@ struct AnalyticsTab: View {
         }
     }
 
-    // MARK: - Fitness Chart (CTL / ATL / TSB)
+    // MARK: - Fitness Chart (Performance Management Chart)
+
+    /// Window of days shown on the PMC chart. Toggleable from a segmented
+    /// control above the chart.
+    @State private var pmcRangeDays: Int = 90
+
+    private static let pmcRangeOptions: [Int] = [30, 90, 180, 365]
+
+    /// Form-band thresholds for TSB, in TrainingPeaks defaults. Drawn as
+    /// faint horizontal RuleMarks behind the series so the athlete can
+    /// see at a glance which band today's form lands in.
+    private static let formBandThresholds: [(value: Double, label: String)] = [
+        (25,  "Transitional"),
+        (5,   "Fresh"),
+        (-10, "Optimal"),
+        (-30, "Overreaching"),
+        (-50, "High risk"),
+    ]
 
     @ViewBuilder
     private var fitnessChart: some View {
-        let points = fitness.suffix(90) // last 90 days
+        let points = Array(fitness.suffix(pmcRangeDays))
         if points.count >= 7 {
-            VStack(alignment: .leading, spacing: 8) {
-                CoachLabel(text: "Fitness & Fatigue")
-                Text("90 days")
-                    .font(CoachFonts.ui(11))
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    CoachLabel(text: "Fitness & Fatigue")
+                    Spacer()
+                    rangePicker
+                }
 
                 Chart {
-                    ForEach(Array(points)) { p in
-                        LineMark(
-                            x: .value("Date", p.date),
-                            y: .value("CTL", p.ctl)
-                        )
-                        .foregroundStyle(CoachColors.blue)
-                        .lineStyle(StrokeStyle(lineWidth: 2))
-
-                        LineMark(
-                            x: .value("Date", p.date),
-                            y: .value("ATL", p.atl)
-                        )
-                        .foregroundStyle(CoachColors.red.opacity(0.7))
-                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    // Form-band guide lines — faint horizontal rules at
+                    // +25 / +5 / −10 / −30 / −50. Annotations live
+                    // outside the chart's value range so they don't
+                    // clutter it; the bands themselves are the signal.
+                    ForEach(Self.formBandThresholds, id: \.value) { band in
+                        RuleMark(y: .value("Band", band.value))
+                            .foregroundStyle(Theme.line2.opacity(0.5))
+                            .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
                     }
 
-                    // TSB area fill
-                    ForEach(Array(points)) { p in
+                    // Today vertical marker — the "you are here" anchor.
+                    if let today = points.last?.date {
+                        RuleMark(x: .value("Today", today))
+                            .foregroundStyle(Theme.ink3.opacity(0.4))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    }
+
+                    // TSB area — green above zero, red below. Drawn first
+                    // so the CTL/ATL lines paint on top.
+                    ForEach(points) { p in
                         AreaMark(
                             x: .value("Date", p.date),
                             y: .value("TSB", p.tsb)
                         )
                         .foregroundStyle(
                             p.tsb >= 0
-                                ? CoachColors.green.opacity(0.15)
-                                : CoachColors.red.opacity(0.1)
+                                ? CoachColors.green.opacity(0.18)
+                                : CoachColors.red.opacity(0.12)
                         )
                     }
+
+                    // CTL — fitness. Solid blue.
+                    ForEach(points) { p in
+                        LineMark(
+                            x: .value("Date", p.date),
+                            y: .value("Fitness", p.ctl),
+                            series: .value("Series", "Fitness")
+                        )
+                        .foregroundStyle(by: .value("Series", "Fitness"))
+                        .lineStyle(StrokeStyle(lineWidth: 2))
+                    }
+
+                    // ATL — fatigue. Dashed red.
+                    ForEach(points) { p in
+                        LineMark(
+                            x: .value("Date", p.date),
+                            y: .value("Fatigue", p.atl),
+                            series: .value("Series", "Fatigue")
+                        )
+                        .foregroundStyle(by: .value("Series", "Fatigue"))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    }
                 }
+                .chartForegroundStyleScale([
+                    "Fitness": CoachColors.blue,
+                    "Fatigue": CoachColors.red.opacity(0.85),
+                ])
                 .chartYAxis {
-                    AxisMarks(position: .leading)
+                    AxisMarks(position: .leading) { _ in
+                        AxisGridLine()
+                            .foregroundStyle(Theme.line.opacity(0.5))
+                        AxisValueLabel()
+                            .font(.system(size: 10, design: .monospaced))
+                    }
                 }
-                .chartLegend(.visible)
-                .frame(height: 200)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: pmcXStride)) { _ in
+                        AxisGridLine()
+                            .foregroundStyle(Theme.line.opacity(0.4))
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                }
+                .chartLegend(position: .top, alignment: .trailing)
+                .frame(height: 220)
                 .padding(12)
                 .background(colorScheme == .dark ? CoachColors.darkCard : CoachColors.lightCard)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -232,7 +291,57 @@ struct AnalyticsTab: View {
                     RoundedRectangle(cornerRadius: 14)
                         .stroke(colorScheme == .dark ? CoachColors.darkBorder : CoachColors.lightBorder, lineWidth: 1)
                 )
+
+                // Tiny legend explaining the form-band horizontal dashes.
+                HStack(spacing: 8) {
+                    Text("FORM BANDS")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.ink3)
+                        .tracking(1.2)
+                    Text("+25 Transitional · +5 Fresh · −10 Optimal · −30 Overreaching · −50 High risk")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.ink3)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .padding(.horizontal, 4)
             }
+        }
+    }
+
+    /// Compact 4-way segmented picker for the chart range. Stays
+    /// horizontally compact so the title row doesn't wrap on narrow widths.
+    private var rangePicker: some View {
+        HStack(spacing: 4) {
+            ForEach(Self.pmcRangeOptions, id: \.self) { days in
+                Button {
+                    pmcRangeDays = days
+                } label: {
+                    Text(days < 365 ? "\(days)d" : "1y")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(pmcRangeDays == days ? Theme.accentInk : Theme.ink2)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(pmcRangeDays == days ? Theme.accent : Color.clear)
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(pmcRangeDays == days ? Color.clear : Theme.line, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// X-axis stride scaled to the visible range so labels don't crowd.
+    private var pmcXStride: Calendar.Component {
+        switch pmcRangeDays {
+        case ..<60:  return .weekOfYear
+        case ..<200: return .month
+        default:     return .month
         }
     }
 
