@@ -14,18 +14,46 @@ import SwiftUI
 // for voice mode; until voice ships it falls back to opening chat too.
 
 /// A tappable, persistent coach access point sitting above the tab bar.
+///
+/// Three render modes:
+///
+///   * **Resting** — neutral surface fill, single-line preview of the
+///     latest coach message (or the `"Talk with coach"` placeholder when
+///     there are no messages yet). 64pt pill.
+///   * **NewMessage** — full accent fill, single-line bold preview, no
+///     mic. 64pt pill. Shown when `isUnread` flips true and the parent
+///     hasn't decided to expand the bar inline.
+///   * **Expanded** — accent-filled card, up to 300pt tall, full message
+///     text scrollable inside. Driven by `isExpanded`. Used when the
+///     parent auto-expands on new message arrival so the athlete reads
+///     the full text in-place without navigating into chat.
+///
+/// Tap on the bar at any state opens the chat (`onTap`). Tap-to-collapse
+/// is the parent's responsibility — it owns the `isExpanded` binding and
+/// usually pairs the expanded bar with a tap-catcher overlay behind it.
 struct CoachBar: View {
-    /// Plain-text preview of the latest coach message. The caller is
-    /// responsible for stripping markdown if desired.
+    /// Plain-text preview of the latest coach message — single line in
+    /// resting / new-message modes. Caller strips markdown if desired.
     let preview: String
 
-    /// Right-side timestamp shown only in the new-message state, e.g.
-    /// "just now" / "6:14 AM" / "2h ago". Pass `nil` in resting state.
+    /// Full text of the latest coach message. Shown when `isExpanded`
+    /// is true. Pass nil or empty when there's no message — the bar
+    /// stays in its resting placeholder state.
+    var fullText: String? = nil
+
+    /// Right-side timestamp shown only in the new-message + expanded
+    /// states, e.g. "just now" / "6:14 AM" / "2h ago".
     let timestamp: String?
 
     /// Drives the visual state — true switches to the proactive accent
     /// treatment.
     let isUnread: Bool
+
+    /// True when the parent has expanded the bar to show the full
+    /// message inline. Independent of `isUnread` so the parent can
+    /// expand even on a previously-read message (e.g. tap-to-expand
+    /// flow), or keep the unread treatment without expansion.
+    var isExpanded: Bool = false
 
     /// Tap on the bar (anywhere except the mic button).
     let onTap: () -> Void
@@ -35,7 +63,32 @@ struct CoachBar: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// `"Talk with coach"` placeholder when there's no message preview.
+    private var resolvedPreview: String {
+        let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Talk with coach" : trimmed
+    }
+
+    /// Whether the bar should render in expanded card mode.
+    private var rendersExpanded: Bool {
+        isExpanded && !(fullText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
     var body: some View {
+        Group {
+            if rendersExpanded {
+                expandedBody
+            } else {
+                pillBody
+            }
+        }
+        .animation(.spring(duration: 0.3), value: rendersExpanded)
+        .animation(.easeInOut(duration: 0.25), value: isUnread)
+    }
+
+    // MARK: - Pill (resting / new-message)
+
+    private var pillBody: some View {
         Button(action: onTap) {
             HStack(spacing: 0) {
                 // Left affordance: pulsing dot in resting; nothing in
@@ -59,7 +112,7 @@ struct CoachBar: View {
                         .tracking(isUnread ? 0.04 * 11 : 0.16 * 11)
                         .foregroundStyle(kickerColor)
 
-                    Text(preview)
+                    Text(resolvedPreview)
                         .font(.system(size: 15, weight: isUnread ? .semibold : .medium))
                         .foregroundStyle(previewColor)
                         .lineLimit(1)
@@ -94,9 +147,50 @@ struct CoachBar: View {
             .shadow(color: shadowColor, radius: 15, x: 0, y: 12)
         }
         .buttonStyle(BarPressStyle())
-        .animation(.easeInOut(duration: 0.25), value: isUnread)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Coach. \(preview). Double tap to open chat.")
+        .accessibilityLabel("Coach. \(resolvedPreview). Double tap to open chat.")
+    }
+
+    // MARK: - Expanded card
+
+    private var expandedBody: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Header row: kicker + chevron hint
+                HStack(spacing: 8) {
+                    Text(kickerText)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .textCase(.uppercase)
+                        .tracking(0.04 * 11)
+                        .foregroundStyle(Theme.accentInk.opacity(0.85))
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accentInk.opacity(0.7))
+                }
+
+                // Full message — scrollable when content overflows.
+                ScrollView(.vertical, showsIndicators: false) {
+                    Text(fullText ?? "")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.accentInk)
+                        .lineSpacing(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxHeight: .infinity)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxHeight: 300)
+            .background(Theme.accent)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .shadow(color: Theme.accent.opacity(0.35), radius: 18, x: 0, y: 14)
+        }
+        .buttonStyle(BarPressStyle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Coach message. \(fullText ?? resolvedPreview). Double tap to open chat. Tap outside to dismiss.")
     }
 
     // MARK: - Mic button

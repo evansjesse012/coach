@@ -12,6 +12,12 @@ struct MainTabView: View {
 
     @State private var showActiveWorkoutLogger = false
     @State private var showCoachChat = false
+    /// True when the persistent CoachBar is rendering its expanded
+    /// in-place card (full message visible, up to 300pt tall). Auto-set
+    /// when a new assistant message arrives so the athlete reads it
+    /// without leaving the current tab. Tap-outside collapses; tap-bar
+    /// opens chat.
+    @State private var coachBarExpanded = false
 
     private static let validTabs: Set<String> = ["today", "goals", "plan", "log", "stats"]
 
@@ -30,6 +36,22 @@ struct MainTabView: View {
                 tabContent(id: "log")   { LogTab() }
                 tabContent(id: "stats") { AnalyticsTab() }
             }
+
+            // Tap-catcher behind the CoachBar when it's expanded. Sits
+            // ABOVE tab content (so taps anywhere on the screen
+            // collapse the bar) but BELOW the bar itself in z-order
+            // (so taps on the bar still open chat). Transparent — no
+            // dim, just a hit-test surface.
+            if coachBarExpanded {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        coachBarExpanded = false
+                        data.markChatAsSeen()
+                    }
+                    .transition(.opacity)
+            }
         }
         // Pinned above the anchored tab bar: the active-workout pill (when
         // present) sits above the persistent CoachBar. Both align to the
@@ -44,15 +66,24 @@ struct MainTabView: View {
                 }
                 CoachBar(
                     preview: coachBarPreview,
+                    fullText: coachBarFullText,
                     timestamp: coachBarTimestamp,
                     isUnread: data.hasUnreadCoachMessage,
-                    onTap: { showCoachChat = true },
-                    onMic: { showCoachChat = true } // voice mode falls back to chat
+                    isExpanded: coachBarExpanded,
+                    onTap: {
+                        coachBarExpanded = false
+                        showCoachChat = true
+                    },
+                    onMic: {
+                        coachBarExpanded = false
+                        showCoachChat = true
+                    } // voice mode falls back to chat
                 )
                 .padding(.horizontal, 12)
             }
             .padding(.bottom, 12)
         }
+        .animation(.spring(duration: 0.3), value: coachBarExpanded)
         // Anchored tab bar: content sits above the safe area; its `surface1`
         // background extends into the home-indicator region so the bar
         // appears to reach the device's bottom edge.
@@ -100,10 +131,23 @@ struct MainTabView: View {
                 // Opening the chat clears the unread badge — every existing
                 // assistant message is now considered seen.
                 data.markChatAsSeen()
+                // Also collapse the bar — chat is the canonical surface now.
+                coachBarExpanded = false
             } else {
                 // Chat dismissed — clear any pending prompt so subsequent
                 // sets re-trigger the sheet.
                 data.pendingChatPrompt = nil
+            }
+        }
+        .onChange(of: data.hasUnreadCoachMessage) { _, isUnread in
+            // Auto-expand the bar when a new assistant message lands so
+            // the athlete reads the full text in-place. Collapsing back
+            // to the resting pill is athlete-driven (tap-outside or
+            // tap-bar-to-open-chat).
+            if isUnread {
+                coachBarExpanded = true
+            } else {
+                coachBarExpanded = false
             }
         }
     }
@@ -111,14 +155,23 @@ struct MainTabView: View {
     // MARK: - CoachBar bindings
 
     /// Single-line preview of the latest assistant message, with markdown
-    /// stripped. Falls back to a friendly prompt when no messages exist
-    /// yet so the bar never renders empty.
+    /// stripped. Empty when no messages exist — the CoachBar falls back
+    /// to its `"Talk with coach"` placeholder in that case.
     private var coachBarPreview: String {
-        if let msg = data.latestAssistantMessage {
-            let stripped = msg.content.chatPreview()
-            if !stripped.isEmpty { return stripped }
-        }
-        return "Tap to chat with your coach"
+        guard let msg = data.latestAssistantMessage else { return "" }
+        return msg.content.chatPreview()
+    }
+
+    /// Full text of the latest assistant message — used by the bar's
+    /// expanded card. nil when there's no message to render.
+    private var coachBarFullText: String? {
+        guard let msg = data.latestAssistantMessage else { return nil }
+        // Strip the suggested-replies marker but keep markdown formatting
+        // so the expanded card can render bold / italic / etc. properly.
+        let pattern = #"<!--sr:.*?-->"#
+        return msg.content
+            .replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Timestamp shown in the unread state. Hidden in resting.
