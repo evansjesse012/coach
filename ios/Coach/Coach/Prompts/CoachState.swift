@@ -1,5 +1,21 @@
 import Foundation
 
+/// Snapshot of the athlete's chronic training load for the coach prompt.
+/// Built fresh each turn from `daily_training_load`. Section 7 explains
+/// how to interpret the numbers; this struct just carries them.
+struct TrainingLoadSnapshot {
+    /// "yyyy-MM-dd" of the row these numbers come from. May be older than
+    /// today if the athlete hasn't logged anything recently.
+    let asOf: String
+    let ctl: Double           // chronic training load (~6-week EWMA)
+    let atl: Double           // acute training load   (~7-day EWMA)
+    let tsb: Double           // training stress balance (CTL − ATL)
+    /// CTL change vs ~7 days ago. nil when there isn't enough history
+    /// (athlete just started logging). Positive = building, negative =
+    /// detraining or recovery.
+    let ctlRamp7d: Double?
+}
+
 /// Per-turn state injected into the dynamic block of the assembled
 /// system prompt. Decision #2: this block is rendered fresh every turn;
 /// the static block above and below it stays byte-identical so Anthropic
@@ -12,6 +28,12 @@ import Foundation
 struct CoachState {
     /// Today's date at the moment the prompt is being built.
     let today: Date
+
+    /// Phase 4a: structured chronic-load snapshot (CTL/ATL/TSB + 7-day
+    /// CTL ramp). Complements `recoveryPicture` — load is the chronic
+    /// frame, recovery picture is the acute overlay. nil when the
+    /// daily-load table has no rows yet for this user.
+    let trainingLoad: TrainingLoadSnapshot?
 
     /// Phase 4: a prose narrative built from HealthKit data describing
     /// the athlete's recovery story (acute vs chronic, load context,
@@ -44,6 +66,10 @@ struct CoachState {
         lines.append("")
         lines.append("[COACH STATE]")
         lines.append(todayLine)
+        if let trainingLoad {
+            lines.append("")
+            lines.append(trainingLoadLine(trainingLoad))
+        }
         if let recoveryPicture, !recoveryPicture.isEmpty {
             lines.append("")
             lines.append("Recovery picture:")
@@ -72,6 +98,21 @@ struct CoachState {
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "EEEE"
         return "Today: \(dateFormatter.string(from: today)) (\(dayFormatter.string(from: today)))"
+    }
+
+    /// One-line compact rendering of the training-load snapshot. Section 7
+    /// teaches the coach how to interpret these — this just emits the
+    /// numbers. Format: "Training load (as of YYYY-MM-DD): CTL X · ATL Y ·
+    /// TSB Z [· 7d CTL Δ ±A]". Numbers rounded to one decimal to match
+    /// the PMC chart's display precision.
+    private func trainingLoadLine(_ load: TrainingLoadSnapshot) -> String {
+        let f = { (x: Double) -> String in String(format: "%.1f", x) }
+        var parts = ["CTL \(f(load.ctl))", "ATL \(f(load.atl))", "TSB \(f(load.tsb))"]
+        if let ramp = load.ctlRamp7d {
+            let signed = ramp >= 0 ? "+\(f(ramp))" : f(ramp)
+            parts.append("7d CTL Δ \(signed)")
+        }
+        return "Training load (as of \(load.asOf)): " + parts.joined(separator: " · ")
     }
 
     private func activePersonaContent(personality: Personality, customText: String) -> String {

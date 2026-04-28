@@ -44,6 +44,7 @@ func buildSystemPrompt(
 ) -> String {
     let state = CoachState(
         today: Date(),
+        trainingLoad: nil,      // Phase 4a: chronic-load snapshot (sync path skips fetch)
         recoveryPicture: nil,   // Phase 4: HealthKit-derived narrative
         athleteSummary: nil,    // Phase 5: in-memory athlete snapshot
         recentConversationSummaries: recentConversationSummaries

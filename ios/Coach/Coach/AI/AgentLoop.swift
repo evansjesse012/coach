@@ -160,6 +160,37 @@ struct AnyCodable: Codable {
     }
 }
 
+// MARK: - Coach State helpers
+
+/// Pull the last ~week of `daily_training_load` and assemble the
+/// per-turn chronic-load snapshot the coach prompt sees. Returns nil
+/// when the table has no rows yet (new athlete) or the fetch errors —
+/// the prompt then renders without the training-load line rather than
+/// blocking chat on a transient Supabase hiccup.
+///
+/// 7-day CTL ramp is derived from the oldest-vs-newest row in the
+/// 8-row window. Left nil when there isn't enough history yet. If the
+/// athlete hasn't logged in a while the asOf date in the rendered line
+/// makes the staleness visible to the coach.
+@MainActor
+private func fetchTrainingLoadSnapshot() async -> TrainingLoadSnapshot? {
+    let rows: [DailyTrainingLoad]
+    do {
+        rows = try await TrainingLoadService.loadRecent(days: 8)
+    } catch {
+        return nil
+    }
+    guard let latest = rows.last else { return nil }
+    let ramp: Double? = rows.count >= 8 ? latest.ctl - rows.first!.ctl : nil
+    return TrainingLoadSnapshot(
+        asOf: latest.date,
+        ctl: latest.ctl,
+        atl: latest.atl,
+        tsb: latest.tsb,
+        ctlRamp7d: ramp
+    )
+}
+
 // MARK: - Agent Loop
 
 /// Port of runAgentLoop from page.jsx lines 914-931.
@@ -190,8 +221,10 @@ func runAgentLoop(
     // + today's date + athlete state + recent-conversation summaries →
     // sent fresh every turn.
     let staticPrompt = PromptAssembler.staticBlock()
+    let trainingLoadSnapshot = await fetchTrainingLoadSnapshot()
     let coachState = CoachState(
         today: Date(),
+        trainingLoad: trainingLoadSnapshot,
         recoveryPicture: nil,
         athleteSummary: nil,
         recentConversationSummaries: recentConversationSummaries

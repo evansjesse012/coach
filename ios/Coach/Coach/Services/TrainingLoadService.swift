@@ -53,6 +53,21 @@ enum TrainingLoadService {
         return rows.first
     }
 
+    /// Up to `days` most-recent rows, ascending by date. Used by the coach
+    /// prompt's training-load snapshot to compute a 7-day CTL ramp without
+    /// pulling the entire timeline.
+    static func loadRecent(days: Int) async throws -> [DailyTrainingLoad] {
+        let client = SupabaseService.shared.client
+        let rows: [DailyTrainingLoad] = try await client
+            .from("daily_training_load")
+            .select()
+            .order("date", ascending: false)
+            .limit(days)
+            .execute()
+            .value
+        return rows.reversed()
+    }
+
     // MARK: - Recompute
 
     /// Recompute the daily-load timeline from `fromDate` (inclusive)
