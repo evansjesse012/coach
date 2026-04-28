@@ -264,6 +264,42 @@ final class DataService {
     /// recompute from the day after the most-recent stored row, which
     /// catches "user opened the app the next morning, ATL has decayed
     /// another tick" without recomputing history.
+    /// Recompute the daily-load timeline from `touchingDate` forward, then
+    /// reload `trainingLoad`. Called after every workout add/edit/delete
+    /// so the chart and readiness chip reflect the change without an app
+    /// restart.
+    ///
+    /// Past rows preceding `touchingDate` are untouched — soft-immutable
+    /// past, recompute-forward-only. The recompute seeds from the row
+    /// immediately before `touchingDate` (which stays put) and walks
+    /// day-by-day to today.
+    func recomputeTrainingLoad(touchingDate dateString: String, reason: String) async {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        guard let date = fmt.date(from: dateString) else { return }
+        do {
+            let resolver = BenchmarkResolver(history: benchmarkHistory)
+            try await TrainingLoadService.recompute(
+                from: date,
+                cardio: cardio,
+                strength: strength,
+                resolver: resolver,
+                reason: reason
+            )
+            trainingLoad = try await TrainingLoadService.loadAll()
+        } catch {
+            print("recomputeTrainingLoad(\(reason), from: \(dateString)) failed: \(error)")
+        }
+    }
+
+    /// Picks the lexicographically earlier of two yyyy-MM-dd strings.
+    /// String comparison works because the format sorts the same as the
+    /// underlying date.
+    private func earlierOf(_ a: String?, _ b: String) -> String {
+        guard let a, !a.isEmpty else { return b }
+        return a < b ? a : b
+    }
+
     private func refreshTrainingLoad() async {
         do {
             let resolver = BenchmarkResolver(history: benchmarkHistory)
@@ -334,18 +370,28 @@ final class DataService {
     func addCardio(_ workout: CardioWorkout) async throws {
         cardio.insert(workout, at: 0)
         try await client.from("cardio_workouts").insert(workout).execute()
+        await recomputeTrainingLoad(touchingDate: workout.date, reason: "new_workout")
     }
 
     func updateCardio(_ workout: CardioWorkout) async throws {
+        // Recompute starts at the *earlier* of the old and new date so the
+        // chart is right after a date change.
+        let oldDate = cardio.first(where: { $0.id == workout.id })?.date
         if let idx = cardio.firstIndex(where: { $0.id == workout.id }) {
             cardio[idx] = workout
         }
         try await client.from("cardio_workouts").upsert(workout).execute()
+        let from = earlierOf(oldDate, workout.date)
+        await recomputeTrainingLoad(touchingDate: from, reason: "workout_edited")
     }
 
     func deleteCardio(_ id: String) async throws {
+        let removed = cardio.first(where: { $0.id == id })?.date
         cardio.removeAll { $0.id == id }
         try await client.from("cardio_workouts").delete().eq("id", value: id).execute()
+        if let removed {
+            await recomputeTrainingLoad(touchingDate: removed, reason: "workout_deleted")
+        }
     }
 
     // MARK: - HealthKit Sync + Match
@@ -697,20 +743,28 @@ final class DataService {
     func addStrength(_ session: StrengthSession) async throws {
         strength.insert(session, at: 0)
         try await client.from("strength_sessions").insert(session).execute()
+        await recomputeTrainingLoad(touchingDate: session.date, reason: "new_workout")
     }
 
     func updateStrength(_ session: StrengthSession) async throws {
+        let oldDate = strength.first(where: { $0.id == session.id })?.date
         if let idx = strength.firstIndex(where: { $0.id == session.id }) {
             strength[idx] = session
         } else {
             strength.insert(session, at: 0)
         }
         try await client.from("strength_sessions").upsert(session).execute()
+        let from = earlierOf(oldDate, session.date)
+        await recomputeTrainingLoad(touchingDate: from, reason: "workout_edited")
     }
 
     func deleteStrength(_ id: String) async throws {
+        let removed = strength.first(where: { $0.id == id })?.date
         strength.removeAll { $0.id == id }
         try await client.from("strength_sessions").delete().eq("id", value: id).execute()
+        if let removed {
+            await recomputeTrainingLoad(touchingDate: removed, reason: "workout_deleted")
+        }
     }
 
     // MARK: - Active Workout (in-memory + UserDefaults)
