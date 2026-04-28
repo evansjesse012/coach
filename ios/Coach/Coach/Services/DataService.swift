@@ -73,6 +73,11 @@ final class DataService {
     /// `TrainingLoadService` recompute paths.
     var trainingLoad: [DailyTrainingLoad] = []
 
+    /// Versioned threshold timeline (LTHR, FTP, threshold pace, CSS, max
+    /// HR, etc) used by the TSS ladder so historical workouts get scored
+    /// against historical thresholds. Populated on `loadAll`.
+    var benchmarkHistory: [BenchmarkHistoryEntry] = []
+
     /// HealthKit-imported workouts that the WorkoutMatcher couldn't pair to
     /// any prescribed session. In-memory only — repopulated on each sync.
     /// The UI shows these as "New workout detected" cards in Today's Focus.
@@ -205,6 +210,7 @@ final class DataService {
             async let cat: [CatalogExercise] = client.from("exercises").select().execute().value
             async let pr: [PersonalRecord] = client.from("personal_records").select().execute().value
             async let tl: [DailyTrainingLoad] = client.from("daily_training_load").select().order("date", ascending: true).execute().value
+            async let bh: [BenchmarkHistoryEntry] = client.from("benchmark_history").select().order("effective_from", ascending: false).execute().value
 
             cardio = try await c
             strength = try await s
@@ -229,6 +235,7 @@ final class DataService {
             prs = Dictionary(uniqueKeysWithValues: prList.map { ($0.exerciseSlug, $0) })
 
             trainingLoad = try await tl
+            benchmarkHistory = try await bh
         } catch {
             self.error = error.localizedDescription
         }
@@ -259,10 +266,12 @@ final class DataService {
     /// another tick" without recomputing history.
     private func refreshTrainingLoad() async {
         do {
+            let resolver = BenchmarkResolver(history: benchmarkHistory)
             if trainingLoad.isEmpty {
                 try await TrainingLoadService.backfill(
                     cardio: cardio,
-                    strength: strength
+                    strength: strength,
+                    resolver: resolver
                 )
             } else {
                 // Recompute today (and any missed days since the last row)
@@ -277,6 +286,7 @@ final class DataService {
                     from: from,
                     cardio: cardio,
                     strength: strength,
+                    resolver: resolver,
                     reason: "daily_refresh"
                 )
             }
@@ -724,9 +734,13 @@ final class DataService {
         persistActiveSession()
     }
 
-    /// Finish the active workout: stamp duration, promote to Supabase, roll
+    /// Finish the active workout: stamp duration, optionally record session
+    /// RPE (drives the strength TSS estimate), promote to Supabase, roll
     /// PRs, then clear the in-memory + UserDefaults active state.
-    func finishActiveWorkout() async throws {
+    ///
+    /// Pass `rpe = nil` if the athlete skipped the rating prompt — the TSS
+    /// ladder falls back to a sport-default estimate.
+    func finishActiveWorkout(rpe: Int? = nil) async throws {
         guard var session = activeStrengthSession else { return }
         let duration: Int
         if let started = activeWorkoutStartedAt {
@@ -736,6 +750,7 @@ final class DataService {
             duration = 0
         }
         session.duration = duration
+        session.rpe = rpe
         // Snapshot the prescribed-vs-logged comparison BEFORE we prune
         // uncompleted sets off `session` below. Using the pre-prune
         // `activeStrengthSession` preserves the prescribed set count for

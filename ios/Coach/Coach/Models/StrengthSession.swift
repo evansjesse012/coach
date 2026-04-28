@@ -29,9 +29,14 @@ struct StrengthSession: Codable, Identifiable {
     var duration: Int?
     var exercises: [Exercise]
     var templateId: String?
+    /// Athlete-reported session RPE on the 1–10 Borg CR-10 scale. Drives
+    /// the session-RPE TSS estimate (Foster: TSS ≈ RPE × duration_min / 10).
+    /// Nil when the athlete skips the prompt; the TSS ladder falls back to
+    /// a sport-default estimate.
+    var rpe: Int?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, date, duration, exercises
+        case id, name, date, duration, exercises, rpe
         case templateId = "template_id"
     }
 

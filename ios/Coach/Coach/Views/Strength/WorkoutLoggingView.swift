@@ -14,7 +14,7 @@ struct WorkoutLoggingView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showCancelConfirm = false
-    @State private var showFinishConfirm = false
+    @State private var showFinishSheet = false
     @State private var showExercisePicker = false
 
     var body: some View {
@@ -56,7 +56,7 @@ struct WorkoutLoggingView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showFinishConfirm = true
+                    showFinishSheet = true
                 } label: {
                     Text("Finish")
                         .font(CoachFonts.ui(14, weight: .bold))
@@ -87,27 +87,29 @@ struct WorkoutLoggingView: View {
         } message: {
             Text("Minimize keeps your sets. Discard deletes this workout.")
         }
-        .confirmationDialog(
-            "Finish this workout?",
-            isPresented: $showFinishConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Finish workout", role: .none) {
-                Task {
-                    do {
-                        try await data.finishActiveWorkout()
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        dismiss()
-                    } catch {
-                        // Stay in the workout so the athlete doesn't lose it.
+        .sheet(isPresented: $showFinishSheet) {
+            // RPE picker drives session-RPE TSS (Foster's method). Athlete
+            // can skip — when nil, the load ladder falls back to a sport-
+            // default estimate.
+            FinishWorkoutSheet(
+                completedSets: data.activeStrengthSession?.completedSetCount ?? 0,
+                exerciseCount: data.activeStrengthSession?.exercises.count ?? 0,
+                onFinish: { rpe in
+                    showFinishSheet = false
+                    Task {
+                        do {
+                            try await data.finishActiveWorkout(rpe: rpe)
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            dismiss()
+                        } catch {
+                            // Stay in the workout so the athlete doesn't lose it.
+                        }
                     }
-                }
-            }
-            Button("Keep logging", role: .cancel) {}
-        } message: {
-            if let s = data.activeStrengthSession {
-                Text("\(s.completedSetCount) sets completed across \(s.exercises.count) exercises.")
-            }
+                },
+                onCancel: { showFinishSheet = false }
+            )
+            .presentationDetents([.height(360)])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showExercisePicker) {
             NavigationStack {

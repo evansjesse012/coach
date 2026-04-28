@@ -68,6 +68,7 @@ enum TrainingLoadService {
         from fromDate: Date,
         cardio: [CardioWorkout],
         strength: [StrengthSession],
+        resolver: BenchmarkResolver,
         reason: String
     ) async throws {
         let client = SupabaseService.shared.client
@@ -108,27 +109,28 @@ enum TrainingLoadService {
             let dayCardio = cardioByDate[key] ?? []
             let dayStrength = strengthByDate[key] ?? []
 
-            // Per-workout sources (Phase 1: legacy ladder). Each carries
-            // a method + confidence so the UI can disclose provenance.
+            // Per-workout sources via the per-sport TSS ladder. Each
+            // result carries the actual method used (power/pace/HR/etc)
+            // and a confidence level for UI provenance.
             var sources: [LoadSource] = []
             for w in dayCardio {
-                let tss = TrainingStressCalculator.tss(for: w)
+                let r = TSSLadder.tss(for: w, resolver: resolver)
                 sources.append(LoadSource(
                     workoutId: w.id,
                     kind: .cardio,
-                    tss: tss,
-                    method: legacyCardioMethod(for: w),
-                    confidence: confidence(for: legacyCardioMethod(for: w))
+                    tss: r.tss,
+                    method: r.method,
+                    confidence: r.confidence
                 ))
             }
             for s in dayStrength {
-                let tss = TrainingStressCalculator.tss(forStrength: s)
+                let r = TSSLadder.tss(forStrength: s)
                 sources.append(LoadSource(
                     workoutId: s.id,
                     kind: .strength,
-                    tss: tss,
-                    method: .sportDefault,
-                    confidence: .low
+                    tss: r.tss,
+                    method: r.method,
+                    confidence: r.confidence
                 ))
             }
 
@@ -169,7 +171,8 @@ enum TrainingLoadService {
     /// and again if HealthKit imports a long history.
     static func backfill(
         cardio: [CardioWorkout],
-        strength: [StrengthSession]
+        strength: [StrengthSession],
+        resolver: BenchmarkResolver
     ) async throws {
         let cal = Calendar.current
         let fmt = Self.dateFormatter
@@ -198,37 +201,12 @@ enum TrainingLoadService {
             from: earliest,
             cardio: cardio,
             strength: strength,
+            resolver: resolver,
             reason: "backfill"
         )
     }
 
     // MARK: - Helpers
-
-    /// Maps the legacy `TrainingStressCalculator.tss(for:)` to a method
-    /// label so Phase 1 daily rows have provenance. Phase 2 replaces this
-    /// with explicit per-sport branches that record the actual method
-    /// used at the call site.
-    private static func legacyCardioMethod(for w: CardioWorkout) -> LoadSource.TSSMethod {
-        if let zones = w.hrZones,
-           ((zones.z1 ?? 0) + (zones.z2 ?? 0) + (zones.z3 ?? 0) + (zones.z4 ?? 0) + (zones.z5 ?? 0)) > 60 {
-            return .hrZones
-        }
-        if let avg = w.avgHR, avg > 0 {
-            return .hrAvg
-        }
-        return .sportDefault
-    }
-
-    private static func confidence(for method: LoadSource.TSSMethod) -> LoadSource.Confidence {
-        switch method {
-        case .powerNormalized, .paceGap, .swimPace:
-            return .high
-        case .powerAvg, .paceFlat, .hrZones, .sessionRPE, .volumeLoad:
-            return .medium
-        case .hrAvg, .effortCategory, .sportDefault:
-            return .low
-        }
-    }
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
