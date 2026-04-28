@@ -117,11 +117,43 @@ struct AnalyticsTab: View {
                         color: latest.tsb >= 0 ? CoachColors.green : CoachColors.yellow
                     )
                 }
+
+                // Calibrating disclaimer for short histories. The EWMA
+                // seeds at 0, so the first ~6 weeks read low even when
+                // the athlete is genuinely fit. Surface this honestly
+                // here rather than hiding the numbers.
+                if isCalibrating {
+                    calibrationNote
+                }
             }
             .sheet(isPresented: $showMetricsExplainer) {
                 MetricsExplainerSheet()
             }
         }
+    }
+
+    /// True while we have fewer than 6 weeks of daily-load rows. The EWMA
+    /// hasn't converged yet, so today's CTL/ATL/TSB read low.
+    private var isCalibrating: Bool {
+        fitness.count < 42
+    }
+
+    private var calibrationNote: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "hourglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 1)
+            Text("Still calibrating — we're \(fitness.count) day\(fitness.count == 1 ? "" : "s") into a 42-day window. Numbers will read low until the model converges.")
+                .font(CoachFonts.ui(11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.secondary.opacity(0.08))
+        )
     }
 
     private func statBox(label: String, value: String, descriptor: String, color: Color) -> some View {

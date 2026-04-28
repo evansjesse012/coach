@@ -7,11 +7,14 @@ struct HomeTab: View {
     @State private var undoToast: UndoToast?
 
     /// Programmatic routes pushed from Today. Closure-style NavigationLinks
-    /// (week card, phase progress) continue to push onto the same stack;
-    /// the `.id(UUID())` rebuild in `popsOnTabReselect` still tears them
-    /// down on tab re-select.
+    /// (phase progress) continue to push onto the same stack; the
+    /// `.id(UUID())` rebuild in `popsOnTabReselect` still tears them down
+    /// on tab re-select.
     enum TodayRoute: Hashable {
         case sessionDetail(weekNum: Int, dayIdx: Int, sessionIdx: Int, preselected: Theme.SessionStatusKind?)
+        /// Pushed from a week-strip cell on rest / empty / multi-session
+        /// days, where there's no single session to drill into.
+        case weekDetail(weekNum: Int)
     }
 
     /// Ephemeral undo for a quick-logged completion. Persists for ~5s
@@ -45,7 +48,6 @@ struct HomeTab: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                     headerBlock
-                    readinessBlock
                     todayHeaderBlocks
                     watchMatchBannerBlock
                     coachBriefBlock
@@ -125,6 +127,8 @@ struct HomeTab: View {
                     preselectedStatus: pre
                 )
             }
+        case .weekDetail(let week):
+            WeekDetailView(initialWeekNum: week)
         }
     }
 
@@ -215,20 +219,6 @@ struct HomeTab: View {
         case 12..<17: return "Good afternoon"
         default:      return "Good evening"
         }
-    }
-
-    // MARK: - Readiness chip
-    //
-    // Sits between the date/greeting header and the race/phase blocks.
-    // Always-on access to today's TSB; tap routes to the Stats tab so
-    // the athlete can see the chart in context.
-
-    @ViewBuilder
-    private var readinessBlock: some View {
-        ReadinessChip(
-            tsb: data.trainingLoad.last?.tsb,
-            onTap: { data.selectedTab = "stats" }
-        )
     }
 
     // MARK: - Today header (race + phase blocks)
@@ -574,6 +564,13 @@ struct HomeTab: View {
     }
 
     // MARK: - This week
+    //
+    // The card is purely visual — only the cells inside it are
+    // interactive (they push session detail or week detail). The
+    // section header above the card is a separate tap target that
+    // switches to the Plan tab. The previous version's adherence /
+    // sessions footer was removed in this update; those metrics live
+    // on the Stats tab now.
 
     @ViewBuilder
     private var thisWeekBlock: some View {
@@ -584,60 +581,92 @@ struct HomeTab: View {
             cardio: data.cardio,
             strength: data.strength
            ) {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(
-                    title: "This week",
-                    meta: "Wk \(plan.currentWeek) / \(plan.totalWeeks)"
-                )
-                weekCard(adherence: adherence, plan: plan)
+            VStack(alignment: .leading, spacing: 10) {
+                weekSectionHeader(plan: plan)
+                weekStripCard(plan: plan, adherence: adherence)
             }
         }
     }
 
-    private func weekCard(adherence: WeekAdherence, plan: TrainingPlan) -> some View {
-        let phase = plan.current
-        return NavigationLink {
-            WeekDetailView(initialWeekNum: plan.currentWeek)
-        } label: {
-            VStack(alignment: .leading, spacing: 16) {
-                WeekOverviewHeader(
-                    weekNumber: plan.currentWeek,
-                    dateRange: weekRangeText(plan: plan),
-                    phaseLabel: phase?.plainLanguageLabel,
-                    weeksLeft: phase.map { plan.weeksLeftInPhase($0) }
-                )
-
-                // 7 tinted day cells — canonical status colors from
-                // Theme.SessionStatusKind, today gets the dark-fill emphasis.
-                HStack(spacing: 6) {
-                    ForEach(Array(adherence.days.enumerated()), id: \.offset) { idx, day in
-                        WeekStripCell(
-                            letter: weekdayLetter(idx),
-                            isToday: day.isToday,
-                            state: weekStripState(for: day),
-                            glyphs: weekStripGlyphs(for: day)
-                        )
-                    }
-                }
-
-                Hairline()
-
-                // Footer — sessions / adherence
-                HStack(alignment: .top, spacing: 16) {
-                    weekFooterStat(label: "Sessions",  value: "\(adherence.completed) / \(adherence.prescribed)")
-                    weekFooterStat(label: "Adherence", value: "\(adherence.adherence)%")
+    /// Two-part row above the card — left "THIS WEEK ›" tappable kicker
+    /// switches to the Plan tab; right is the Mon–Sun date range.
+    private func weekSectionHeader(plan: TrainingPlan) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Button {
+                data.selectedTab = "plan"
+            } label: {
+                HStack(spacing: 5) {
+                    Text("This week")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .textCase(.uppercase)
+                        .tracking(0.18 * 9) // 0.18em on 9pt
+                        .foregroundStyle(Theme.ink3)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.ink3)
                 }
             }
-            .padding(Theme.Spacing.cardP)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface1)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.card)
-                    .strokeBorder(Theme.line, lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+            .accessibilityLabel("This week, view full plan")
+
+            Spacer(minLength: 8)
+
+            Text(weekRangeShortText(plan: plan))
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .tracking(0.04 * 10)
+                .foregroundStyle(Theme.ink3)
         }
-        .buttonStyle(.plain)
+    }
+
+    /// The card itself: a 7-equal-column day strip with no internal
+    /// header or footer. The card surface is non-interactive — only
+    /// the cells inside have tap handlers.
+    private func weekStripCard(plan: TrainingPlan, adherence: WeekAdherence) -> some View {
+        HStack(spacing: 5) {
+            ForEach(Array(adherence.days.enumerated()), id: \.offset) { idx, day in
+                weekStripColumn(plan: plan, day: day, dayIdx: idx)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Theme.line, lineWidth: 1)
+        )
+    }
+
+    private func weekStripColumn(plan: TrainingPlan, day: DayReview, dayIdx: Int) -> WeekStripCell {
+        let glyphs = weekStripGlyphs(for: day)
+        let status = weekStripStatus(for: day)
+        let isRestLike = day.isRest || day.sessions.isEmpty
+        return WeekStripCell(
+            letter: weekdayLetter(dayIdx),
+            isToday: day.isToday,
+            status: status,
+            glyphs: glyphs,
+            upcomingOpacity: isRestLike ? 0.4 : 0.5,
+            accessibilityText: weekStripAccessibility(day: day, dayIdx: dayIdx, status: status),
+            onTap: { onWeekStripCellTap(plan: plan, day: day, dayIdx: dayIdx) }
+        )
+    }
+
+    private func onWeekStripCellTap(plan: TrainingPlan, day: DayReview, dayIdx: Int) {
+        // Single-session days go straight to session detail; rest /
+        // empty / multi-session days push the week view (acts as the
+        // day overview) so the athlete can pick which session to open.
+        if day.sessions.count == 1, !day.isRest {
+            path.append(TodayRoute.sessionDetail(
+                weekNum: plan.currentWeek,
+                dayIdx: dayIdx,
+                sessionIdx: 0,
+                preselected: nil
+            ))
+        } else {
+            path.append(TodayRoute.weekDetail(weekNum: plan.currentWeek))
+        }
     }
 
     private func weekdayLetter(_ idx: Int) -> String {
@@ -645,48 +674,50 @@ struct HomeTab: View {
         return idx >= 0 && idx < letters.count ? letters[idx] : "·"
     }
 
-    /// Session status resolved to a strip-cell state. Multi-session days
-    /// use this precedence: skipped > modified/swapped > done > pending.
-    /// "Today" is NOT folded in here — that's handled by `isToday` on
-    /// `WeekStripCell` so today's visual override remains explicit.
-    private func weekStripState(for day: DayReview) -> WeekStripCellState {
-        if day.isRest { return .rest }
-        if day.sessions.isEmpty { return .upcoming }
-
+    /// Session status collapsed to a single strip-cell status. Multi-
+    /// session days use precedence: skipped > modified/swapped > done >
+    /// upcoming. Rest and empty days resolve to `.upcoming` and render
+    /// as a faded moon via the icon helper. "Today" is NOT folded in
+    /// here — `isToday` on `WeekStripCell` handles the column wrap so
+    /// the today rules can't drift.
+    private func weekStripStatus(for day: DayReview) -> WeekStripStatus {
+        if day.isRest || day.sessions.isEmpty { return .upcoming }
         let statuses = day.sessions.map { $0.status }
-        if statuses.contains(.missed) { return .resolved(.skipped) }
+        if statuses.contains(.missed) { return .skipped }
         if statuses.contains(.shortened) || statuses.contains(.substituted) {
-            return .resolved(.modified)
+            return .modified
         }
         if !statuses.isEmpty, statuses.allSatisfy({ $0 == .completed }) {
-            return .resolved(.done)
+            return .done
         }
         return .upcoming
     }
 
-    /// One glyph per session on the day, in prescribed order. Swapped
-    /// sessions render the substitute sport so the cell reflects what
-    /// was actually done. Rest days return a single moon glyph; empty
-    /// days return a dotted placeholder.
-    private func weekStripGlyphs(for day: DayReview) -> [WeekStripCell.Glyph] {
-        if day.isRest {
-            return [.init(symbolName: "moon.fill", naturalColor: Theme.ink3)]
-        }
-        if day.sessions.isEmpty {
-            return [.init(symbolName: "circle.dotted", naturalColor: Theme.ink3)]
+    /// One glyph per session, in prescribed order. Swapped sessions
+    /// report the substitute sport so the strip mirrors what the
+    /// athlete logged. Rest / empty days collapse to a single moon
+    /// glyph. The cell stacks the first two and rolls any remainder
+    /// into a "+N" line.
+    private func weekStripGlyphs(for day: DayReview) -> [DisciplineGlyph] {
+        if day.isRest || day.sessions.isEmpty {
+            return [DisciplineGlyph(symbolName: "moon.fill", naturalColor: Theme.ink3)]
         }
         return day.sessions.map { session in
-            let rawType: String = {
-                if session.status == .substituted, let sub = session.substitute, !sub.isEmpty {
-                    return sub
-                }
-                return session.type
-            }()
-            return WeekStripCell.Glyph(
-                symbolName: symbolName(for: rawType),
-                naturalColor: disciplineColor(for: rawType)
+            let type = typeFor(session)
+            return DisciplineGlyph(
+                symbolName: symbolName(for: type),
+                naturalColor: disciplineColor(for: type)
             )
         }
+    }
+
+    /// Effective sport type for a session — substitute wins for swaps
+    /// so the strip mirrors what the athlete logged.
+    private func typeFor(_ session: SessionReview) -> String {
+        if session.status == .substituted, let sub = session.substitute, !sub.isEmpty {
+            return sub
+        }
+        return session.type
     }
 
     private func symbolName(for type: String) -> String {
@@ -701,22 +732,87 @@ struct HomeTab: View {
         return Theme.ink3
     }
 
-    private func weekFooterStat(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(Theme.Typography.monoLabelS)
-                .foregroundStyle(Theme.ink3)
-                .textCase(.uppercase)
-                .tracking(Theme.Tracking.monoLabel)
-            Text(value)
-                .font(Theme.Typography.mono(15, weight: .medium))
-                .foregroundStyle(Theme.ink)
+    /// Compact "Apr 20 – 26" / "Apr 28 – May 4" range using an en-dash.
+    /// Drops the second month when the week stays inside one month.
+    /// Distinct from the dash-and-month `weekRangeLabel` helper — that
+    /// format is used by the WeekDetail header where there's room.
+    private func weekRangeShortText(plan: TrainingPlan) -> String {
+        guard let startStr = plan.startDate else { return "" }
+        let input = DateFormatter()
+        input.dateFormat = "yyyy-MM-dd"
+        guard let planStart = input.date(from: startStr) else { return "" }
+        let cal = Calendar.current
+        let raw = cal.date(byAdding: .day, value: (plan.currentWeek - 1) * 7, to: planStart) ?? planStart
+        let monday = mondayOf(raw)
+        guard let sunday = cal.date(byAdding: .day, value: 6, to: monday) else { return "" }
+
+        let monthFmt = DateFormatter()
+        monthFmt.dateFormat = "MMM"
+        let dayFmt = DateFormatter()
+        dayFmt.dateFormat = "d"
+
+        let monMonth = monthFmt.string(from: monday)
+        let monDay = dayFmt.string(from: monday)
+        let sunMonth = monthFmt.string(from: sunday)
+        let sunDay = dayFmt.string(from: sunday)
+
+        if monMonth == sunMonth {
+            return "\(monMonth) \(monDay) \u{2013} \(sunDay)"
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        return "\(monMonth) \(monDay) \u{2013} \(sunMonth) \(sunDay)"
     }
 
-    private func weekRangeText(plan: TrainingPlan) -> String {
-        weekRangeLabel(planStartDate: plan.startDate, weekNumber: plan.currentWeek) ?? ""
+    /// VoiceOver label for one week-strip cell. Combines weekday name,
+    /// today indicator, session description, and resolved status.
+    private func weekStripAccessibility(
+        day: DayReview,
+        dayIdx: Int,
+        status: WeekStripStatus
+    ) -> String {
+        let weekdayNames = [
+            "Monday", "Tuesday", "Wednesday", "Thursday",
+            "Friday", "Saturday", "Sunday"
+        ]
+        let dayName = (dayIdx >= 0 && dayIdx < weekdayNames.count)
+            ? weekdayNames[dayIdx] : "Day"
+
+        if day.isRest {
+            return day.isToday
+                ? "\(dayName), today, rest day"
+                : "\(dayName), rest day"
+        }
+        if day.sessions.isEmpty {
+            return day.isToday
+                ? "\(dayName), today, no sessions"
+                : "\(dayName), no sessions"
+        }
+
+        let session: String = {
+            if day.sessions.count == 1 {
+                let t = typeFor(day.sessions[0])
+                return t.isEmpty ? "session" : "\(t) session"
+            }
+            let types = day.sessions.map(typeFor).filter { !$0.isEmpty }
+            if types.count == 2 {
+                return "\(types[0]) and \(types[1]) sessions"
+            }
+            return "\(day.sessions.count) sessions"
+        }()
+
+        let statusWord: String? = {
+            switch status {
+            case .done:     return "completed"
+            case .modified: return "modified"
+            case .skipped:  return "skipped"
+            case .upcoming: return day.isToday ? nil : "upcoming"
+            }
+        }()
+
+        var parts = [dayName]
+        if day.isToday { parts.append("today") }
+        parts.append(session)
+        if let statusWord { parts.append(statusWord) }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: - Phase progress
