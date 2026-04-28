@@ -24,6 +24,13 @@ struct CoachState {
     /// reason from current state without burning tool calls every turn.
     let athleteSummary: String?
 
+    /// Per-turn recent-conversation summaries for thread-to-thread
+    /// continuity. Was previously appended to the static prompt in
+    /// `AgentLoop`, which broke caching since each conversation has
+    /// different summaries. Lives here now so the static block stays
+    /// byte-identical across turns.
+    let recentConversationSummaries: [String]
+
     /// Render this state plus the active persona's content as a single
     /// dynamic block. Sits between Section 11 and Section 12 of the
     /// assembled prompt.
@@ -46,6 +53,13 @@ struct CoachState {
             lines.append("")
             lines.append("Athlete summary:")
             lines.append(athleteSummary)
+        }
+        if !recentConversationSummaries.isEmpty {
+            lines.append("")
+            lines.append("Recent conversations (for thread-to-thread continuity):")
+            for (idx, summary) in recentConversationSummaries.enumerated() {
+                lines.append("- \(idx + 1). \(summary)")
+            }
         }
         lines.append("[/COACH STATE]")
 

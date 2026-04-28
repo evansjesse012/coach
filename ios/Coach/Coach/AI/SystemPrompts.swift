@@ -37,11 +37,16 @@ func getPersonalityPrompt(_ personality: Personality, _ customText: String) -> S
 /// Phase 5 fills in the empty section files (philosophy, decision
 /// posture, diagnostic, goal router, post-workout, anti-patterns,
 /// few-shots) with authored content.
-func buildSystemPrompt(personality: Personality, customText: String) -> String {
+func buildSystemPrompt(
+    personality: Personality,
+    customText: String,
+    recentConversationSummaries: [String] = []
+) -> String {
     let state = CoachState(
         today: Date(),
         recoveryPicture: nil,   // Phase 4: HealthKit-derived narrative
-        athleteSummary: nil     // Phase 5: in-memory athlete snapshot
+        athleteSummary: nil,    // Phase 5: in-memory athlete snapshot
+        recentConversationSummaries: recentConversationSummaries
     )
     return PromptAssembler.assemble(
         personality: personality,

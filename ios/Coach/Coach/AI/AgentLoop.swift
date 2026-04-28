@@ -84,10 +84,28 @@ struct AnthropicResponse: Codable {
     let id: String?
     let content: [ContentBlock]
     let stopReason: String?
+    let usage: AnthropicUsage?
 
     enum CodingKeys: String, CodingKey {
-        case id, content
+        case id, content, usage
         case stopReason = "stop_reason"
+    }
+}
+
+/// Token usage from a single Anthropic call. Cache-related fields are
+/// populated when the request includes any block tagged with
+/// `cache_control: ephemeral`.
+struct AnthropicUsage: Codable {
+    let inputTokens: Int?
+    let outputTokens: Int?
+    let cacheCreationInputTokens: Int?
+    let cacheReadInputTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens             = "input_tokens"
+        case outputTokens            = "output_tokens"
+        case cacheCreationInputTokens = "cache_creation_input_tokens"
+        case cacheReadInputTokens    = "cache_read_input_tokens"
     }
 }
 
@@ -166,23 +184,29 @@ func runAgentLoop(
     var toolCallCount = 0
     var effects: [ToolEffect] = []
 
-    // Build the system prompt with conversation summaries for continuity
-    var systemPrompt = buildSystemPrompt(personality: personality, customText: customText)
-    if !recentConversationSummaries.isEmpty {
-        let summaryBlock = recentConversationSummaries.enumerated().map { idx, s in
-            "- \(idx + 1). \(s)"
-        }.joined(separator: "\n")
-        systemPrompt += """
-
-        RECENT CONVERSATIONS (for context continuity — reference these if relevant):
-        \(summaryBlock)
-        """
-    }
+    // Build the system prompt as TWO blocks so prompt caching fires.
+    // Static block is byte-identical across turns (no persona, no date,
+    // no athlete state) → cached. Dynamic block carries persona content
+    // + today's date + athlete state + recent-conversation summaries →
+    // sent fresh every turn.
+    let staticPrompt = PromptAssembler.staticBlock()
+    let coachState = CoachState(
+        today: Date(),
+        recoveryPicture: nil,
+        athleteSummary: nil,
+        recentConversationSummaries: recentConversationSummaries
+    )
+    let dynamicPrompt = PromptAssembler.dynamicBlock(
+        personality: personality,
+        customText: customText,
+        state: coachState
+    )
 
     for _ in 0..<maxRounds {
-        // Call Claude via Supabase Edge Function
+        // Call Claude via Supabase Edge Function with the two-block shape.
         let response = try await callEdgeFunction(
-            system: systemPrompt,
+            staticSystemBlock: staticPrompt,
+            dynamicSystemBlock: dynamicPrompt,
             messages: chain,
             tools: coachToolDefinitions,
             maxTokens: 4096
@@ -276,7 +300,8 @@ private func makeResult(text: String, effects: [ToolEffect], toolCallCount: Int)
 // MARK: - Edge Function Call
 
 private func callEdgeFunction(
-    system: String,
+    staticSystemBlock: String,
+    dynamicSystemBlock: String,
     messages: [[String: Any]],
     tools: [ToolDefinition],
     maxTokens: Int
@@ -288,8 +313,27 @@ private func callEdgeFunction(
     let toolsData = try encoder.encode(tools)
     let toolsJSON = try JSONSerialization.jsonObject(with: toolsData)
 
+    // Anthropic accepts `system` as either a string OR an array of blocks.
+    // We send the array form so we can mark the static block as cacheable
+    // with `cache_control: ephemeral`. The dynamic block follows without
+    // a cache marker — it changes every turn and shouldn't be cached.
+    var systemBlocks: [[String: Any]] = []
+    if !staticSystemBlock.isEmpty {
+        systemBlocks.append([
+            "type": "text",
+            "text": staticSystemBlock,
+            "cache_control": ["type": "ephemeral"],
+        ])
+    }
+    if !dynamicSystemBlock.isEmpty {
+        systemBlocks.append([
+            "type": "text",
+            "text": dynamicSystemBlock,
+        ])
+    }
+
     let body: [String: Any] = [
-        "system": system,
+        "system": systemBlocks,
         "messages": messages,
         "tools": toolsJSON,
         "tool_choice": ["type": "auto"],
@@ -303,7 +347,7 @@ private func callEdgeFunction(
     // closure. So we have to catch the error out here — any status check
     // inside the closure is dead code on the non-2xx path.
     do {
-        return try await client.functions.invoke(
+        let response = try await client.functions.invoke(
             "chat",
             options: .init(body: bodyData)
         ) { data, _ in
@@ -320,7 +364,9 @@ private func callEdgeFunction(
                     ]
                 )
             }
-        }
+        } as AnthropicResponse
+        logUsage(response.usage)
+        return response
     } catch let FunctionsError.httpError(code, data) {
         let preview = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
         NSLog("[chat] HTTP \(code): \(preview)")
@@ -332,6 +378,19 @@ private func callEdgeFunction(
             ]
         )
     }
+}
+
+/// Emits a one-line log of the call's token usage with cache hit/miss
+/// data. Cached reads are billed at ~10% of normal input rate, so the
+/// ratio of `cache_read_input_tokens` to `input_tokens + cache_*` over
+/// time is the savings indicator.
+private func logUsage(_ usage: AnthropicUsage?) {
+    guard let usage else { return }
+    let input = usage.inputTokens ?? 0
+    let output = usage.outputTokens ?? 0
+    let cacheRead = usage.cacheReadInputTokens ?? 0
+    let cacheCreate = usage.cacheCreationInputTokens ?? 0
+    NSLog("[chat] usage  in:\(input)  out:\(output)  cache_read:\(cacheRead)  cache_create:\(cacheCreate)")
 }
 
 // MARK: - Streaming Edge Function Call

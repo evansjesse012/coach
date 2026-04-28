@@ -20,28 +20,45 @@ import Foundation
 /// cached block and the dynamic block into an uncached block.
 enum PromptAssembler {
 
-    /// Compose the full system prompt for the active personality + the
-    /// per-turn state.
+    /// Compose the full system prompt as one string. Used by the
+    /// non-caching call path and by anything that wants the legacy
+    /// single-string shape (tests, debug previews, etc.).
     static func assemble(
         personality: Personality,
         customText: String,
         state: CoachState
     ) -> String {
-        let staticHead = staticHeadSections.compactMap { content -> String? in
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }.joined(separator: "\n\n")
+        let s = staticBlock()
+        let d = dynamicBlock(personality: personality, customText: customText, state: state)
+        return [s, d].filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
 
-        let dynamic = state.render(personality: personality, customText: customText)
+    /// Compose the **static** portion only — sections 1-11 + 12-15
+    /// joined, with no persona content or per-turn state. This output
+    /// is byte-identical across turns (regardless of date / persona /
+    /// athlete state), so Anthropic prompt caching fires when this
+    /// block is sent with `cache_control: ephemeral`.
+    static func staticBlock() -> String {
+        let head = staticHeadSections.compactMap(trim).joined(separator: "\n\n")
+        let tail = staticTailSections.compactMap(trim).joined(separator: "\n\n")
+        return [head, tail].filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
 
-        let staticTail = staticTailSections.compactMap { content -> String? in
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }.joined(separator: "\n\n")
+    /// Compose the **dynamic** portion only — persona content + the
+    /// rendered Coach State Pack (today, recovery picture, athlete
+    /// summary, recent-conversation summaries). Changes every turn;
+    /// never cached.
+    static func dynamicBlock(
+        personality: Personality,
+        customText: String,
+        state: CoachState
+    ) -> String {
+        state.render(personality: personality, customText: customText)
+    }
 
-        return [staticHead, dynamic, staticTail]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
+    private static func trim(_ content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     // MARK: - Section ordering
