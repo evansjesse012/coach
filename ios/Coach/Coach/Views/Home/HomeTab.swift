@@ -50,10 +50,8 @@ struct HomeTab: View {
                     headerBlock
                     todayHeaderBlocks
                     watchMatchBannerBlock
-                    coachBriefBlock
-                    todayBlock
                     thisWeekBlock
-                    phaseProgressBlock
+                    todayBlock
                 }
                 .padding(.horizontal, Theme.Spacing.screenH)
                 .padding(.top, 16)
@@ -316,45 +314,6 @@ struct HomeTab: View {
         let outF = DateFormatter()
         outF.dateFormat = "EEE · MMM d · yyyy"
         return outF.string(from: d)
-    }
-
-    // MARK: - Coach brief
-
-    @ViewBuilder
-    private var coachBriefBlock: some View {
-        if let msg = data.settings.pushMessage, !msg.text.isEmpty {
-            CoachBrief(
-                kicker: "Today's brief",
-                source: data.settings.personality.label,
-                time: formattedBriefTime(msg.ts),
-                message: .briefMessage(msg.text),
-                actions: briefActions(from: msg.actions)
-            )
-        }
-    }
-
-    private func formattedBriefTime(_ ts: String?) -> String {
-        guard let ts, !ts.isEmpty else { return "" }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = iso.date(from: ts) ?? ISO8601DateFormatter().date(from: ts)
-        guard let d = date else { return "" }
-        let out = DateFormatter()
-        out.dateFormat = "h:mm a"
-        return out.string(from: d)
-    }
-
-    private func briefActions(from actions: [String]?) -> [CoachBrief.BriefAction] {
-        guard let actions, !actions.isEmpty else { return [] }
-        return Array(actions.prefix(2)).enumerated().map { idx, title in
-            CoachBrief.BriefAction(
-                title: title,
-                variant: idx == 0 ? .primary : .secondary
-            ) {
-                // MainTabView observes pendingChatPrompt and opens the Coach chat sheet.
-                data.pendingChatPrompt = title
-            }
-        }
     }
 
     // MARK: - Today
@@ -813,28 +772,6 @@ struct HomeTab: View {
         parts.append(session)
         if let statusWord { parts.append(statusWord) }
         return parts.joined(separator: ", ")
-    }
-
-    // MARK: - Phase progress
-
-    @ViewBuilder
-    private var phaseProgressBlock: some View {
-        if let plan = data.trainingPlan, let phase = plan.current {
-            let weekInPhase = plan.weekIndexInPhase(phase)
-            let progress = Double(weekInPhase) / Double(max(1, phase.weeks))
-            NavigationLink {
-                PhaseDetailView(plan: plan, phase: phase)
-            } label: {
-                PhaseProgressRow(
-                    number: phase.number,
-                    name: phase.name,
-                    progress: min(1, progress),
-                    caption: "Wk \(weekInPhase) of \(phase.weeks)",
-                    isCurrent: true
-                )
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     // MARK: - Completion mutations (quick-log path)
