@@ -162,6 +162,14 @@ struct AnyCodable: Codable {
 
 // MARK: - Coach State helpers
 
+/// Per-day cache for the LLM-generated recovery_picture narrative. The
+/// recovery snapshot only meaningfully changes once per calendar day
+/// (overnight HealthKit data), so we compute the narrative once and
+/// reuse it across every chat turn that day. Keyed by yyyy-MM-dd; reset
+/// implicitly on app restart.
+@MainActor
+private var recoveryPictureCache: (date: String, picture: String)?
+
 /// Pull the last ~week of `daily_training_load` and assemble the
 /// per-turn chronic-load snapshot the coach prompt sees. Returns nil
 /// when the table has no rows yet (new athlete) or the fetch errors —
@@ -189,6 +197,33 @@ private func fetchTrainingLoadSnapshot() async -> TrainingLoadSnapshot? {
         tsb: latest.tsb,
         ctlRamp7d: ramp
     )
+}
+
+/// Build today's recovery_picture narrative for CoachState. Pulls a
+/// fresh `RecoverySnapshot` from HealthKit and feeds it (plus the
+/// chronic-load snapshot for context) to a small LLM that writes a
+/// 2-3 sentence coach-to-coach briefing. Cached per calendar day so
+/// repeated chats in the same day don't repeatedly hit the model.
+///
+/// Returns nil when HealthKit yielded no usable signal or the model
+/// call failed — Section 7 already covers the missing-data case.
+@MainActor
+private func fetchRecoveryPicture(trainingLoad: TrainingLoadSnapshot?) async -> String? {
+    let todayKey: String = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }()
+    if let cached = recoveryPictureCache, cached.date == todayKey {
+        return cached.picture
+    }
+    guard let snapshot = await HealthKitService.shared.fetchRecoverySnapshot() else { return nil }
+    guard let picture = await RecoveryPictureGenerator.generate(
+        snapshot: snapshot,
+        trainingLoad: trainingLoad
+    ) else { return nil }
+    recoveryPictureCache = (todayKey, picture)
+    return picture
 }
 
 // MARK: - Agent Loop
@@ -222,10 +257,11 @@ func runAgentLoop(
     // sent fresh every turn.
     let staticPrompt = PromptAssembler.staticBlock()
     let trainingLoadSnapshot = await fetchTrainingLoadSnapshot()
+    let recoveryPicture = await fetchRecoveryPicture(trainingLoad: trainingLoadSnapshot)
     let coachState = CoachState(
         today: Date(),
         trainingLoad: trainingLoadSnapshot,
-        recoveryPicture: nil,
+        recoveryPicture: recoveryPicture,
         athleteSummary: nil,
         recentConversationSummaries: recentConversationSummaries
     )

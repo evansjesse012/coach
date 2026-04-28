@@ -20,7 +20,7 @@ actor HealthKitService {
     // MARK: - Request Authorization
 
     func requestAuthorization() async throws {
-        let readTypes: Set<HKObjectType> = [
+        var readTypes: Set<HKObjectType> = [
             HKObjectType.workoutType(),
             HKSeriesType.workoutRoute(),
             HKObjectType.quantityType(forIdentifier: .heartRate)!,
@@ -29,9 +29,318 @@ actor HealthKitService {
             HKObjectType.quantityType(forIdentifier: .distanceSwimming)!,
             HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!,
             HKObjectType.quantityType(forIdentifier: .stepCount)!,
+            // Recovery-picture inputs (Phase 4b). Each is nice-to-have, not
+            // required — the snapshot tolerates missing fields.
+            HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!,
+            HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
+            HKObjectType.quantityType(forIdentifier: .respiratoryRate)!,
+            HKObjectType.quantityType(forIdentifier: .vo2Max)!,
+            HKObjectType.quantityType(forIdentifier: .bodyMass)!,
+            HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
         ]
+        // appleSleepingWristTemperature is iOS 16+ on Apple Watch Series 8+.
+        // Guarded so older SDK builds don't break.
+        if let wristTemp = HKObjectType.quantityType(forIdentifier: .appleSleepingWristTemperature) {
+            readTypes.insert(wristTemp)
+        }
 
         try await store.requestAuthorization(toShare: [], read: readTypes)
+    }
+
+    // MARK: - Recovery snapshot (Phase 4b)
+
+    /// Assemble the per-day recovery snapshot the coach prompt feeds into
+    /// its LLM-generated narrative. All metric fetches run in parallel via
+    /// `async let` since they're independent HealthKit queries. Returns
+    /// `nil` only if HealthKit isn't available; missing-data cases produce
+    /// a snapshot with the relevant fields nil and let downstream decide.
+    ///
+    /// "Latest" here means the most recent overnight reading (HRV/RHR/RR
+    /// are commonly written by Apple Watch around wake-up). "Baseline" is
+    /// a 30-day daily mean — long enough to smooth noise, short enough to
+    /// track legitimate fitness trends.
+    func fetchRecoverySnapshot() async -> RecoverySnapshot? {
+        guard isAvailable else { return nil }
+
+        async let hrvLatest          = latestDailyMean(.heartRateVariabilitySDNN, unit: HKUnit.secondUnit(with: .milli), days: 2)
+        async let hrvBaseline        = baselineDailyMean(.heartRateVariabilitySDNN, unit: HKUnit.secondUnit(with: .milli), days: 30)
+
+        async let rhrLatest          = latestDailyMean(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), days: 2)
+        async let rhrBaseline        = baselineDailyMean(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), days: 30)
+
+        async let respLatest         = latestDailyMean(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute()), days: 2)
+        async let respBaseline       = baselineDailyMean(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute()), days: 30)
+
+        async let wristTempDeltaC    = latestWristTempDelta()
+
+        async let sleepSummary       = latestSleepSummary()
+
+        async let stepsLatest        = sumOverDay(.stepCount, unit: .count(), dayOffset: -1)
+        async let stepsBaseline      = baselineDailySum(.stepCount, unit: .count(), days: 30)
+
+        async let activeEnergyLatest = sumOverDay(.activeEnergyBurned, unit: .kilocalorie(), dayOffset: -1)
+        async let activeBaseline     = baselineDailySum(.activeEnergyBurned, unit: .kilocalorie(), days: 30)
+
+        async let vo2                = mostRecentSample(.vo2Max, unit: HKUnit(from: "ml/kg*min"))
+        async let bodyMass           = mostRecentSample(.bodyMass, unit: .gramUnit(with: .kilo))
+
+        let snapshot = await RecoverySnapshot(
+            asOf: Date(),
+            hrvMs:                       hrvLatest,
+            hrvBaselineMs:               hrvBaseline,
+            restingHrBpm:                rhrLatest,
+            restingHrBaselineBpm:        rhrBaseline,
+            respiratoryRate:             respLatest,
+            respiratoryRateBaseline:     respBaseline,
+            wristTempDeltaC:             wristTempDeltaC,
+            sleep:                       sleepSummary,
+            stepsYesterday:              stepsLatest.map { Int($0) },
+            stepsBaseline:               stepsBaseline.map { Int($0) },
+            activeEnergyYesterdayKcal:   activeEnergyLatest.map { Int($0) },
+            activeEnergyBaselineKcal:    activeBaseline.map { Int($0) },
+            vo2Max:                      vo2,
+            bodyMassKg:                  bodyMass
+        )
+        return snapshot
+    }
+
+    // MARK: Recovery — primitive fetchers
+
+    /// Daily mean of `identifier` for the most recent calendar day that
+    /// has any sample, looking back up to `days` days. Returns nil when
+    /// no samples are found in the window.
+    private func latestDailyMean(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        days: Int
+    ) async -> Double? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
+        let cal = Calendar.current
+        let now = Date()
+        let start = cal.date(byAdding: .day, value: -days, to: cal.startOfDay(for: now))!
+
+        let samples = await fetchQuantitySamples(type: type, start: start, end: now)
+        guard !samples.isEmpty else { return nil }
+
+        // Group by calendar day, average within day, then take the most
+        // recent day's average. Apple Watch typically writes one value
+        // per overnight session, but some types (HRV) can have multiple.
+        let byDay = Dictionary(grouping: samples) { sample -> Date in
+            cal.startOfDay(for: sample.startDate)
+        }
+        let latestDay = byDay.keys.max()
+        guard let latestDay, let dayValues = byDay[latestDay], !dayValues.isEmpty else { return nil }
+        let mean = dayValues.map { $0.quantity.doubleValue(for: unit) }.reduce(0, +) / Double(dayValues.count)
+        return mean
+    }
+
+    /// 30-day rolling baseline: mean of per-day means over the window.
+    /// Excludes today so the baseline doesn't include the very value we
+    /// might be comparing it against.
+    private func baselineDailyMean(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        days: Int
+    ) async -> Double? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
+        let cal = Calendar.current
+        let endOfYesterday = cal.startOfDay(for: Date())
+        let start = cal.date(byAdding: .day, value: -days, to: endOfYesterday)!
+
+        let samples = await fetchQuantitySamples(type: type, start: start, end: endOfYesterday)
+        guard !samples.isEmpty else { return nil }
+
+        let byDay = Dictionary(grouping: samples) { sample -> Date in
+            cal.startOfDay(for: sample.startDate)
+        }
+        let perDayMeans: [Double] = byDay.values.compactMap { dayValues in
+            guard !dayValues.isEmpty else { return nil }
+            return dayValues.map { $0.quantity.doubleValue(for: unit) }.reduce(0, +) / Double(dayValues.count)
+        }
+        guard !perDayMeans.isEmpty else { return nil }
+        return perDayMeans.reduce(0, +) / Double(perDayMeans.count)
+    }
+
+    /// Cumulative sum for the day at `dayOffset` (0 = today, -1 = yesterday).
+    private func sumOverDay(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        dayOffset: Int
+    ) async -> Double? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
+        let cal = Calendar.current
+        let dayStart = cal.date(byAdding: .day, value: dayOffset, to: cal.startOfDay(for: Date()))!
+        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)!
+        return await sumQuantity(type: type, unit: unit, start: dayStart, end: dayEnd)
+    }
+
+    /// Average of daily sums over the trailing `days` days, excluding today.
+    private func baselineDailySum(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        days: Int
+    ) async -> Double? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
+        let cal = Calendar.current
+        let endOfYesterday = cal.startOfDay(for: Date())
+        let start = cal.date(byAdding: .day, value: -days, to: endOfYesterday)!
+
+        var total: Double = 0
+        var dayCount = 0
+        var cursor = start
+        while cursor < endOfYesterday {
+            let next = cal.date(byAdding: .day, value: 1, to: cursor)!
+            if let sum = await sumQuantity(type: type, unit: unit, start: cursor, end: next), sum > 0 {
+                total += sum
+                dayCount += 1
+            }
+            cursor = next
+        }
+        guard dayCount > 0 else { return nil }
+        return total / Double(dayCount)
+    }
+
+    /// Most recent single sample value of a slow-moving metric (VO2 max,
+    /// body mass). No baseline — the value itself is the signal.
+    private func mostRecentSample(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit
+    ) async -> Double? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .day, value: -180, to: Date())!
+        let samples = await fetchQuantitySamples(type: type, start: start, end: Date())
+        guard let latest = samples.max(by: { $0.startDate < $1.startDate }) else { return nil }
+        return latest.quantity.doubleValue(for: unit)
+    }
+
+    /// Apple's "sleeping wrist temperature" comes back as the absolute
+    /// temperature; the *delta* shown in the Health app is computed
+    /// against Apple's own learned baseline. We approximate that here
+    /// with a 30-day mean.
+    private func latestWristTempDelta() async -> Double? {
+        guard let type = HKObjectType.quantityType(forIdentifier: .appleSleepingWristTemperature) else { return nil }
+        let cal = Calendar.current
+        let now = Date()
+        let start = cal.date(byAdding: .day, value: -30, to: cal.startOfDay(for: now))!
+
+        let samples = await fetchQuantitySamples(type: type, start: start, end: now)
+        guard let latest = samples.max(by: { $0.startDate < $1.startDate }) else { return nil }
+        let unit = HKUnit.degreeCelsius()
+        let latestC = latest.quantity.doubleValue(for: unit)
+
+        let priorEnd = cal.startOfDay(for: latest.startDate)
+        let prior = samples.filter { $0.startDate < priorEnd }
+        guard !prior.isEmpty else { return nil }
+        let mean = prior.map { $0.quantity.doubleValue(for: unit) }.reduce(0, +) / Double(prior.count)
+        return latestC - mean
+    }
+
+    /// Most recent sleep session summary. HealthKit returns one
+    /// `HKCategorySample` per stage transition, all tagged with the same
+    /// session window — we collapse them by start-date proximity.
+    private func latestSleepSummary() async -> SleepSummary? {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return nil }
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .day, value: -2, to: Date())!
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: Date(), options: .strictStartDate)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+
+        let samples: [HKCategorySample] = await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                continuation.resume(returning: (samples as? [HKCategorySample]) ?? [])
+            }
+            store.execute(query)
+        }
+        guard !samples.isEmpty else { return nil }
+
+        // Group into sleep "sessions" — any gap > 1 hour starts a new
+        // session. Take the most recent session.
+        let sorted = samples.sorted { $0.startDate < $1.startDate }
+        var sessions: [[HKCategorySample]] = [[]]
+        for s in sorted {
+            if let lastSession = sessions.last,
+               let lastSample = lastSession.last,
+               s.startDate.timeIntervalSince(lastSample.endDate) > 3600 {
+                sessions.append([s])
+            } else {
+                sessions[sessions.count - 1].append(s)
+            }
+        }
+        guard let session = sessions.last(where: { !$0.isEmpty }) else { return nil }
+
+        var asleep: TimeInterval = 0
+        var inBed: TimeInterval = 0
+        var deep: TimeInterval = 0
+        var rem: TimeInterval = 0
+        var awake: TimeInterval = 0
+        for s in session {
+            let dur = s.endDate.timeIntervalSince(s.startDate)
+            switch HKCategoryValueSleepAnalysis(rawValue: s.value) {
+            case .inBed:           inBed += dur
+            case .asleepUnspecified, .asleepCore:
+                                   asleep += dur
+            case .asleepDeep:      asleep += dur; deep += dur
+            case .asleepREM:       asleep += dur; rem  += dur
+            case .awake:           awake += dur
+            case .none:            break
+            @unknown default:      break
+            }
+        }
+        guard asleep > 0 || inBed > 0 else { return nil }
+        let h = { (t: TimeInterval) -> Double in t / 3600 }
+        return SleepSummary(
+            asleepHours: h(asleep),
+            inBedHours:  h(inBed > 0 ? inBed : asleep),
+            deepHours:   deep  > 0 ? h(deep)  : nil,
+            remHours:    rem   > 0 ? h(rem)   : nil,
+            awakeHours:  awake > 0 ? h(awake) : nil
+        )
+    }
+
+    // MARK: Recovery — query helpers
+
+    private func fetchQuantitySamples(
+        type: HKQuantityType,
+        start: Date,
+        end: Date
+    ) async -> [HKQuantitySample] {
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil
+            ) { _, samples, _ in
+                continuation.resume(returning: (samples as? [HKQuantitySample]) ?? [])
+            }
+            store.execute(query)
+        }
+    }
+
+    private func sumQuantity(
+        type: HKQuantityType,
+        unit: HKUnit,
+        start: Date,
+        end: Date
+    ) async -> Double? {
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
+        return await withCheckedContinuation { continuation in
+            let query = HKStatisticsQuery(
+                quantityType: type,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum
+            ) { _, stats, _ in
+                continuation.resume(returning: stats?.sumQuantity()?.doubleValue(for: unit))
+            }
+            store.execute(query)
+        }
     }
 
     // MARK: - Fetch Recent Workouts (fully enriched)
