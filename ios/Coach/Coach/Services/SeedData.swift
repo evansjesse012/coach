@@ -451,8 +451,14 @@ enum SeedData {
             currentFocus: "Build aerobic base for Big Sur Marathon",
             openItems: ["Confirm long-run fueling strategy"],
             coachingNotes: [
-                "Tends to under-fuel long runs — keep nudging 60g carbs/hr",
-                "Responds well to RPE-based prescriptions"
+                CoachingNoteEntry.newTracking(
+                    text: "Tends to under-fuel long runs — keep nudging 60g carbs/hr",
+                    relatedTopic: "fueling"
+                ),
+                CoachingNoteEntry.newTracking(
+                    text: "Responds well to RPE-based prescriptions",
+                    relatedTopic: "communication"
+                ),
             ]
         )
         mem.responseProfile = ResponseProfile(

@@ -243,7 +243,17 @@ struct AthleteMemoryView: View {
                             readOnlyBulletList("Open Items", obs.openItems)
                         }
                         if !obs.coachingNotes.isEmpty {
-                            readOnlyBulletList("Coaching Notes", obs.coachingNotes)
+                            // Hidden coaching notes are AI-internal — only
+                            // surface tracking entries (resolved ones stay
+                            // hidden) and only the text. Status / topic /
+                            // timestamp metadata is for the LLM, not the
+                            // athlete-facing memory view.
+                            let activeNotes = obs.coachingNotes
+                                .filter { $0.status == .tracking }
+                                .map(\.text)
+                            if !activeNotes.isEmpty {
+                                readOnlyBulletList("Coaching Notes", activeNotes)
+                            }
                         }
                     }
                 }

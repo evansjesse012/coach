@@ -171,7 +171,24 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                 "motivators": mem.observations.motivators,
                 "consistency": mem.observations.consistency,
                 "currentFocus": mem.observations.currentFocus,
-                "coachingNotes": mem.observations.coachingNotes,
+                // Structured shape so the LLM can read status / topic /
+                // timestamp metadata when reasoning about which tracked
+                // notes are still relevant. Only `tracking` notes are
+                // surfaced — `resolved` ones stay hidden so they don't
+                // clutter the agent's working context.
+                "coachingNotes": mem.observations.coachingNotes
+                    .filter { $0.status == .tracking }
+                    .map { entry -> [String: Any] in
+                        var dict: [String: Any] = [
+                            "id": entry.id,
+                            "text": entry.text,
+                            "createdAt": entry.createdAt,
+                            "status": entry.status.rawValue,
+                        ]
+                        if let topic = entry.relatedTopic { dict["relatedTopic"] = topic }
+                        if let last = entry.lastReviewedAt { dict["lastReviewedAt"] = last }
+                        return dict
+                    },
             ] as [String: Any],
             "responseProfile": [
                 "volumeVsIntensity": mem.responseProfile.volumeVsIntensity,
@@ -972,6 +989,73 @@ private enum MemoryUpdateError: Error {
     case invalid(String)
 }
 
+/// Apply add/update/remove/clear to the structured coaching-notes list.
+/// Add: value is `{text, relatedTopic?, status?}` (text required).
+/// Update: itemId or value.id required; shallow-merges text / topic /
+/// status onto the matching entry; stamps `lastReviewedAt`.
+/// Remove: itemId or value.id (or value as a bare id string for legacy
+/// callers) required.
+/// Clear: wipes the list.
+private func applyCoachingNoteOp(
+    operation: String,
+    value: Any?,
+    itemId: String?,
+    list: inout [CoachingNoteEntry]
+) throws {
+    switch operation {
+    case "add":
+        // Accept either {text, relatedTopic?} object or a bare string
+        // (legacy convenience — wraps as text-only tracking entry).
+        let text: String
+        let relatedTopic: String?
+        if let s = value as? String {
+            text = s
+            relatedTopic = nil
+        } else if let dict = value as? [String: Any], let t = dict["text"] as? String {
+            text = t
+            relatedTopic = dict["relatedTopic"] as? String
+        } else {
+            throw MemoryUpdateError.invalid("coachingNotes add requires a string OR {text, relatedTopic?} object")
+        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MemoryUpdateError.invalid("coachingNotes add: text is empty")
+        }
+        list.append(CoachingNoteEntry.newTracking(text: text, relatedTopic: relatedTopic))
+
+    case "update":
+        let entryId = itemId
+            ?? (value as? [String: Any])?["id"] as? String
+        guard let entryId,
+              let idx = list.firstIndex(where: { $0.id == entryId })
+        else {
+            throw MemoryUpdateError.invalid("coachingNotes update needs an id matching an existing entry")
+        }
+        let fields = (value as? [String: Any]) ?? [:]
+        if let text = fields["text"] as? String { list[idx].text = text }
+        if let topic = fields["relatedTopic"] as? String { list[idx].relatedTopic = topic }
+        if let statusStr = fields["status"] as? String,
+           let status = CoachingNoteEntry.NoteStatus(rawValue: statusStr) {
+            list[idx].status = status
+        }
+        list[idx].lastReviewedAt = ISO8601DateFormatter().string(from: Date())
+
+    case "remove":
+        let entryId = itemId
+            ?? (value as? [String: Any])?["id"] as? String
+            ?? (value as? String)
+        guard let entryId else {
+            throw MemoryUpdateError.invalid("coachingNotes remove needs an entry id")
+        }
+        list.removeAll { $0.id == entryId }
+
+    case "clear":
+        list = []
+
+    default:
+        throw MemoryUpdateError.invalid("coachingNotes only supports add/update/remove/clear")
+    }
+}
+
 /// Applies a category/operation/value triple to a mutable CoachingMemory.
 /// Stamps lastUpdated to today on success. Throws MemoryUpdateError.invalid
 /// with a specific message on any shape problem.
@@ -1028,8 +1112,19 @@ private func applyMemoryUpdate(
     // Observations string lists
     case "patterns":           try applyStringListOp(&memory.observations.patterns)
     case "motivators":         try applyStringListOp(&memory.observations.motivators)
-    case "coachingNotes":      try applyStringListOp(&memory.observations.coachingNotes)
     case "openItems":          try applyStringListOp(&memory.observations.openItems)
+
+    // Hidden coaching scratchpad — structured entries with status,
+    // related topic, timestamp metadata. Per Decision #6, the agent
+    // should only add entries for patterns observed 3+ times, and
+    // flip stale tracking entries to resolved when the pattern stops.
+    case "coachingNotes":
+        try applyCoachingNoteOp(
+            operation: operation,
+            value: value,
+            itemId: itemId,
+            list: &memory.observations.coachingNotes
+        )
 
     // Observations singletons
     case "consistency":        try applySingletonOp(&memory.observations.consistency)

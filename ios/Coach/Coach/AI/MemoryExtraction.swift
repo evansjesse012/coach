@@ -28,6 +28,29 @@ private func mergeFuzzy(_ target: inout [String], _ source: [String]) {
     }
 }
 
+/// Fuzzy merge for the structured `[CoachingNoteEntry]` list. Compares
+/// by `.text` (same dupe rule as the string version) and skips
+/// duplicates outright. New entries from extraction land as tracking
+/// notes per their original metadata. Existing entries' status /
+/// relatedTopic / lastReviewedAt are NOT modified by extraction —
+/// those are reserved for the agent's explicit `update_coaching_memory`
+/// tool calls so extraction can't accidentally flip a tracking note
+/// to resolved.
+private func mergeFuzzyNotes(_ target: inout [CoachingNoteEntry], _ source: [CoachingNoteEntry]) {
+    for item in source {
+        let itemText = item.text
+        guard !itemText.isEmpty else { continue }
+        let itemLower = itemText.lowercased()
+        let isDupe = target.contains { existing in
+            let el = existing.text.lowercased()
+            return el == itemLower
+                || (itemLower.count >= 15 && el.contains(itemLower))
+                || (el.count >= 15 && itemLower.contains(el))
+        }
+        if !isDupe { target.append(item) }
+    }
+}
+
 /// Merge benchmarks: update existing by metric if newer, otherwise append
 private func mergeBenchmarks(_ target: inout [Benchmark], _ source: [Benchmark]) {
     for b in source {
@@ -113,7 +136,7 @@ func mergeMemory(_ existing: CoachingMemory, _ update: CoachingMemory?) -> Coach
     // Observations
     mergeFuzzy(&m.observations.patterns, update.observations.patterns)
     mergeFuzzy(&m.observations.motivators, update.observations.motivators)
-    mergeFuzzy(&m.observations.coachingNotes, update.observations.coachingNotes)
+    mergeFuzzyNotes(&m.observations.coachingNotes, update.observations.coachingNotes)
     if !update.observations.consistency.trimmingCharacters(in: .whitespaces).isEmpty {
         m.observations.consistency = update.observations.consistency
     }
