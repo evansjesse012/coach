@@ -1,187 +1,238 @@
 import SwiftUI
 
-/// Presentation state of a WeekStripCell — the session story for a day,
-/// independent of whether that day happens to be today. The "today"
-/// override is handled as an orthogonal flag in `WeekStripCell` so the
-/// today-wins-over-status rule is explicit at the call site.
-enum WeekStripCellState: Equatable {
-    case rest
+// MARK: - Resolved status
+
+/// One day's resolved presentation status in the Home week strip.
+/// Multi-session days collapse upstream (`HomeTab.weekStripStatus(for:)`)
+/// using the precedence skipped > modified > done > upcoming. Today is
+/// orthogonal — `WeekStripCell.isToday` drives the column wrap and is
+/// not folded into this enum so the today rules can't drift.
+enum WeekStripStatus: Equatable {
+    case done
+    case modified
+    case skipped
     case upcoming
-    case resolved(Theme.SessionStatusKind)
 }
 
-/// One day's cell in the Home week overview strip.
-///
-/// Rendered as three independent layers, each with its own color rule:
-///
-///   1. **Day letter** (M/T/W…) above the cell — color + weight depend
-///      only on `isToday`.
-///   2. **Cell fill + border** — `state` + `isToday`; today wins over
-///      any session status (dark fill + accent ring) so the current day
-///      is unmistakable even after it's been logged.
-///   3. **Discipline icons** inside — the combination of `state`,
-///      `isToday`, and each icon's own natural (discipline) color.
-///
-/// The three layers are resolved by three static helpers so the rules
-/// can't drift between call sites and are trivially unit-testable.
-struct WeekStripCell: View {
-    /// One glyph rendered inside the cell. For multi-session days each
-    /// session contributes a glyph; the cell stacks the first two and
-    /// rolls any remainder into a "+N" line. Rest days supply a single
-    /// moon glyph.
-    struct Glyph: Hashable {
-        let symbolName: String
-        /// Natural color for this icon (its sport / discipline color).
-        /// Used only when the cell resolves to `.upcoming`, where the
-        /// grid previews what's scheduled. Resolved cells neutralize to
-        /// `ink`; today forces the accent token.
-        let naturalColor: Color
-    }
+// MARK: - Glyph
 
+/// One discipline icon inside a week-strip cell. Multi-session days
+/// supply one glyph per session, in prescribed order; the cell stacks
+/// the first two vertically and rolls any remainder into a "+N" line.
+struct DisciplineGlyph: Hashable {
+    let symbolName: String
+    /// Discipline's natural (full-opacity) color. Used only when the
+    /// resolved style sets `useNaturalColors = true` (the upcoming-not-
+    /// today case), so each scheduled sport previews in its own color.
+    let naturalColor: Color
+}
+
+// MARK: - Cell style — single source of truth
+
+/// Cell visual properties resolved from `(status, isToday)`. Every
+/// fill / icon / slash decision in the week strip routes through
+/// `resolve(...)` so the rules can't drift between call sites.
+///
+/// `useNaturalColors` is set only for the upcoming-not-today branch:
+/// in that case the cell paints each glyph in its own discipline color
+/// instead of the resolved `iconColor`, so a multi-sport day previews
+/// each scheduled discipline distinctly.
+struct WeekStripStyle {
+    let fill: Color
+    let iconColor: Color
+    let iconOpacity: Double
+    let showsSlash: Bool
+    let useNaturalColors: Bool
+
+    static func resolve(
+        status: WeekStripStatus,
+        isToday: Bool,
+        upcomingOpacity: Double = 0.5
+    ) -> WeekStripStyle {
+        switch (status, isToday) {
+
+        // Today, no logged status — surface-2 base + accent icon. The
+        // surrounding column wrap supplies the dominant today signal;
+        // the cell itself reads as a quiet "ready" surface.
+        case (.upcoming, true):
+            return .init(
+                fill: Theme.surface2,
+                iconColor: Theme.accent,
+                iconOpacity: 1.0,
+                showsSlash: false,
+                useNaturalColors: false
+            )
+
+        // Done — past or today both render with the moss fill + ink
+        // icon at 90%. For today + done the column wrap stays on top,
+        // so both signals coexist (today emphasis + completion fill).
+        case (.done, _):
+            return .init(
+                fill: Theme.accent.opacity(0.22),
+                iconColor: Theme.ink,
+                iconOpacity: 0.9,
+                showsSlash: false,
+                useNaturalColors: false
+            )
+
+        // Modified — same treatment as Done but in the amber family.
+        case (.modified, _):
+            return .init(
+                fill: Theme.modifiedAccent.opacity(0.22),
+                iconColor: Theme.ink,
+                iconOpacity: 0.9,
+                showsSlash: false,
+                useNaturalColors: false
+            )
+
+        // Skipped — red tint, faded warn-colored icons, plus the
+        // diagonal slash. Three redundant signals so the state reads
+        // unambiguously even with color-only impairments.
+        case (.skipped, _):
+            return .init(
+                fill: Theme.warn.opacity(0.18),
+                iconColor: Theme.warn,
+                iconOpacity: 0.55,
+                showsSlash: true,
+                useNaturalColors: false
+            )
+
+        // Upcoming (not today) — transparent cell, each icon faded to
+        // its own discipline color (rest days drop to 0.4). The "+N"
+        // overflow label uses ink3 instead of a discipline color since
+        // it isn't tied to a specific sport.
+        case (.upcoming, false):
+            return .init(
+                fill: .clear,
+                iconColor: Theme.ink3,
+                iconOpacity: upcomingOpacity,
+                showsSlash: false,
+                useNaturalColors: true
+            )
+        }
+    }
+}
+
+// MARK: - Cell
+
+/// One column in the Home week strip — a day-letter label stacked above
+/// a 1:1 cell with the day's discipline icon(s). Today's column (letter
+/// + cell) is wrapped together inside a 1.5pt accent-bordered container
+/// so the eye lands on it immediately.
+///
+/// Multi-session days stack the first two glyphs vertically. Days with
+/// three or more sessions show two glyphs plus a "+N" overflow line.
+/// Tapping anywhere in the column triggers `onTap`; the day letter and
+/// cell are parts of the same tap target.
+struct WeekStripCell: View {
     let letter: String
     let isToday: Bool
-    let state: WeekStripCellState
-    let glyphs: [Glyph]
-
-    @Environment(\.colorScheme) private var colorScheme
+    let status: WeekStripStatus
+    /// One glyph per session, in prescribed order. The cell renders the
+    /// first two and rolls any remainder into "+N". Rest / empty days
+    /// supply a single moon glyph from `HomeTab.weekStripGlyphs(for:)`.
+    let glyphs: [DisciplineGlyph]
+    /// Opacity applied to icons in the upcoming state. Sports use 0.5;
+    /// rest days drop to 0.4 so the moon reads quieter.
+    var upcomingOpacity: Double = 0.5
+    var accessibilityText: String? = nil
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 6) {
-            Text(letter)
-                .font(.system(size: 11, weight: Self.dayLetterWeight(isToday: isToday)))
-                .tracking(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(Self.dayLetterColor(isToday: isToday))
+        let style = WeekStripStyle.resolve(
+            status: status,
+            isToday: isToday,
+            upcomingOpacity: upcomingOpacity
+        )
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Self.cellFill(state: state, isToday: isToday))
-                if let border = Self.cellBorder(state: state, isToday: isToday) {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(border.color, lineWidth: border.width)
-                }
-                iconStack
-            }
-            .aspectRatio(1, contentMode: .fit)
+        Button {
+            onTap?()
+        } label: {
+            column(style: style)
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityText ?? letter)
     }
 
     @ViewBuilder
-    private var iconStack: some View {
-        // Uniform icon size: single-icon cells don't inflate and multi-icon
-        // cells don't shrink to squeeze in. The 16pt size reads at a glance
-        // and two still fit comfortably inside the ~40pt cell with 3pt gap
-        // (35pt total, ~2.5pt breathing room top and bottom).
-        let visible = Array(glyphs.prefix(2))
-        let oversize = max(0, glyphs.count - 2)
-        VStack(spacing: 3) {
-            ForEach(Array(visible.enumerated()), id: \.offset) { _, g in
-                Image(systemName: g.symbolName)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(Self.iconColor(
-                        state: state,
-                        isToday: isToday,
-                        naturalColor: g.naturalColor,
-                        colorScheme: colorScheme
-                    ))
-            }
-            if oversize > 0 {
-                Text("+\(oversize)")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Self.iconColor(
-                        state: state,
-                        isToday: isToday,
-                        naturalColor: Theme.ink3,
-                        colorScheme: colorScheme
-                    ))
-            }
+    private func column(style: WeekStripStyle) -> some View {
+        let stack = VStack(spacing: 5) {
+            Text(letter)
+                .font(.system(size: 10, weight: isToday ? .bold : .medium))
+                .foregroundStyle(isToday ? Theme.accent : Theme.ink3)
+
+            cell(style: style)
         }
-    }
 
-    // MARK: - Layer 1 · Day letter
-
-    /// "Which day is today?" — bold accent if today, muted gray otherwise.
-    static func dayLetterColor(isToday: Bool) -> Color {
-        isToday ? Theme.accent : Theme.ink3
-    }
-
-    static func dayLetterWeight(isToday: Bool) -> Font.Weight {
-        // All letters render semibold so the row reads as a row of labels.
-        // Today bumps to bold on top of the accent color + accent border +
-        // accent icon, keeping it the most emphasized column.
-        isToday ? .bold : .semibold
-    }
-
-    // MARK: - Layer 2 · Cell fill + border
-
-    /// "What happened here?" — status fill for past, dark emphasis for
-    /// today, quiet gray for upcoming. Today is a **visual override**:
-    /// it wins even when the day has a resolved session status.
-    static func cellFill(state: WeekStripCellState, isToday: Bool) -> Color {
-        if isToday { return Theme.todayEmphFill }
-        switch state {
-        case .rest, .upcoming:
-            return Theme.surface2
-        case .resolved(let kind):
-            return kind.fill
-        }
-    }
-
-    /// `nil` means no border (upcoming / rest). Today: 1.5pt accent ring.
-    /// Resolved statuses: 1pt in the canonical `kind.border`.
-    static func cellBorder(
-        state: WeekStripCellState,
-        isToday: Bool
-    ) -> (color: Color, width: CGFloat)? {
-        if isToday { return (Theme.accent, 1.5) }
-        switch state {
-        case .rest, .upcoming:
-            return nil
-        case .resolved(let kind):
-            guard let border = kind.border else { return nil }
-            return (border, 1)
-        }
-    }
-
-    // MARK: - Layer 3 · Icon color
-
-    /// "What's scheduled / what was done?" Three distinct cases:
-    ///
-    /// - **Today** → accent token. Light mode uses the lifted moss
-    ///   variant (`todayIconAccent`) because the standard olive doesn't
-    ///   contrast enough against the near-black today fill. Wins over
-    ///   any resolved status.
-    /// - **Upcoming** → `naturalColor` (the icon's own sport color), so
-    ///   the grid previews what's scheduled. Rest days pass `ink3` as
-    ///   their natural color so the moon reads as a muted glyph.
-    /// - **Resolved (done / modified / swapped / skipped)** → `ink`.
-    ///   The status fill is the dominant at-a-glance signal on past
-    ///   cells, so the icon neutralizes rather than fighting the fill
-    ///   (moss-on-moss, amber-on-amber, etc.).
-    static func iconColor(
-        state: WeekStripCellState,
-        isToday: Bool,
-        naturalColor: Color,
-        colorScheme: ColorScheme
-    ) -> Color {
         if isToday {
-            return colorScheme == .light ? Theme.todayIconAccent : Theme.accent
+            stack
+                .padding(.vertical, 5)
+                .padding(.horizontal, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Theme.accent.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Theme.accent, lineWidth: 1.5)
+                )
+                .frame(maxWidth: .infinity)
+        } else {
+            stack.frame(maxWidth: .infinity)
         }
-        switch state {
-        case .rest:
-            return Theme.ink3
-        case .upcoming:
-            return naturalColor
-        case .resolved:
-            return Theme.ink
+    }
+
+    @ViewBuilder
+    private func cell(style: WeekStripStyle) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(style.fill)
+
+            iconStack(style: style)
+
+            if style.showsSlash {
+                // 20pt × 1.5pt warn-colored line, rotated -20°, centered
+                // over the icon stack. Rounded ends so the stroke doesn't
+                // read as a hard rectangle. Drawn last so it sits on top.
+                RoundedRectangle(cornerRadius: 0.75, style: .continuous)
+                    .fill(Theme.warn)
+                    .frame(width: 20, height: 1.5)
+                    .rotationEffect(.degrees(-20))
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+
+    @ViewBuilder
+    private func iconStack(style: WeekStripStyle) -> some View {
+        // Up to two glyphs stacked vertically (14pt each + 3pt gap fits
+        // inside the ~38pt cell with breathing room). A third+ session
+        // collapses into a "+N" line below the two visible icons.
+        let visible = Array(glyphs.prefix(2))
+        let overflow = max(0, glyphs.count - 2)
+        VStack(spacing: 3) {
+            ForEach(Array(visible.enumerated()), id: \.offset) { _, glyph in
+                Image(systemName: glyph.symbolName)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(
+                        (style.useNaturalColors ? glyph.naturalColor : style.iconColor)
+                            .opacity(style.iconOpacity)
+                    )
+            }
+            if overflow > 0 {
+                Text("+\(overflow)")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(style.iconColor.opacity(style.iconOpacity))
+            }
         }
     }
 }
 
 // MARK: - Previews
 
-private struct WeekStripPreviewRow: View {
+private let weekLetters = ["M", "T", "W", "T", "F", "S", "S"]
+
+private struct WeekStripPreviewCard: View {
     let title: String
     let cells: [WeekStripCell]
 
@@ -190,108 +241,160 @@ private struct WeekStripPreviewRow: View {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.ink)
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                     cell
                 }
             }
-            .padding(14)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.surface1)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
-                RoundedRectangle(cornerRadius: 18)
+                RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(Theme.line, lineWidth: 1)
             )
         }
     }
 }
 
-private func swimGlyph() -> WeekStripCell.Glyph {
-    .init(symbolName: "figure.pool.swim", naturalColor: Theme.Discipline.swim.color)
-}
-private func runGlyph() -> WeekStripCell.Glyph {
-    .init(symbolName: "figure.run", naturalColor: Theme.Discipline.run.color)
-}
-private func bikeGlyph() -> WeekStripCell.Glyph {
-    .init(symbolName: "bicycle", naturalColor: Theme.Discipline.bike.color)
-}
-private func restGlyph() -> WeekStripCell.Glyph {
-    .init(symbolName: "moon.fill", naturalColor: Theme.ink3)
+private func glyph(_ sport: Theme.Discipline) -> DisciplineGlyph {
+    DisciplineGlyph(symbolName: sport.icon, naturalColor: sport.color)
 }
 
-/// Standard week: Mon rest · Tue done swim · Wed modified run · Thu today
-/// (swim scheduled, not yet logged) · Fri/Sat/Sun upcoming.
-private func standardWeek(todayIdx: Int = 3) -> [WeekStripCell] {
-    let letters = ["M", "T", "W", "T", "F", "S", "S"]
-    let states: [(WeekStripCellState, [WeekStripCell.Glyph])] = [
-        (.rest, [restGlyph()]),
-        (.resolved(.done), [swimGlyph()]),
-        (.resolved(.modified), [runGlyph()]),
-        (.upcoming, [swimGlyph()]),
-        (.upcoming, [runGlyph()]),
-        (.upcoming, [bikeGlyph()]),
-        (.upcoming, [runGlyph()]),
+private func previewCell(
+    _ idx: Int,
+    isToday: Bool,
+    status: WeekStripStatus,
+    sports: [Theme.Discipline]
+) -> WeekStripCell {
+    let isRestOnly = sports == [.recovery]
+    return WeekStripCell(
+        letter: weekLetters[idx],
+        isToday: isToday,
+        status: status,
+        glyphs: sports.map(glyph),
+        upcomingOpacity: isRestOnly ? 0.4 : 0.5
+    )
+}
+
+#Preview("Mid-week — Fri today, mixed states") {
+    let cells: [WeekStripCell] = [
+        previewCell(0, isToday: false, status: .upcoming, sports: [.recovery]),
+        previewCell(1, isToday: false, status: .done,     sports: [.swim]),
+        previewCell(2, isToday: false, status: .modified, sports: [.bike]),
+        previewCell(3, isToday: false, status: .done,     sports: [.run]),
+        previewCell(4, isToday: true,  status: .upcoming, sports: [.swim]),
+        previewCell(5, isToday: false, status: .upcoming, sports: [.bike]),
+        previewCell(6, isToday: false, status: .upcoming, sports: [.run]),
     ]
-    return states.enumerated().map { idx, pair in
-        WeekStripCell(
-            letter: letters[idx],
-            isToday: idx == todayIdx,
-            state: pair.0,
-            glyphs: pair.1
-        )
-    }
-}
-
-#Preview("Week strip — dark") {
-    VStack(alignment: .leading, spacing: 20) {
-        WeekStripPreviewRow(title: "Standard week · Thu is today", cells: standardWeek(todayIdx: 3))
-        WeekStripPreviewRow(title: "Today as Monday (first day)",  cells: standardWeek(todayIdx: 0))
-        WeekStripPreviewRow(title: "Today as Sunday (last day)",   cells: standardWeek(todayIdx: 6))
+    return VStack(spacing: 18) {
+        WeekStripPreviewCard(title: "Mid-week · Fri is today (light)", cells: cells)
+            .preferredColorScheme(.light)
+        WeekStripPreviewCard(title: "Mid-week · Fri is today (dark)", cells: cells)
+            .preferredColorScheme(.dark)
     }
     .padding(22)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Theme.bg)
-    .preferredColorScheme(.dark)
 }
 
-#Preview("Week strip — light") {
-    VStack(alignment: .leading, spacing: 20) {
-        WeekStripPreviewRow(title: "Standard week · Thu is today", cells: standardWeek(todayIdx: 3))
-        WeekStripPreviewRow(title: "Today as Monday (first day)",  cells: standardWeek(todayIdx: 0))
-        WeekStripPreviewRow(title: "Today as Sunday (last day)",   cells: standardWeek(todayIdx: 6))
+#Preview("Two-session days — stacked icons") {
+    let cells: [WeekStripCell] = [
+        previewCell(0, isToday: false, status: .done,     sports: [.swim, .strength]),
+        previewCell(1, isToday: false, status: .modified, sports: [.run, .strength]),
+        previewCell(2, isToday: false, status: .done,     sports: [.bike, .swim]),
+        previewCell(3, isToday: true,  status: .upcoming, sports: [.run, .strength]),
+        previewCell(4, isToday: false, status: .upcoming, sports: [.bike, .swim]),
+        previewCell(5, isToday: false, status: .upcoming, sports: [.run, .strength, .swim]), // 3 → +1
+        previewCell(6, isToday: false, status: .upcoming, sports: [.recovery]),
+    ]
+    return VStack(spacing: 18) {
+        WeekStripPreviewCard(title: "Two-session days (light)", cells: cells)
+            .preferredColorScheme(.light)
+        WeekStripPreviewCard(title: "Two-session days (dark)", cells: cells)
+            .preferredColorScheme(.dark)
     }
     .padding(22)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Theme.bg)
-    .preferredColorScheme(.light)
 }
 
-#Preview("Week strip — edge cases") {
-    let letters = ["M", "T", "W", "T", "F", "S", "S"]
-    let skippedWeek: [WeekStripCell] = [
-        WeekStripCell(letter: letters[0], isToday: false, state: .resolved(.done),    glyphs: [runGlyph()]),
-        WeekStripCell(letter: letters[1], isToday: false, state: .resolved(.skipped), glyphs: [bikeGlyph()]),
-        WeekStripCell(letter: letters[2], isToday: false, state: .resolved(.done),    glyphs: [swimGlyph()]),
-        WeekStripCell(letter: letters[3], isToday: true,  state: .upcoming,           glyphs: [runGlyph()]),
-        WeekStripCell(letter: letters[4], isToday: false, state: .upcoming,           glyphs: [swimGlyph()]),
-        WeekStripCell(letter: letters[5], isToday: false, state: .rest,               glyphs: [restGlyph()]),
-        WeekStripCell(letter: letters[6], isToday: false, state: .upcoming,           glyphs: [bikeGlyph(), runGlyph()]),
+#Preview("Start-of-week — Mon today, all upcoming") {
+    let cells: [WeekStripCell] = [
+        previewCell(0, isToday: true,  status: .upcoming, sports: [.swim]),
+        previewCell(1, isToday: false, status: .upcoming, sports: [.bike]),
+        previewCell(2, isToday: false, status: .upcoming, sports: [.run]),
+        previewCell(3, isToday: false, status: .upcoming, sports: [.strength]),
+        previewCell(4, isToday: false, status: .upcoming, sports: [.swim]),
+        previewCell(5, isToday: false, status: .upcoming, sports: [.run]),
+        previewCell(6, isToday: false, status: .upcoming, sports: [.recovery]),
     ]
-    let todayLogged: [WeekStripCell] = [
-        WeekStripCell(letter: letters[0], isToday: false, state: .resolved(.done),     glyphs: [runGlyph()]),
-        WeekStripCell(letter: letters[1], isToday: false, state: .resolved(.done),     glyphs: [swimGlyph()]),
-        WeekStripCell(letter: letters[2], isToday: false, state: .resolved(.modified), glyphs: [bikeGlyph()]),
-        // Today AND the session logged as done — today treatment must win.
-        WeekStripCell(letter: letters[3], isToday: true,  state: .resolved(.done),     glyphs: [swimGlyph()]),
-        WeekStripCell(letter: letters[4], isToday: false, state: .upcoming,            glyphs: [runGlyph()]),
-        WeekStripCell(letter: letters[5], isToday: false, state: .upcoming,            glyphs: [bikeGlyph()]),
-        WeekStripCell(letter: letters[6], isToday: false, state: .upcoming,            glyphs: [runGlyph()]),
-    ]
-    return VStack(alignment: .leading, spacing: 20) {
-        WeekStripPreviewRow(title: "Skipped Tuesday",             cells: skippedWeek)
-        WeekStripPreviewRow(title: "Today (Thu) already logged — today wins", cells: todayLogged)
+    return VStack(spacing: 18) {
+        WeekStripPreviewCard(title: "Mon today · all upcoming (light)", cells: cells)
+            .preferredColorScheme(.light)
+        WeekStripPreviewCard(title: "Mon today · all upcoming (dark)", cells: cells)
+            .preferredColorScheme(.dark)
     }
     .padding(22)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(Theme.bg)
+}
+
+#Preview("End-of-week — Sun today, others past") {
+    let cells: [WeekStripCell] = [
+        previewCell(0, isToday: false, status: .done,     sports: [.swim]),
+        previewCell(1, isToday: false, status: .done,     sports: [.bike, .strength]),
+        previewCell(2, isToday: false, status: .modified, sports: [.run]),
+        previewCell(3, isToday: false, status: .done,     sports: [.strength]),
+        previewCell(4, isToday: false, status: .skipped,  sports: [.swim]),
+        previewCell(5, isToday: false, status: .done,     sports: [.run]),
+        previewCell(6, isToday: true,  status: .upcoming, sports: [.recovery]),
+    ]
+    return VStack(spacing: 18) {
+        WeekStripPreviewCard(title: "Sun today · others past (light)", cells: cells)
+            .preferredColorScheme(.light)
+        WeekStripPreviewCard(title: "Sun today · others past (dark)", cells: cells)
+            .preferredColorScheme(.dark)
+    }
+    .padding(22)
+    .background(Theme.bg)
+}
+
+#Preview("Skipped — slash overlay (incl. multi-session)") {
+    let cells: [WeekStripCell] = [
+        previewCell(0, isToday: false, status: .done,     sports: [.swim]),
+        previewCell(1, isToday: false, status: .skipped,  sports: [.bike]),
+        previewCell(2, isToday: false, status: .skipped,  sports: [.run, .strength]),
+        previewCell(3, isToday: true,  status: .skipped,  sports: [.strength]),
+        previewCell(4, isToday: false, status: .upcoming, sports: [.swim]),
+        previewCell(5, isToday: false, status: .upcoming, sports: [.bike]),
+        previewCell(6, isToday: false, status: .upcoming, sports: [.run]),
+    ]
+    return VStack(spacing: 18) {
+        WeekStripPreviewCard(title: "Past skipped + today skipped (light)", cells: cells)
+            .preferredColorScheme(.light)
+        WeekStripPreviewCard(title: "Past skipped + today skipped (dark)", cells: cells)
+            .preferredColorScheme(.dark)
+    }
+    .padding(22)
+    .background(Theme.bg)
+}
+
+#Preview("Today + Done — wrap stays, moss fill inside") {
+    let cells: [WeekStripCell] = [
+        previewCell(0, isToday: false, status: .done,     sports: [.swim]),
+        previewCell(1, isToday: false, status: .done,     sports: [.bike]),
+        previewCell(2, isToday: false, status: .modified, sports: [.run]),
+        previewCell(3, isToday: true,  status: .done,     sports: [.swim, .strength]), // today + done + 2 sessions
+        previewCell(4, isToday: false, status: .upcoming, sports: [.run]),
+        previewCell(5, isToday: false, status: .upcoming, sports: [.bike]),
+        previewCell(6, isToday: false, status: .upcoming, sports: [.run]),
+    ]
+    return VStack(spacing: 18) {
+        WeekStripPreviewCard(title: "Today logged as done (light)", cells: cells)
+            .preferredColorScheme(.light)
+        WeekStripPreviewCard(title: "Today logged as done (dark)", cells: cells)
+            .preferredColorScheme(.dark)
+    }
+    .padding(22)
     .background(Theme.bg)
 }

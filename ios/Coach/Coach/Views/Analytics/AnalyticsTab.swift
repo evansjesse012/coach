@@ -6,24 +6,33 @@ struct AnalyticsTab: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var path = NavigationPath()
 
-    /// CTL/ATL/TSB time series, sourced from the persisted
-    /// `daily_training_load` table. Mapped into the in-view
-    /// `FitnessDataPoint` shape so the chart and downstream logic don't
-    /// have to know that the source moved from in-memory recompute to a
-    /// stored daily row.
+    /// CTL/ATL/TSB time series. Reads from the persisted
+    /// `daily_training_load` table when populated, falls back to an
+    /// in-memory recompute over the cardio + strength arrays when not.
+    ///
+    /// The fallback is what every existing user sees on first launch
+    /// after the migration ships — until backfill runs they still get
+    /// real numbers, just computed on the fly from the legacy ladder.
+    /// Once backfill completes the persisted rows take over.
     private var fitness: [TrainingStressCalculator.FitnessDataPoint] {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        return data.trainingLoad.compactMap { row in
-            guard let date = fmt.date(from: row.date) else { return nil }
-            return TrainingStressCalculator.FitnessDataPoint(
-                date: date,
-                ctl: row.ctl,
-                atl: row.atl,
-                tsb: row.tsb,
-                tss: row.totalTss
-            )
+        if !data.trainingLoad.isEmpty {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            return data.trainingLoad.compactMap { row in
+                guard let date = fmt.date(from: row.date) else { return nil }
+                return TrainingStressCalculator.FitnessDataPoint(
+                    date: date,
+                    ctl: row.ctl,
+                    atl: row.atl,
+                    tsb: row.tsb,
+                    tss: row.totalTss
+                )
+            }
         }
+        return TrainingStressCalculator.fitnessTimeSeries(
+            cardio: data.cardio,
+            strength: data.strength
+        )
     }
 
     private var weeklyVolume: [TrainingStressCalculator.WeeklyVolume] {
