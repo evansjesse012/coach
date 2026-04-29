@@ -322,27 +322,9 @@ struct HomeTab: View {
     @ViewBuilder
     private var todayBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(todaySectionTitle)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Theme.ink)
-                Spacer(minLength: 8)
-                if let meta = todaySectionMeta {
-                    Text(meta)
-                        .font(Theme.Typography.monoLabel)
-                        .foregroundStyle(Theme.ink3)
-                        .textCase(.uppercase)
-                        .tracking(Theme.Tracking.monoLabel)
-                }
-            }
+            daySectionHeader(dayIdx: todayDayIdx, meta: todaySectionMeta)
             todayContent
         }
-    }
-
-    private var todaySectionTitle: String {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE"
-        return "Today · \(f.string(from: Date()))"
     }
 
     private var todaySectionMeta: String? {
@@ -421,20 +403,34 @@ struct HomeTab: View {
     @ViewBuilder
     private func upcomingDaySection(plan: TrainingPlan, dp: DayPlan, dayIdx: Int) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(weekdayName(for: dayIdx))
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Theme.ink)
-                Spacer(minLength: 8)
-                if let meta = upcomingDayMeta(dp) {
-                    Text(meta)
-                        .font(Theme.Typography.monoLabel)
-                        .foregroundStyle(Theme.ink3)
-                        .textCase(.uppercase)
-                        .tracking(Theme.Tracking.monoLabel)
-                }
-            }
+            daySectionHeader(dayIdx: dayIdx, meta: upcomingDayMeta(dp))
             upcomingDayContent(plan: plan, dp: dp, dayIdx: dayIdx)
+        }
+    }
+
+    /// Shared header used by today + each upcoming day. The big label is
+    /// a relative-distance phrase ("Today" / "Tomorrow" / "In two days"…)
+    /// in the primary heading style; the weekday + date sit alongside it
+    /// in the small mono-label style, matching the meta count on the right.
+    @ViewBuilder
+    private func daySectionHeader(dayIdx: Int, meta: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(relativeDayLabel(for: dayIdx))
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Theme.ink)
+            Text(weekdayDateLabel(for: dayIdx))
+                .font(Theme.Typography.monoLabel)
+                .foregroundStyle(Theme.ink3)
+                .textCase(.uppercase)
+                .tracking(Theme.Tracking.monoLabel)
+            Spacer(minLength: 8)
+            if let meta {
+                Text(meta)
+                    .font(Theme.Typography.monoLabel)
+                    .foregroundStyle(Theme.ink3)
+                    .textCase(.uppercase)
+                    .tracking(Theme.Tracking.monoLabel)
+            }
         }
     }
 
@@ -464,15 +460,36 @@ struct HomeTab: View {
         return n == 0 ? nil : "\(n) of \(n)"
     }
 
-    /// Calendar weekday name (e.g. "Wednesday") for a 0…6 Mon-indexed
-    /// day. Computed by offsetting today by `(dayIdx - todayDayIdx)` so
-    /// it stays correct across week boundaries and locale settings.
-    private func weekdayName(for dayIdx: Int) -> String {
-        let delta = dayIdx - todayDayIdx
-        let date = Calendar.current.date(byAdding: .day, value: delta, to: Date()) ?? Date()
+    /// Big-heading label for a day-section: how far away the day is in
+    /// plain language. Falls back to the weekday name for any unexpected
+    /// out-of-range index.
+    private func relativeDayLabel(for dayIdx: Int) -> String {
+        switch dayIdx - todayDayIdx {
+        case 0: return "Today"
+        case 1: return "Tomorrow"
+        case 2: return "In two days"
+        case 3: return "In three days"
+        case 4: return "In four days"
+        case 5: return "In five days"
+        case 6: return "In six days"
+        default:
+            let f = DateFormatter()
+            f.dateFormat = "EEEE"
+            return f.string(from: dateForDay(dayIdx))
+        }
+    }
+
+    /// Sub-label rendered in the smaller mono style: weekday + short date,
+    /// e.g. "Tuesday · Apr 28" (uppercased by the surrounding modifier).
+    private func weekdayDateLabel(for dayIdx: Int) -> String {
         let f = DateFormatter()
-        f.dateFormat = "EEEE"
-        return f.string(from: date)
+        f.dateFormat = "EEEE · MMM d"
+        return f.string(from: dateForDay(dayIdx))
+    }
+
+    private func dateForDay(_ dayIdx: Int) -> Date {
+        let delta = dayIdx - todayDayIdx
+        return Calendar.current.date(byAdding: .day, value: delta, to: Date()) ?? Date()
     }
 
     @ViewBuilder
