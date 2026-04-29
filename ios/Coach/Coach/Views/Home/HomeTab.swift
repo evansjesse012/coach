@@ -52,6 +52,7 @@ struct HomeTab: View {
                     watchMatchBannerBlock
                     thisWeekBlock
                     todayBlock
+                    upcomingDaysBlock
                 }
                 .padding(.horizontal, Theme.Spacing.screenH)
                 .padding(.top, 16)
@@ -321,11 +322,19 @@ struct HomeTab: View {
     @ViewBuilder
     private var todayBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(
-                title: todaySectionTitle,
-                meta: todaySectionMeta,
-                variant: .system
-            )
+            HStack(alignment: .firstTextBaseline) {
+                Text(todaySectionTitle)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+                Spacer(minLength: 8)
+                if let meta = todaySectionMeta {
+                    Text(meta)
+                        .font(Theme.Typography.monoLabel)
+                        .foregroundStyle(Theme.ink3)
+                        .textCase(.uppercase)
+                        .tracking(Theme.Tracking.monoLabel)
+                }
+            }
             todayContent
         }
     }
@@ -380,6 +389,90 @@ struct HomeTab: View {
         } else {
             emptyTodayCard
         }
+    }
+
+    // MARK: - Upcoming days (rest of the week)
+    //
+    // Renders one day-section per remaining weekday (today + 1 … Sun) so
+    // the week's plan is visible at a glance. Past days drop off entirely
+    // — today stays put with all of its sessions (completed or not), and
+    // when Mon flips to Tue, Mon's section disappears from Home.
+
+    @ViewBuilder
+    private var upcomingDaysBlock: some View {
+        if let plan = data.trainingPlan,
+           let wp = plan.weeklyPlans[String(plan.currentWeek)],
+           !wp.sessions.isEmpty,
+           todayDayIdx + 1 <= 6 {
+            VStack(alignment: .leading, spacing: Theme.Spacing.section) {
+                ForEach(((todayDayIdx + 1)...6), id: \.self) { dayIdx in
+                    if dayIdx < wp.sessions.count {
+                        upcomingDaySection(
+                            plan: plan,
+                            dp: wp.sessions[dayIdx],
+                            dayIdx: dayIdx
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func upcomingDaySection(plan: TrainingPlan, dp: DayPlan, dayIdx: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(weekdayName(for: dayIdx))
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+                Spacer(minLength: 8)
+                if let meta = upcomingDayMeta(dp) {
+                    Text(meta)
+                        .font(Theme.Typography.monoLabel)
+                        .foregroundStyle(Theme.ink3)
+                        .textCase(.uppercase)
+                        .tracking(Theme.Tracking.monoLabel)
+                }
+            }
+            upcomingDayContent(plan: plan, dp: dp, dayIdx: dayIdx)
+        }
+    }
+
+    @ViewBuilder
+    private func upcomingDayContent(plan: TrainingPlan, dp: DayPlan, dayIdx: Int) -> some View {
+        if dp.isRest == true {
+            restCard(note: dp.restNote)
+        } else if dp.sessions.isEmpty {
+            emptyTodayCard
+        } else {
+            VStack(spacing: 12) {
+                ForEach(Array(dp.sessions.enumerated()), id: \.offset) { idx, session in
+                    sessionRow(
+                        session: session,
+                        week: plan.currentWeek,
+                        day: dayIdx,
+                        sessionIdx: idx
+                    )
+                }
+            }
+        }
+    }
+
+    private func upcomingDayMeta(_ dp: DayPlan) -> String? {
+        if dp.isRest == true { return "Rest day" }
+        let n = dp.sessions.count
+        return n == 0 ? nil : "\(n) of \(n)"
+    }
+
+    /// Calendar weekday name (e.g. "Wednesday") for a 0…6 Mon-indexed
+    /// day. Computed by offsetting today by `(dayIdx - todayDayIdx)` so
+    /// it stays correct across week boundaries and locale settings.
+    private func weekdayName(for dayIdx: Int) -> String {
+        let delta = dayIdx - todayDayIdx
+        let date = Calendar.current.date(byAdding: .day, value: delta, to: Date()) ?? Date()
+        let f = DateFormatter()
+        f.dateFormat = "EEEE"
+        return f.string(from: date)
     }
 
     @ViewBuilder
