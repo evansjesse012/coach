@@ -144,10 +144,18 @@ struct MainTabView: View {
             // the athlete reads the full text in-place. Collapsing back
             // to the resting pill is athlete-driven (tap-outside or
             // tap-bar-to-open-chat).
-            if isUnread {
+            coachBarExpanded = isUnread
+        }
+        .onAppear {
+            // Cold-launch case: loadAll runs behind the CoachApp loading
+            // gate before MainTabView is mounted, so by the time we render
+            // the unread flag may already be true. .onChange above only
+            // fires on transitions during the view's lifetime, not on the
+            // initial value, so without this seed the bar would light
+            // green but never expand on a morning the athlete returns to
+            // a message that arrived overnight.
+            if data.hasUnreadCoachMessage {
                 coachBarExpanded = true
-            } else {
-                coachBarExpanded = false
             }
         }
     }
