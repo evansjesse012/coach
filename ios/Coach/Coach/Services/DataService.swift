@@ -741,8 +741,8 @@ final class DataService {
     // MARK: - Strength CRUD
 
     func addStrength(_ session: StrengthSession) async throws {
-        strength.insert(session, at: 0)
         try await client.from("strength_sessions").insert(session).execute()
+        strength.insert(session, at: 0)
         await recomputeTrainingLoad(touchingDate: session.date, reason: "new_workout")
     }
 

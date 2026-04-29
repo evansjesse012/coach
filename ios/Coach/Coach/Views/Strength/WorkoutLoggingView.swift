@@ -16,6 +16,7 @@ struct WorkoutLoggingView: View {
     @State private var showCancelConfirm = false
     @State private var showFinishSheet = false
     @State private var showExercisePicker = false
+    @State private var finishErrorMessage: String?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -102,7 +103,11 @@ struct WorkoutLoggingView: View {
                             UINotificationFeedbackGenerator().notificationOccurred(.success)
                             dismiss()
                         } catch {
-                            // Stay in the workout so the athlete doesn't lose it.
+                            // Surface the failure — without this the Finish
+                            // button looked dead when the Supabase insert threw.
+                            print("[finishActiveWorkout] error: \(error)")
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                            finishErrorMessage = (error as NSError).localizedDescription
                         }
                     }
                 },
@@ -118,6 +123,18 @@ struct WorkoutLoggingView: View {
                     showExercisePicker = false
                 }
             }
+        }
+        .alert(
+            "Couldn't finish workout",
+            isPresented: Binding(
+                get: { finishErrorMessage != nil },
+                set: { if !$0 { finishErrorMessage = nil } }
+            ),
+            presenting: finishErrorMessage
+        ) { _ in
+            Button("OK", role: .cancel) { finishErrorMessage = nil }
+        } message: { msg in
+            Text("\(msg)\n\nYour workout is still saved locally — try Finish again.")
         }
     }
 
