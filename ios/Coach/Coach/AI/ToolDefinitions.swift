@@ -226,14 +226,47 @@ let coachToolDefinitions: [ToolDefinition] = [
     ),
     ToolDefinition(
         name: "app_action",
-        description: "Perform an action in the app: create/update/delete a goal, update/delete a logged workout, delete a strength session, delete the training plan (with archiving), update coaching memory, change settings, or navigate to a tab. See the system prompt for the exact data shapes per (action, target) pair.",
+        description: "Perform an action in the app: create/update/delete a goal, update/delete a logged workout, delete a strength session, delete the training plan (with archiving), update coaching memory, change settings, or navigate to a tab. Only the (action, target) pairs documented on the `data` property are supported — anything else returns \"not yet implemented\". Cross-tool rules (id lookup before update/delete, confirm-before-destructive, error handling, post-action reply length) live in Section 14.",
         inputSchema: ToolInputSchema(
             type: "object",
             properties: [
                 "action": ToolProperty(type: "string", description: "The action type", enum: ["create", "update", "delete", "navigate"]),
                 "target": ToolProperty(type: "string", description: "What to act on", enum: ["goal", "workout", "strength_workout", "plan", "coaching_memory", "settings", "app"]),
-                "id": ToolProperty(type: "string", description: "ID of the item to update/delete (required for update/delete on goal, workout, strength_workout).", enum: nil),
-                "data": ToolProperty(type: "object", description: "Payload — fields depend on the (action, target) pair. See system prompt.", enum: nil),
+                "id": ToolProperty(type: "string", description: "ID of the item to update/delete. Required for update/delete on goal, workout, strength_workout. Call the matching get_* tool first to find it — never guess.", enum: nil),
+                "data": ToolProperty(type: "object", description: """
+                    Payload shape depends on the (action, target) pair.
+
+                    GOAL / RACE CARD:
+                    - create: {name, presetId, mode:'race'|'goal'|'pr', date:'YYYY-MM-DD', location, distance, goal, stretchGoal, baseline, url}. presetId is one of: marathon, half-marathon, 10k, 5k, ultra, trail-race, full-tri, half-tri, olympic-tri, sprint-tri, century, gran-fondo, swim-race, custom. For known races (IRONMAN/70.3 branded, marathon majors, UTMB, Kona, etc.) fill in name/date/location/distance from your real-world knowledge — don't ask redundant questions. If the exact date isn't known for the stated year, use the event's traditional slot AND mention the assumed date so the athlete can correct it. Relative years ('this year', 'next year') resolve against today. OMIT the url field entirely if you can't recall the exact official site — never guess or construct URLs from patterns; a missing URL is fine, a wrong one isn't.
+                    - update: {...fields to change}. Pair with top-level id.
+                    - delete: pair with top-level id. Confirm with the athlete first for race goals.
+
+                    WORKOUT (cardio):
+                    - update: {date?, sport?, duration?, distance?, pace?, notes?, avgHR?, maxHR?, calories?, location?}. Pair with top-level id from get_workouts.
+                    - delete: pair with top-level id.
+
+                    STRENGTH_WORKOUT:
+                    - delete: pair with top-level id. Editing exercises inside a session isn't supported — ask the athlete to delete and re-log if they want to fix sets/reps.
+
+                    PLAN:
+                    - delete: {reason:'short label', notes:'longer context'}. Archives the current plan to PlanHistory before removing. Always confirm with the athlete first.
+
+                    COACHING_MEMORY (append/edit facts about the athlete):
+                    - shape: {category, operation, value, id?}
+                    - String-list categories (add/remove/clear): equipment, facilities, medicalHistory, dietaryConstraints, patterns, motivators, openItems, skipPatterns. Example: {category:'equipment', operation:'add', value:'smart trainer'}
+                    - Singleton-string categories (set/clear): communicationPrefs, currentFocus, consistency, volumeVsIntensity, recoveryRate, easyDayDiscipline, sessionPreferences, communicationNeeds. Example: {category:'currentFocus', operation:'set', value:'base building for Boston 2027'}
+                    - coachingNotes (add/update/remove/clear) — your hidden scratchpad for patterns the athlete doesn't see. Only write a note after observing the same behavior 3+ times; single occurrences don't earn a slot. add: {text, relatedTopic?} where relatedTopic is a freeform tag like 'tuesday_pace_drift' or 'right_knee'. When a pattern resolves, update with {id, status:'resolved'} — the system hides resolved notes from your working context on later turns. update can also amend text/relatedTopic on an existing entry: {id, text:'...'} or {id, relatedTopic:'...'}. remove deletes permanently — prefer status:'resolved' unless the note was simply wrong.
+                    - benchmarks (add/remove/clear): value is {metric, value, testDate?, method?}; remove takes the metric name as a string.
+                    - injuries (add/remove/update/clear): add takes {area, status, severity, triggers?, safeActivities?, modifications?, returnCriteria?}; remove takes the injury id (from get_athlete_profile); update takes id + a value object with status/severity/triggers/safeActivities/modifications/returnCriteria/note (note is appended to injury history).
+                    - safetyRules (add/remove/clear): add takes {rule, reason}; remove takes the rule text.
+                    - Call get_athlete_profile first if you need existing IDs (for injury update/remove).
+
+                    SETTINGS:
+                    - update: {appearance?:'system'|'light'|'dark', personality?:'normal'|'goggins'|'hype'|'custom', customPrompt?:'...'}. Only change what the athlete explicitly asked for. Don't silently flip unrelated fields.
+
+                    APP (navigation):
+                    - navigate: {tab:'coach'|'goals'|'plan'|'analytics'|'log'}. Use sparingly — only when the athlete explicitly asks to open a tab. Don't navigate reflexively after every mutation.
+                    """, enum: nil),
             ],
             required: ["action", "target"]
         )
