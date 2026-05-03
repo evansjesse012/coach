@@ -189,7 +189,10 @@ struct SessionDetailView: View {
             Button("Resume") { showWorkoutLogger = true }
             Button("Discard and start new", role: .destructive) {
                 data.cancelActiveWorkout()
-                data.startStrengthWorkout(StrengthSession.fromPrescribed(session))
+                data.startStrengthWorkout(
+                    StrengthSession.fromPrescribed(session),
+                    origin: SessionCoordinates(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx)
+                )
                 showWorkoutLogger = true
             }
             Button("Cancel", role: .cancel) {}
@@ -411,7 +414,10 @@ struct SessionDetailView: View {
                 showResumeConfirm = true
             }
         } else {
-            data.startStrengthWorkout(StrengthSession.fromPrescribed(session))
+            data.startStrengthWorkout(
+                StrengthSession.fromPrescribed(session),
+                origin: SessionCoordinates(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx)
+            )
             showWorkoutLogger = true
         }
     }

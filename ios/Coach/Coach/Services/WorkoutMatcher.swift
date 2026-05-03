@@ -18,7 +18,7 @@ enum MatchConfidence {
 }
 
 /// Points to a prescribed session by its position in the weekly plan tree.
-struct SessionCoordinates: Equatable {
+struct SessionCoordinates: Equatable, Codable {
     let weekNum: Int
     let dayIdx: Int
     let sessionIdx: Int
