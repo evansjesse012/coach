@@ -252,8 +252,12 @@ final class DataService {
 
             trainingLoad = try await tl
             benchmarkHistory = try await bh
-            weeklyReviews = try await wr
-            weeklyPreviews = try await wp
+            // Soft-fail: weekly artifacts tables ship in migration 012.
+            // Until that's applied to the project, the SELECTs 404 and
+            // would otherwise abort the whole load. Empty array is the
+            // safe default — UI surfaces gate on `isEmpty` already.
+            weeklyReviews = (try? await wr) ?? []
+            weeklyPreviews = (try? await wp) ?? []
         } catch {
             self.error = error.localizedDescription
         }
@@ -1519,8 +1523,24 @@ final class DataService {
             case .memoryUpdated(let m):   try? await saveMemory(m)
             case .settingsUpdated(let s): try? await saveSettings(s)
             case .tabChanged(let t):      selectedTab = t
+            case .reviewUpdated(let r):   upsertReviewLocal(r)
             }
         }
+    }
+
+    /// Append-or-replace a weekly review in the in-memory array, keyed
+    /// by id. Called from `applyEffects` when a tool returns
+    /// `.reviewUpdated`. The Supabase write already happened in the
+    /// executor — this just keeps the @Observable state current so
+    /// downstream surfaces (Today theme line, WeekDetailView,
+    /// trigger logic) see the change without a full reload.
+    private func upsertReviewLocal(_ review: WeeklyReview) {
+        if let idx = weeklyReviews.firstIndex(where: { $0.id == review.id }) {
+            weeklyReviews[idx] = review
+        } else {
+            weeklyReviews.append(review)
+        }
+        weeklyReviews.sort { $0.weekStartDate < $1.weekStartDate }
     }
 
     func addMessage(_ message: ChatMessage) async throws {

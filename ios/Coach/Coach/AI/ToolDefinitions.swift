@@ -225,6 +225,40 @@ let coachToolDefinitions: [ToolDefinition] = [
         inputSchema: ToolInputSchema(type: "object", properties: nil, required: nil)
     ),
     ToolDefinition(
+        name: "start_weekly_review_check_in",
+        description: "Start (or resume) the weekly review check-in for the week that just ended. Call this at the very beginning of a Sunday-evening or Monday-morning wrap-up conversation, BEFORE asking any questions. Returns the review id (you'll pass it to populate_review_field and complete_weekly_review) plus the prior week's adherence summary so you can frame the conversation around what actually happened. Idempotent — if a check-in is already in progress for the same week, returns the existing row instead of creating a duplicate. Section 11's WEEKLY CHECK-IN sub-section governs the conversational flow.",
+        inputSchema: ToolInputSchema(
+            type: "object",
+            properties: [
+                "week_start_date": ToolProperty(type: "string", description: "OPTIONAL. yyyy-MM-dd Monday of the week being reviewed. Default: prior Monday (or this Monday on Sunday). Override only if the athlete is retroactively wrapping up an older week.", enum: nil),
+            ],
+            required: nil
+        )
+    ),
+    ToolDefinition(
+        name: "populate_review_field",
+        description: "Write one or more structured fields onto an in-progress weekly review. Call this AFTER each athlete answer in the check-in conversation — once per turn, only with the field(s) the answer actually addressed. Don't batch all fields into a single call at the end; the per-field rhythm is what makes the conversation feel paced. All fields are optional so you can send any subset. The shape mirrors weekly_reviews columns; ratings are 1–10 ints, soreness_level is one of none/mild/significant/concerning, sleep_avg_hours and body_weight are decimals.",
+        inputSchema: ToolInputSchema(
+            type: "object",
+            properties: [
+                "review_id":           ToolProperty(type: "string",  description: "ID returned by start_weekly_review_check_in.", enum: nil),
+                "fields":              ToolProperty(type: "object",  description: "Subset of {sleep_avg_hours: number, energy_rating: int (1-10), motivation_rating: int (1-10), soreness_level: 'none'|'mild'|'significant'|'concerning', soreness_location: string, pain_flag: bool, pain_description: string, life_stress_rating: int (1-10), body_weight: number, best_session_text: string, worst_session_text: string, life_context: string, questions: string, next_week_focus: string}.", enum: nil),
+            ],
+            required: ["review_id", "fields"]
+        )
+    ),
+    ToolDefinition(
+        name: "complete_weekly_review",
+        description: "Finalize the weekly review check-in. Call this once the conversation has covered everything that needed covering. Stamps completed_at, auto-computes adherence_pct from logged-vs-prescribed sessions, attempts to pull the week's HealthKit sleep average if not already set. The athlete-side state is now frozen; the AI-side response prose + paired preview are generated in a follow-up step. Section 11's WEEKLY CHECK-IN sub-section says when the conversation is ready to be wrapped — don't call this prematurely.",
+        inputSchema: ToolInputSchema(
+            type: "object",
+            properties: [
+                "review_id": ToolProperty(type: "string", description: "ID returned by start_weekly_review_check_in.", enum: nil),
+            ],
+            required: ["review_id"]
+        )
+    ),
+    ToolDefinition(
         name: "app_action",
         description: "Perform an action in the app: create/update/delete a goal, update/delete a logged workout, delete a strength session, delete the training plan (with archiving), update coaching memory, change settings, or navigate to a tab. Only the (action, target) pairs documented on the `data` property are supported — anything else returns \"not yet implemented\". Cross-tool rules (id lookup before update/delete, confirm-before-destructive, error handling, post-action reply length) live in Section 14.",
         inputSchema: ToolInputSchema(

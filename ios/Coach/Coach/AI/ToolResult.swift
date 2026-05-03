@@ -34,4 +34,9 @@ enum ToolEffect {
     case memoryUpdated(CoachingMemory)
     case settingsUpdated(UserSettings)
     case tabChanged(tab: String)
+    /// W1: a weekly review row was created or updated by one of the
+    /// check-in tools. The DataService dispatcher upserts it into
+    /// `weeklyReviews` keyed by id so the in-memory view stays current
+    /// without a full reload.
+    case reviewUpdated(WeeklyReview)
 }

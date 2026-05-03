@@ -29,6 +29,16 @@ enum WeekBoundary {
         return Self.formatter.string(from: priorMonday)
     }
 
+    /// `yyyy-MM-dd` of the Monday of the week the weekly review/preview
+    /// ritual considers "the week being reviewed" relative to `date`.
+    /// Sundays review the week that just ended (today's Monday); any
+    /// other day reviews the prior week. Used by
+    /// `start_weekly_review_check_in` to default the review window.
+    static func reviewWeekStartString(of date: Date) -> String {
+        let weekday = Calendar.current.component(.weekday, from: date) // 1=Sun..7=Sat
+        return weekday == 1 ? mondayString(of: date) : priorMondayString(of: date)
+    }
+
     /// Date object for the Monday of the week containing `date`.
     static func monday(of date: Date) -> Date {
         var cal = Calendar.current

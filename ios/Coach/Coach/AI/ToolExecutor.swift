@@ -470,6 +470,128 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
         }
         return ToolResult(summary: jsonString(["count": plans.count, "plans": plans]))
 
+    // MARK: start_weekly_review_check_in
+    case "start_weekly_review_check_in":
+        let weekStartStr = (input["week_start_date"] as? String)
+            ?? WeekBoundary.reviewWeekStartString(of: Date())
+        let weekStart = parseDate(weekStartStr) ?? Date()
+
+        do {
+            let review = try await WeeklyArtifactsService.createInProgressReview(weekStart: weekStart)
+
+            // Build a compact adherence summary to seed the agent's
+            // framing of the conversation. If no plan exists or the
+            // week isn't part of it, return what we can without
+            // fabricating numbers.
+            var adherenceLine: String?
+            if let plan = dataService.trainingPlan,
+               let weekNumber = weekNumberFor(weekStartDate: weekStartStr, plan: plan),
+               let adherence = computeWeekAdherence(
+                    plan: plan, weekNum: weekNumber,
+                    cardio: dataService.cardio, strength: dataService.strength
+               ) {
+                adherenceLine = "Adherence \(adherence.adherence)% — \(adherence.completed) completed, \(adherence.shortened) shortened, \(adherence.missed) missed, \(adherence.substituted) substituted of \(adherence.prescribed) prescribed."
+            }
+
+            var summary: [String: Any] = [
+                "review_id": review.id.uuidString,
+                "week_start_date": review.weekStartDate,
+                "week_end_date": review.weekEndDate,
+                "resumed": review.completedAt == nil && hasAnyPopulatedField(review),
+            ]
+            if let adherenceLine { summary["adherence_summary"] = adherenceLine }
+            return ToolResult(
+                summary: jsonString(summary),
+                effects: [.reviewUpdated(review)]
+            )
+        } catch {
+            return ToolResult(summary: jsonString(["error": "Failed to start check-in: \(error.localizedDescription)"]))
+        }
+
+    // MARK: populate_review_field
+    case "populate_review_field":
+        guard let idStr = input["review_id"] as? String,
+              let reviewId = UUID(uuidString: idStr) else {
+            return ToolResult(summary: jsonString(["error": "review_id required"]))
+        }
+        guard let fields = input["fields"] as? [String: Any], !fields.isEmpty else {
+            return ToolResult(summary: jsonString(["error": "fields object required (non-empty)"]))
+        }
+
+        let patch = ReviewFieldPatch(
+            sleep_avg_hours:     fields["sleep_avg_hours"] as? Double,
+            energy_rating:       fields["energy_rating"]   as? Int,
+            motivation_rating:   fields["motivation_rating"] as? Int,
+            soreness_level:      fields["soreness_level"]  as? String,
+            soreness_location:   fields["soreness_location"] as? String,
+            pain_flag:           fields["pain_flag"]       as? Bool,
+            pain_description:    fields["pain_description"] as? String,
+            life_stress_rating:  fields["life_stress_rating"] as? Int,
+            body_weight:         fields["body_weight"]     as? Double,
+            best_session_text:   fields["best_session_text"] as? String,
+            best_session_id:     (fields["best_session_id"] as? String).flatMap(UUID.init(uuidString:)),
+            worst_session_text:  fields["worst_session_text"] as? String,
+            worst_session_id:    (fields["worst_session_id"] as? String).flatMap(UUID.init(uuidString:)),
+            life_context:        fields["life_context"]    as? String,
+            questions:           fields["questions"]       as? String,
+            next_week_focus:     fields["next_week_focus"] as? String
+        )
+
+        do {
+            let updated = try await WeeklyArtifactsService.updateReviewFields(id: reviewId, patch: patch)
+            return ToolResult(
+                summary: jsonString(["review_id": updated.id.uuidString, "ok": true]),
+                effects: [.reviewUpdated(updated)]
+            )
+        } catch {
+            return ToolResult(summary: jsonString(["error": "Failed to populate fields: \(error.localizedDescription)"]))
+        }
+
+    // MARK: complete_weekly_review
+    case "complete_weekly_review":
+        guard let idStr = input["review_id"] as? String,
+              let reviewId = UUID(uuidString: idStr) else {
+            return ToolResult(summary: jsonString(["error": "review_id required"]))
+        }
+
+        // Resolve the in-memory review (post any pending populate calls)
+        // to find its week_start_date; needed for adherence computation.
+        let weekStartDate: String? = dataService.weeklyReviews
+            .first(where: { $0.id == reviewId })?.weekStartDate
+
+        // Auto-computed adherence_pct: prefer the plan-based percentage
+        // if we can find the matching plan-week, otherwise leave nil.
+        var adherencePct: Double?
+        if let weekStartDate,
+           let plan = dataService.trainingPlan,
+           let weekNumber = weekNumberFor(weekStartDate: weekStartDate, plan: plan),
+           let adherence = computeWeekAdherence(
+                plan: plan, weekNum: weekNumber,
+                cardio: dataService.cardio, strength: dataService.strength
+           ) {
+            adherencePct = Double(adherence.adherence)
+        }
+
+        do {
+            let finalized = try await WeeklyArtifactsService.markReviewComplete(
+                id: reviewId, adherencePct: adherencePct
+            )
+            // PR 1.3 will hook the AI generators here. For now the tool
+            // returns the finalized review JSON so the agent has the
+            // structured snapshot to summarize back to the athlete.
+            return ToolResult(
+                summary: jsonString([
+                    "review_id":      finalized.id.uuidString,
+                    "completed_at":   finalized.completedAt as Any,
+                    "adherence_pct":  finalized.adherencePct as Any,
+                    "ok":             true,
+                ]),
+                effects: [.reviewUpdated(finalized)]
+            )
+        } catch {
+            return ToolResult(summary: jsonString(["error": "Failed to complete review: \(error.localizedDescription)"]))
+        }
+
     // MARK: app_action
     case "app_action":
         let action = input["action"] as? String ?? ""
@@ -798,6 +920,49 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
     default:
         return ToolResult(summary: #"{"error":"Unknown tool: \#(name)"}"#)
     }
+}
+
+// MARK: - Weekly review helpers
+
+/// Parse "yyyy-MM-dd" → Date in device-local TZ. nil for malformed input.
+private func parseDate(_ s: String) -> Date? {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    f.timeZone = .current
+    return f.date(from: s)
+}
+
+/// Map a Monday-of-week string to the matching plan week number, or nil
+/// if the date doesn't fall inside any week of the plan. Walks the plan's
+/// weeks comparing each week's start date to the target.
+private func weekNumberFor(weekStartDate: String, plan: TrainingPlan) -> Int? {
+    guard let planStartStr = plan.startDate,
+          let planStart = parseDate(planStartStr),
+          let target = parseDate(weekStartDate) else { return nil }
+    let cal = Calendar.current
+    let days = cal.dateComponents([.day], from: planStart, to: target).day ?? 0
+    let weekIndex = days / 7
+    let weekNumber = weekIndex + 1
+    guard plan.weeklyPlans[String(weekNumber)] != nil else { return nil }
+    return weekNumber
+}
+
+/// True if the in-progress review already has any non-default field set.
+/// Lets the executor distinguish "fresh start" from "resumed after a
+/// partial conversation" in the response summary.
+@MainActor
+private func hasAnyPopulatedField(_ r: WeeklyReview) -> Bool {
+    r.sleepAvgHours != nil
+        || r.energyRating != nil
+        || r.motivationRating != nil
+        || r.sorenessLevel != nil
+        || r.painFlag
+        || r.lifeStressRating != nil
+        || (r.bestSessionText?.isEmpty == false)
+        || (r.worstSessionText?.isEmpty == false)
+        || (r.lifeContext?.isEmpty == false)
+        || (r.questions?.isEmpty == false)
+        || (r.nextWeekFocus?.isEmpty == false)
 }
 
 // MARK: - JSON Helper

@@ -30,7 +30,8 @@ struct AgentResult {
             switch $0 {
             case .eventCreated, .eventUpdated, .eventDeleted,
                  .cardioUpdated, .cardioDeleted, .strengthDeleted,
-                 .memoryUpdated, .settingsUpdated, .tabChanged: return true
+                 .memoryUpdated, .settingsUpdated, .tabChanged,
+                 .reviewUpdated: return true
             default: return false
             }
         }
