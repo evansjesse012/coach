@@ -182,6 +182,15 @@ final class DataService {
     /// is persisted to Supabase via addStrength. `nil` means no active workout.
     var activeStrengthSession: StrengthSession?
 
+    /// Plan coordinates of the prescribed session this active workout was
+    /// started from, when the athlete tapped "Start" on a prescribed card.
+    /// `nil` for QuickStart and "repeat last workout" flows. Used at finish
+    /// time to mark the source prescribed session directly instead of
+    /// re-deriving the link by (date, templateId), which silently failed
+    /// when the workout was logged on a different date than scheduled or
+    /// when the plan's `type` casing didn't match.
+    var activePrescribedOrigin: SessionCoordinates?
+
     /// Wall-clock timestamp when the athlete tapped "Start Workout". Used by
     /// WorkoutLoggingView's elapsed-time display and saved as the final
     /// `duration` (minutes) when the workout is finished.
@@ -198,6 +207,7 @@ final class DataService {
 
     private let activeSessionKey = "coach.activeStrengthSession.v1"
     private let activeStartedAtKey = "coach.activeWorkoutStartedAt.v1"
+    private let activePrescribedOriginKey = "coach.activePrescribedOrigin.v1"
     private let lastSeenChatAtKey = "coach.lastSeenChatAt.v1"
 
     private var client: SupabaseClient { SupabaseService.shared.client }
@@ -794,8 +804,16 @@ final class DataService {
     /// Start a new live strength workout. Persists to UserDefaults so a mid-
     /// workout app kill can be recovered. Cancels any already-running rest
     /// timer to avoid stale state from a previous session.
-    func startStrengthWorkout(_ session: StrengthSession) {
+    ///
+    /// `origin` is the plan position of the prescribed session this workout
+    /// was started from, when applicable. Stored alongside the active session
+    /// so finish-time linkage marks the exact prescribed session the athlete
+    /// tapped, even if the workout ends up logged on a different date than
+    /// scheduled (e.g. tomorrow's lift done today, late-night session
+    /// straddling midnight). `nil` for QuickStart and clone-for-repeat.
+    func startStrengthWorkout(_ session: StrengthSession, origin: SessionCoordinates? = nil) {
         activeStrengthSession = session
+        activePrescribedOrigin = origin
         activeWorkoutStartedAt = Date()
         stopRestTimer()
         persistActiveSession()
@@ -849,6 +867,10 @@ final class DataService {
             return copy
         }
 
+        // Capture the origin BEFORE the reset below, so the linkage call
+        // gets the coords even though we're about to clear them.
+        let origin = activePrescribedOrigin
+
         stopRestTimer()
         try await addStrength(session)
         await rollPRsForSession(session)
@@ -858,31 +880,56 @@ final class DataService {
         // actually logged. Uses the pre-prune snapshot so we have both
         // sides of the comparison (prescribed sets vs. completed sets).
         if let pre = prePruneSession {
-            await markPrescribedSessionForFinishedStrength(finished: session, preprune: pre)
+            await markPrescribedSessionForFinishedStrength(
+                finished: session,
+                preprune: pre,
+                origin: origin
+            )
         }
 
         activeStrengthSession = nil
+        activePrescribedOrigin = nil
         activeWorkoutStartedAt = nil
         clearPersistedActiveSession()
     }
 
     // MARK: - Strength → prescribed session auto-link
 
-    /// Finds the prescribed session that matches a just-finished strength
-    /// workout (by scheduled date + template) and marks it `.completed`
-    /// or `.modified` depending on how much of the prescription was
-    /// actually logged.
+    /// Marks the prescribed session linked to a just-finished strength
+    /// workout as `.completed` or `.modified` depending on how much of the
+    /// prescription was actually logged.
+    ///
+    /// Prefers `origin` — the plan coordinates captured when the athlete
+    /// tapped "Start" on a prescribed card — because it identifies the
+    /// exact session regardless of how the workout was dated. Falls back
+    /// to `findPrescribedStrengthMatch` (date + templateId) only for
+    /// QuickStart / clone-for-repeat, where no origin was captured.
     @MainActor
     private func markPrescribedSessionForFinishedStrength(
         finished: StrengthSession,
-        preprune: StrengthSession
+        preprune: StrengthSession,
+        origin: SessionCoordinates?
     ) async {
-        guard let coords = findPrescribedStrengthMatch(for: finished) else { return }
+        let coords: SessionCoordinates
+        if let origin {
+            coords = origin
+        } else if let derived = findPrescribedStrengthMatch(for: finished) {
+            coords = derived
+        } else {
+            // Surface the miss — silent return here is why prescribed
+            // sessions sometimes never got their done/modified mark.
+            print("markPrescribedSessionForFinishedStrength: no plan match for date=\(finished.date) templateId=\(finished.templateId ?? "nil")")
+            return
+        }
+
         guard let plan = trainingPlan,
               let wp = plan.weeklyPlans[String(coords.weekNum)],
               coords.dayIdx < wp.sessions.count,
               coords.sessionIdx < wp.sessions[coords.dayIdx].sessions.count
-        else { return }
+        else {
+            print("markPrescribedSessionForFinishedStrength: coords \(coords) out of bounds in plan")
+            return
+        }
 
         let prescribed = wp.sessions[coords.dayIdx].sessions[coords.sessionIdx]
         let status = completionStatusForStrength(prescribed: prescribed, preprune: preprune)
@@ -902,10 +949,10 @@ final class DataService {
                 }
             }
         } catch {
-            // `updateSessionCompletion`'s future-session guard shouldn't
-            // trip here (the workout was logged today), but log just in
-            // case so the failure is visible during dev instead of
-            // silently skipped.
+            // The future-session guard in `updateSessionCompletion` can fire
+            // when the athlete finishes a prescribed workout earlier than
+            // scheduled (issue #78). Until that's resolved, log so the
+            // skip is visible.
             print("markPrescribedSessionForFinishedStrength: \(error)")
         }
     }
@@ -917,11 +964,11 @@ final class DataService {
     /// start + no template).
     private func findPrescribedStrengthMatch(
         for finished: StrengthSession
-    ) -> (weekNum: Int, dayIdx: Int, sessionIdx: Int)? {
+    ) -> SessionCoordinates? {
         guard let plan = trainingPlan else { return nil }
         let targetDate = finished.date
 
-        var fallback: (Int, Int, Int)?
+        var fallback: SessionCoordinates?
         for (weekKey, wp) in plan.weeklyPlans {
             guard let weekNum = Int(weekKey) else { continue }
             for (dayIdx, dayPlan) in wp.sessions.enumerated() {
@@ -931,12 +978,20 @@ final class DataService {
                     dayIdx: dayIdx
                 ), scheduled == targetDate else { continue }
 
-                for (sessionIdx, session) in dayPlan.sessions.enumerated() where session.type == "strength" {
+                // Lowercase the type filter — SessionDetailView and other
+                // UI surfaces match strength via `.lowercased() == "strength"`,
+                // so plans that store "Strength" (AI-generated waver in
+                // casing) were skipped here while still being startable
+                // from the UI, breaking the linkage silently.
+                for (sessionIdx, session) in dayPlan.sessions.enumerated()
+                    where session.type.lowercased() == "strength"
+                {
+                    let coords = SessionCoordinates(weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx)
                     if let ft = finished.templateId, let st = session.templateId, ft == st {
-                        return (weekNum, dayIdx, sessionIdx)
+                        return coords
                     }
                     if fallback == nil {
-                        fallback = (weekNum, dayIdx, sessionIdx)
+                        fallback = coords
                     }
                 }
             }
@@ -979,6 +1034,7 @@ final class DataService {
     func cancelActiveWorkout() {
         stopRestTimer()
         activeStrengthSession = nil
+        activePrescribedOrigin = nil
         activeWorkoutStartedAt = nil
         clearPersistedActiveSession()
     }
@@ -1070,12 +1126,19 @@ final class DataService {
         } else {
             defaults.removeObject(forKey: activeStartedAtKey)
         }
+        if let origin = activePrescribedOrigin,
+           let data = try? JSONEncoder().encode(origin) {
+            defaults.set(data, forKey: activePrescribedOriginKey)
+        } else {
+            defaults.removeObject(forKey: activePrescribedOriginKey)
+        }
     }
 
     private func clearPersistedActiveSession() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: activeSessionKey)
         defaults.removeObject(forKey: activeStartedAtKey)
+        defaults.removeObject(forKey: activePrescribedOriginKey)
     }
 
     // MARK: - Chat read state (CoachBar)
@@ -1133,6 +1196,10 @@ final class DataService {
             return
         }
         activeStrengthSession = session
+        if let originData = defaults.data(forKey: activePrescribedOriginKey),
+           let origin = try? JSONDecoder().decode(SessionCoordinates.self, from: originData) {
+            activePrescribedOrigin = origin
+        }
         let ts = defaults.double(forKey: activeStartedAtKey)
         if ts > 0 {
             activeWorkoutStartedAt = Date(timeIntervalSince1970: ts)
