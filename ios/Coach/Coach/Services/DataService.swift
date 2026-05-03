@@ -78,6 +78,20 @@ final class DataService {
     /// against historical thresholds. Populated on `loadAll`.
     var benchmarkHistory: [BenchmarkHistoryEntry] = []
 
+    /// Weekly review artifacts (the structured Sunday check-in + AI
+    /// response halves) for the current user, ascending by week. Used by
+    /// the weekly preview/review surfaces in WeekDetailView, Today's
+    /// "This week" theme line, and the trigger logic that decides
+    /// whether to start a fresh check-in conversation. Populated on
+    /// `loadAll`; mutated by the W1 tools that drive the conversational
+    /// check-in lifecycle.
+    var weeklyReviews: [WeeklyReview] = []
+
+    /// AI-generated weekly previews paired with each completed review
+    /// (or generated standalone when the athlete skipped the check-in).
+    /// Same ordering and lifecycle as `weeklyReviews`.
+    var weeklyPreviews: [WeeklyPreview] = []
+
     /// HealthKit-imported workouts that the WorkoutMatcher couldn't pair to
     /// any prescribed session. In-memory only — repopulated on each sync.
     /// The UI shows these as "New workout detected" cards in Today's Focus.
@@ -211,6 +225,8 @@ final class DataService {
             async let pr: [PersonalRecord] = client.from("personal_records").select().execute().value
             async let tl: [DailyTrainingLoad] = client.from("daily_training_load").select().order("date", ascending: true).execute().value
             async let bh: [BenchmarkHistoryEntry] = client.from("benchmark_history").select().order("effective_from", ascending: false).execute().value
+            async let wr: [WeeklyReview] = client.from("weekly_reviews").select().order("week_start_date", ascending: true).execute().value
+            async let wp: [WeeklyPreview] = client.from("weekly_previews").select().order("week_start_date", ascending: true).execute().value
 
             cardio = try await c
             strength = try await s
@@ -236,6 +252,8 @@ final class DataService {
 
             trainingLoad = try await tl
             benchmarkHistory = try await bh
+            weeklyReviews = try await wr
+            weeklyPreviews = try await wp
         } catch {
             self.error = error.localizedDescription
         }
