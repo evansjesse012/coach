@@ -9,6 +9,7 @@ import SwiftUI
 /// tab bar when a strength workout is live.
 struct MainTabView: View {
     @Environment(DataService.self) private var data
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showActiveWorkoutLogger = false
     @State private var showCoachChat = false
@@ -157,7 +158,34 @@ struct MainTabView: View {
             if data.hasUnreadCoachMessage {
                 coachBarExpanded = true
             }
+            Task { await maybePromptWeeklyCheckIn() }
         }
+        .onChange(of: scenePhase) { _, phase in
+            // Re-evaluate on foreground in case the athlete crossed the
+            // trigger window with the app already running (cold launch
+            // is handled by the .onAppear above).
+            if phase == .active {
+                Task { await maybePromptWeeklyCheckIn() }
+            }
+        }
+    }
+
+    // MARK: - Weekly check-in trigger
+
+    /// Posts the wrap-up opener as a coach-initiated assistant message
+    /// when the current time falls in the Sunday-evening / Monday-
+    /// morning window AND no completed review exists for the week
+    /// being wrapped up. Idempotent within the same window thanks to
+    /// the UserDefaults debounce in `WeeklyArtifactsService`.
+    private func maybePromptWeeklyCheckIn() async {
+        guard WeeklyArtifactsService.shouldPromptCheckIn(
+            now: Date(),
+            reviews: data.weeklyReviews
+        ) != nil else { return }
+        await data.postCoachOpener(
+            "Hey, let's wrap up the week. How did it feel overall?"
+        )
+        WeeklyArtifactsService.markPromptedForCheckIn()
     }
 
     // MARK: - CoachBar bindings

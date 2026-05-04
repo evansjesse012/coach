@@ -198,6 +198,55 @@ enum WeeklyArtifactsService {
     // arrives with the UI surfaces in PR 1.5 — the schema reserves the
     // columns but PR 1.1 has no caller, so the method is intentionally
     // not present here yet.
+
+    // MARK: - Trigger logic
+
+    /// Returns the `yyyy-MM-dd` Monday of the week that should be
+    /// reviewed if the athlete should be prompted to start a check-in
+    /// right now, or nil if no prompt is appropriate.
+    ///
+    /// Trigger window: Sunday after 16:00 local time, OR Monday before
+    /// 12:00 local time. Only fires when no completed review exists for
+    /// the corresponding week, and only once per (review-week × launch
+    /// session) — UserDefaults stores the most recent prompt timestamp
+    /// to debounce repeated app-opens within the same window.
+    static func shouldPromptCheckIn(
+        now: Date,
+        reviews: [WeeklyReview]
+    ) -> String? {
+        let cal = Calendar.current
+        let weekday = cal.component(.weekday, from: now) // 1=Sun..7=Sat
+        let hour = cal.component(.hour, from: now)
+        let inWindow = (weekday == 1 && hour >= 16) || (weekday == 2 && hour < 12)
+        guard inWindow else { return nil }
+
+        let weekStart = WeekBoundary.reviewWeekStartString(of: now)
+
+        // Already completed for this week — nothing to prompt.
+        if reviews.contains(where: { $0.weekStartDate == weekStart && $0.completedAt != nil }) {
+            return nil
+        }
+
+        // Already prompted in this same review-window — debounce.
+        let lastPromptedTs = UserDefaults.standard.double(forKey: lastPromptedKey)
+        if lastPromptedTs > 0 {
+            let lastPrompted = Date(timeIntervalSince1970: lastPromptedTs)
+            if WeekBoundary.reviewWeekStartString(of: lastPrompted) == weekStart {
+                return nil
+            }
+        }
+
+        return weekStart
+    }
+
+    /// Stamp the prompt time so subsequent `shouldPromptCheckIn` calls
+    /// for the same review-window short-circuit. Called immediately
+    /// after the trigger fires.
+    static func markPromptedForCheckIn(at: Date = Date()) {
+        UserDefaults.standard.set(at.timeIntervalSince1970, forKey: lastPromptedKey)
+    }
+
+    private static let lastPromptedKey = "coach.weeklyCheckInPromptedAt.v1"
 }
 
 // MARK: - Patch type for partial review updates

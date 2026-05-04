@@ -1508,6 +1508,25 @@ final class DataService {
     /// (PostStatusChatSheet) can kick this in a detached `Task` — the
     /// reply lands in the chat thread in the background.
     @MainActor
+    /// W1 PR 1.4: post a coach-initiated assistant message into the
+    /// active chat thread without running the agent loop. Used by the
+    /// weekly-check-in trigger to drop the wrap-up opener directly into
+    /// the conversation — the athlete's reply (when it comes) kicks off
+    /// the agent loop normally and the agent picks up Section 11's
+    /// WEEKLY CHECK-IN flow from there.
+    ///
+    /// Distinct from `sendUserMessage`, which posts a USER turn and
+    /// runs the loop. This one is purely additive — no LLM call, no
+    /// memory extraction. The chat sheet sees a new assistant message;
+    /// `hasUnreadCoachMessage` flips true; the Coach bar lights up.
+    func postCoachOpener(_ text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        await ensureActiveConversation()
+        let msg = ChatMessage.assistant(trimmed, conversationId: currentConversation?.id)
+        try? await addMessage(msg)
+    }
+
     func sendUserMessage(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
