@@ -576,17 +576,110 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             let finalized = try await WeeklyArtifactsService.markReviewComplete(
                 id: reviewId, adherencePct: adherencePct
             )
-            // PR 1.3 will hook the AI generators here. For now the tool
-            // returns the finalized review JSON so the agent has the
-            // structured snapshot to summarize back to the athlete.
+
+            // PR 1.3: run the review-response generator and the preview
+            // generator in parallel. Each takes ~5–10s; running them
+            // concurrently roughly halves wall time. Both swallow their
+            // own failures and return nil — a missing AI half doesn't
+            // block the athlete-side completion, and the chat reply
+            // surfaces what we got.
+            let upcomingPlanWeek = upcomingWeekPlan(after: finalized, plan: dataService.trainingPlan)
+            let previousPlanWeek = currentWeekPlan(for: finalized, plan: dataService.trainingPlan)
+            let metrics = WeeklyPreviewMetrics.compute(
+                upcoming: upcomingPlanWeek,
+                previous: previousPlanWeek
+            )
+
+            async let reviewOut: WeeklyReviewResponseGenerator.Output? =
+                WeeklyReviewResponseGenerator.generate(
+                    review: finalized,
+                    plan: dataService.trainingPlan,
+                    memory: dataService.memory,
+                    recentCardio: dataService.cardio,
+                    recentStrength: dataService.strength
+                )
+            async let previewOut: WeeklyPreviewGenerator.Output? =
+                WeeklyPreviewGenerator.generate(
+                    review: finalized,
+                    upcomingWeek: upcomingPlanWeek,
+                    plan: dataService.trainingPlan,
+                    memory: dataService.memory,
+                    trainingLoad: dataService.trainingLoad.last.map {
+                        TrainingLoadSnapshot(
+                            asOf: $0.date,
+                            ctl: $0.ctl, atl: $0.atl, tsb: $0.tsb,
+                            ctlRamp7d: nil
+                        )
+                    },
+                    metrics: metrics
+                )
+
+            let (review, preview) = await (reviewOut, previewOut)
+
+            var effects: [ToolEffect] = [.reviewUpdated(finalized)]
+
+            // Persist + dispatch the AI review response if we got one.
+            var reviewWithAI = finalized
+            if let review {
+                if let attached = try? await WeeklyArtifactsService.attachAIResponse(
+                    reviewId: finalized.id,
+                    text: review.text,
+                    components: review.components,
+                    patternsDetected: review.patternsDetected
+                ) {
+                    reviewWithAI = attached
+                    effects = [.reviewUpdated(attached)]
+                }
+            }
+
+            // Build + persist the preview if generation succeeded.
+            var savedPreview: WeeklyPreview?
+            if let preview {
+                let upcomingStart = nextMondayString(after: finalized.weekEndDate)
+                let upcomingEnd   = sundayString(after: upcomingStart)
+                let weekly = WeeklyPreview(
+                    id: UUID(),
+                    userId: nil,
+                    weekStartDate: upcomingStart,
+                    weekEndDate: upcomingEnd,
+                    createdAt: nil,
+                    pairedReviewId: finalized.id,
+                    theme: preview.theme,
+                    themeCategory: preview.themeCategory,
+                    macroPosition: preview.macroPosition,
+                    totalPlannedHours: metrics.totalPlannedHours,
+                    totalPlannedDistance: metrics.totalPlannedDistance,
+                    totalPlannedTss: nil,
+                    deltaFromPreviousWeekPct: metrics.deltaFromPreviousWeekPct,
+                    numQualitySessions: metrics.numQualitySessions,
+                    numEasySessions: metrics.numEasySessions,
+                    keySessions: preview.keySessions,
+                    watchOuts: preview.watchOuts,
+                    tacticalNotes: preview.tacticalNotes,
+                    lifeManagementNotes: preview.lifeManagementNotes,
+                    renderedProse: preview.renderedProse,
+                    closingQuestion: preview.closingQuestion,
+                    readAt: nil,
+                    rereadCount: 0,
+                    respondedTo: false
+                )
+                if let saved = try? await WeeklyArtifactsService.savePreview(weekly) {
+                    savedPreview = saved
+                    effects.append(.previewSaved(saved))
+                }
+            }
+
             return ToolResult(
                 summary: jsonString([
-                    "review_id":      finalized.id.uuidString,
-                    "completed_at":   finalized.completedAt as Any,
-                    "adherence_pct":  finalized.adherencePct as Any,
-                    "ok":             true,
+                    "review_id":          reviewWithAI.id.uuidString,
+                    "completed_at":       reviewWithAI.completedAt as Any,
+                    "adherence_pct":      reviewWithAI.adherencePct as Any,
+                    "ai_response_text":   reviewWithAI.aiResponseText as Any,
+                    "preview_id":         savedPreview?.id.uuidString as Any,
+                    "preview_theme":      savedPreview?.theme as Any,
+                    "ok":                 true,
                 ]),
-                effects: [.reviewUpdated(finalized)]
+                effects: effects
             )
         } catch {
             return ToolResult(summary: jsonString(["error": "Failed to complete review: \(error.localizedDescription)"]))
@@ -945,6 +1038,52 @@ private func weekNumberFor(weekStartDate: String, plan: TrainingPlan) -> Int? {
     let weekNumber = weekIndex + 1
     guard plan.weeklyPlans[String(weekNumber)] != nil else { return nil }
     return weekNumber
+}
+
+/// The plan-week for the week the review just covered. Used as the
+/// baseline for the upcoming-week delta in `WeeklyPreviewMetrics`.
+@MainActor
+private func currentWeekPlan(for review: WeeklyReview, plan: TrainingPlan?) -> WeeklyPlan? {
+    guard let plan,
+          let n = weekNumberFor(weekStartDate: review.weekStartDate, plan: plan) else {
+        return nil
+    }
+    return plan.weeklyPlans[String(n)]
+}
+
+/// The plan-week for the week we're about to preview (one after the
+/// review's window). Returns nil if the plan has no week N+1.
+@MainActor
+private func upcomingWeekPlan(after review: WeeklyReview, plan: TrainingPlan?) -> WeeklyPlan? {
+    guard let plan,
+          let n = weekNumberFor(weekStartDate: review.weekStartDate, plan: plan) else {
+        return nil
+    }
+    return plan.weeklyPlans[String(n + 1)]
+}
+
+/// Given the Sunday end of the just-reviewed week, return the Monday
+/// (start of upcoming week) as `yyyy-MM-dd`. Falls back to the input
+/// string if parsing fails so we don't crash the executor on malformed
+/// data.
+private func nextMondayString(after sundayStr: String) -> String {
+    guard let sunday = parseDate(sundayStr) else { return sundayStr }
+    let monday = Calendar.current.date(byAdding: .day, value: 1, to: sunday) ?? sunday
+    return formatYMD(monday)
+}
+
+/// Given a Monday string, return the matching Sunday (Monday + 6 days).
+private func sundayString(after mondayStr: String) -> String {
+    guard let monday = parseDate(mondayStr) else { return mondayStr }
+    let sunday = Calendar.current.date(byAdding: .day, value: 6, to: monday) ?? monday
+    return formatYMD(sunday)
+}
+
+private func formatYMD(_ d: Date) -> String {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    f.timeZone = .current
+    return f.string(from: d)
 }
 
 /// True if the in-progress review already has any non-default field set.

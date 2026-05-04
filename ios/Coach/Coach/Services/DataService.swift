@@ -1591,6 +1591,7 @@ final class DataService {
             case .settingsUpdated(let s): try? await saveSettings(s)
             case .tabChanged(let t):      selectedTab = t
             case .reviewUpdated(let r):   upsertReviewLocal(r)
+            case .previewSaved(let p):    upsertPreviewLocal(p)
             }
         }
     }
@@ -1608,6 +1609,18 @@ final class DataService {
             weeklyReviews.append(review)
         }
         weeklyReviews.sort { $0.weekStartDate < $1.weekStartDate }
+    }
+
+    /// Mirror of `upsertReviewLocal` for previews. Keyed by id so the
+    /// re-save case (e.g. user retried the generation) replaces in
+    /// place rather than duplicating.
+    private func upsertPreviewLocal(_ preview: WeeklyPreview) {
+        if let idx = weeklyPreviews.firstIndex(where: { $0.id == preview.id }) {
+            weeklyPreviews[idx] = preview
+        } else {
+            weeklyPreviews.append(preview)
+        }
+        weeklyPreviews.sort { $0.weekStartDate < $1.weekStartDate }
     }
 
     func addMessage(_ message: ChatMessage) async throws {

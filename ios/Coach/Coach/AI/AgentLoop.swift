@@ -31,7 +31,7 @@ struct AgentResult {
             case .eventCreated, .eventUpdated, .eventDeleted,
                  .cardioUpdated, .cardioDeleted, .strengthDeleted,
                  .memoryUpdated, .settingsUpdated, .tabChanged,
-                 .reviewUpdated: return true
+                 .reviewUpdated, .previewSaved: return true
             default: return false
             }
         }

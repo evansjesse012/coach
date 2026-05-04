@@ -39,4 +39,9 @@ enum ToolEffect {
     /// `weeklyReviews` keyed by id so the in-memory view stays current
     /// without a full reload.
     case reviewUpdated(WeeklyReview)
+
+    /// W1: a weekly preview was generated and saved by
+    /// `complete_weekly_review`. The DataService dispatcher upserts it
+    /// into `weeklyPreviews` keyed by id, mirroring the review path.
+    case previewSaved(WeeklyPreview)
 }
