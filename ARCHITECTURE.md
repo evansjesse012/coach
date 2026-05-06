@@ -157,14 +157,19 @@ Under `ios/Coach/Coach/AI/`:
   continues until `stop_reason == "end_turn"` or a max-rounds cap.
   Also contains `callEdgeFunctionStreaming`, the streaming helper that
   the plan generator uses.
-- `ToolDefinitions.swift` — the static list of tools the coach can
-  call: `get_workouts`, `get_training_plan`, `get_training_stats`,
+- `ToolDefinitions.swift` — the static list of 21 tools the coach
+  can call: `get_workouts`, `get_training_plan`, `get_training_stats`,
   `get_personal_records`, `get_goals`, `get_athlete_profile`,
   `log_workout`, `log_nutrition`, `get_nutrition`, `create_training_plan`,
-  `generate_week_plan`, `save_weekly_plan`, `patch_weekly_plan`,
-  `update_plan_progress`, `get_week_review`, `get_plan_history`,
-  `app_action` (a catch-all for create/update/delete of goals, workouts,
-  memory, settings, plan, and tab navigation).
+  `generate_week_plan`, `save_training_plan`, `save_weekly_plan`,
+  `patch_weekly_plan`, `update_plan_progress`, `get_week_review`,
+  `get_plan_history`, `start_weekly_review_check_in`,
+  `populate_review_field`, `complete_weekly_review`, `app_action`.
+  The last is a catch-all for create/update/delete of goals, workouts,
+  memory, settings, plan, and tab navigation; the three weekly-review
+  tools drive the conversational Sunday check-in flow that produces
+  paired review/preview artifacts (see [Weekly check-in, review, and
+  preview](#weekly-check-in-review-and-preview)).
 - `ToolExecutor.swift` — the big switch that dispatches a tool name +
   input dict to the corresponding DataService method, builds the
   `tool_result` content, and emits typed `ToolEffect`s (e.g.
@@ -200,7 +205,8 @@ Under `ios/Coach/Coach/AI/`:
 
 ### Database tables
 
-Under `supabase/migrations/`. There are 8 migrations as of this writing.
+Under `supabase/migrations/`. 12 migrations as of this writing —
+the highest is `012_weekly_artifacts.sql`.
 
 | Table | Purpose |
 |---|---|
@@ -215,10 +221,15 @@ Under `supabase/migrations/`. There are 8 migrations as of this writing.
 | `plan_history` | Archived plans from previous seasons + completion snapshots. |
 | `coaching_memory` | Tiered memory about the athlete — permanent facts, benchmarks, injuries, observations, response profile, conversation summaries. JSONB. |
 | `chat_messages` | Rolling message history for the Coach chat tab. `role`, `content`, optional metadata flags. |
+| `conversations` | One row per chat thread. Carries `last_message_at` and an optional summary so the agent can reference past conversations across thread boundaries. |
 | `settings` | User settings — theme, coach personality, custom prompt, push message. |
 | `templates` | Saved strength workout templates. Each is a named list of exercises with pre-filled sets/reps/weights. |
 | `custom_exercises` | User-authored exercises that aren't in the built-in catalog. |
 | `exercises` | Built-in global exercise catalog — 234 common movements across 7 body parts × 7 equipment categories. Read-only to users, seeded via migration. |
+| `daily_training_load` | One row per (user, date) carrying the authoritative CTL/ATL/TSB and a JSONB breakdown of the per-workout TSS sources that produced the day's total. Past rows are immutable; only edits to a workout in the row's date range trigger a forward recompute. |
+| `benchmark_history` | Versioned timeline of athlete thresholds (LTHR, FTP, threshold pace, CSS, max HR). TSS for a workout dated D uses the row whose `effective_from <= D` and is the latest such row, so historical workouts get historical thresholds. |
+| `weekly_reviews` | The structured Sunday check-in for the week just completed (Mon–Sun). Athlete-authored fields (sleep, energy/motivation/stress ratings, soreness, pain flags, free-text best/worst session + life context + questions) populated incrementally by `populate_review_field`; AI-authored fields (response prose + structured components + detected patterns) attached at completion. Keyed by `(user_id, week_start_date)`. |
+| `weekly_previews` | The AI-generated framing for the upcoming week. Carries theme + theme_category + macro_position + computed volume metrics + structured key sessions / watch-outs / tactical notes / life management notes + rendered prose + closing question. `paired_review_id` links back to the review that informed it (nullable for skipped check-ins). |
 
 Every user-owned table has row-level security: `user_id = auth.uid()`.
 The exercise catalog is globally readable and only writable by the
@@ -419,6 +430,164 @@ week's pre-generation surfaces in the UI via
 `recentlyPregeneratedWeek`, which `PlanTab` reads to render the
 `FreshlyGeneratedBanner` ("Your coach wrote week N. Tap to preview").
 The banner navigates to `WeekDetailView` on tap and clears the flag.
+
+---
+
+## Weekly check-in, review, and preview
+
+The weekly ritual ships in five layers — data, tools, generation,
+trigger, UI — that map cleanly to the existing patterns elsewhere in
+the codebase. Specced in [issue #70](https://github.com/evansjesse012/coach/issues/70);
+implementation plan in [`Prompts/W1_PLAN.md`](./ios/Coach/Coach/Prompts/W1_PLAN.md);
+the user-facing walkthrough is in [FEATURES.md](./FEATURES.md#weekly-check-in-review-and-preview).
+
+### Data layer
+
+Two tables (`weekly_reviews`, `weekly_previews`) plus matching Swift
+models in `Models/WeeklyReview.swift` and `Models/WeeklyPreview.swift`.
+The preview's `paired_review_id` is nullable + `ON DELETE SET NULL`
+so a deleted review leaves the preview standing alone rather than
+cascading away with it.
+
+`WeeklyArtifactsService.swift` is the read/write layer — mirrors the
+`TrainingLoadService` pattern. Provides `loadReviews` / `loadPreviews`
+for `DataService.loadAll` to parallel-fetch on launch,
+`createInProgressReview` (idempotent — resumes an existing row rather
+than colliding with the unique constraint), `updateReviewFields` for
+the per-turn shallow merge during the conversation,
+`markReviewComplete` for finalization, `attachAIResponse` /
+`savePreview` for the generators' writes, plus the `shouldPromptCheckIn`
+trigger logic + `markPromptedForCheckIn` debounce stamp.
+
+`WeekBoundary.swift` (under `Utilities/`) derives Monday/Sunday strings
+in `Calendar.current` (device-local). All weekly artifacts are keyed
+by Monday-of-week strings; mismatched timezones across devices are
+accepted as a single-user-app simplification.
+
+### Tool layer
+
+Three tools in `ToolDefinitions.swift`, all dispatched in
+`ToolExecutor.swift`:
+
+- **`start_weekly_review_check_in`** — opens (or resumes) a review
+  row for the week being wrapped up. Defaults `week_start_date` via
+  `WeekBoundary.reviewWeekStartString` (Sunday → this Monday; any
+  other day → prior Monday). Returns the review id + a compact
+  adherence summary so the agent can frame the conversation around
+  what actually happened that week.
+- **`populate_review_field`** — shallow-merges any subset of
+  structured fields onto the in-progress row. Designed for
+  per-athlete-answer calls rather than batched-at-end calls; the
+  per-turn rhythm is the difference between a conversation and a
+  form. The Section 11 `WEEKLY CHECK-IN` sub-section governs the
+  cadence.
+- **`complete_weekly_review`** — stamps `completed_at`, auto-computes
+  `adherence_pct` from the matching plan-week (reuses
+  `computeWeekAdherence`), then runs both AI generators in parallel
+  via `async let` (~6–10s wall time) and persists the artifacts.
+
+Each tool emits a typed `ToolEffect` (`.reviewUpdated` /
+`.previewSaved`) so `DataService` can upsert the artifact in-memory
+without a full reload.
+
+### Generation layer
+
+Two `@MainActor enum` generators in `AI/`, both following the
+`RecoveryPictureGenerator` pattern (single Sonnet 4.6 call via the
+`chat` edge function, structured JSON output parsed into Swift):
+
+- **`WeeklyReviewResponseGenerator`** — takes the completed review +
+  plan + memory + recent sessions. Produces the 6-component response
+  per issue #70: life acknowledgment, week assessment, session
+  feedback, pattern callout, questions answered, bridge to next week.
+  100–250 word target.
+- **`WeeklyPreviewGenerator`** + **`WeeklyPreviewMetrics`** — takes
+  the just-completed review + upcoming week's plan + plan context +
+  memory + training-load snapshot + computed volume metrics. Produces
+  theme, theme_category, macro position, key sessions, watch-outs,
+  tactical notes, life management notes, rendered prose, closing
+  question. 300–500 word target. Volume metrics are computed
+  deterministically in Swift (total hours, distance, quality vs easy
+  session counts, delta from previous week) and passed verbatim into
+  the prompt — the generator only handles what actually requires
+  judgment.
+
+Both generators ship with tolerant JSON parsing (strip ```json
+fences, trim leading preambles, take first `{` to last `}` as the
+JSON body) since Sonnet occasionally adds preambles despite "output
+JSON only" instructions.
+
+Pattern detection (the 6 multi-week patterns from issue #70) is
+deferred to W1 Phase 3; PR 1.3 ships an empty `patterns_detected`
+array.
+
+### Trigger
+
+`WeeklyArtifactsService.shouldPromptCheckIn(now:reviews:)` returns
+the Monday string of the review-week if a prompt should fire,
+otherwise nil. Trigger window: Sunday after 16:00 OR Monday before
+12:00 local time. Skips when a completed review already exists for
+the corresponding week, and debounces within the same review-window
+via `UserDefaults` so repeated app-opens don't repost the opener.
+
+`MainTabView` wires it on `.onAppear` (cold launch case) and on
+`.onChange(scenePhase == .active)` (foreground while running).
+Both routes call `maybePromptWeeklyCheckIn`, which hits
+`shouldPromptCheckIn`, then on a non-nil result calls
+`DataService.postCoachOpener` to drop the wrap-up framing message
+into the chat thread as a coach-initiated assistant message
+(distinct from `sendUserMessage`, which posts a user turn and runs
+the agent loop). The athlete's reply when it comes kicks off the
+agent loop normally; the agent has Section 11's WEEKLY CHECK-IN
+guidance loaded and calls `start_weekly_review_check_in` from there.
+
+Server-cron scheduling (the W6 path that prompts even without an
+app-open) is deferred until issue #67 (platform-agnostic agent
+refactor) lands.
+
+### UI
+
+A single reusable `Views/Shared/WeeklyArtifactView.swift` renders
+either a review or a preview as a card under shared chrome (rounded
+border, surface1 background). The view dispatches on a
+`Source = .review(WeeklyReview) | .preview(WeeklyPreview)` enum.
+
+Three surfaces consume it:
+
+1. **Coach bar** (existing, no W1 changes) — the chat reply
+   summarizing the wrap-up auto-expands into the 300pt accent card
+   via the unread / `coachBarExpanded` flow in `CoachBar.swift`.
+2. **Today tab** — `HomeTab.weeklyPreviewThemeLine` is a
+   single-line, accent-tinted callout below the week section header.
+   Renders only when `data.activeWeekPreview` is non-nil (computed
+   property matching the preview row whose `weekStartDate` equals
+   today's Monday). Tap opens a `WeeklyArtifactSheet` modal over
+   the full preview.
+3. **WeekDetailView** — `weeklyArtifactsBlock` embeds the current
+   week's preview (if any) and the prior week's review (if completed)
+   as cards at the top of any week's plan view.
+
+Engagement tracking (`read_at` on first view, `reread_count`
+incremented thereafter) lives in
+`WeeklyArtifactsService.markPreviewOpened`, called from
+`WeeklyArtifactSheet.task`. Best-effort: failures are swallowed,
+the in-memory `read_at` and `reread_count` are used to decide
+which write to send, so concurrent devices could clobber each
+other but it's a single-user-app simplification.
+
+### Known soft spots
+
+[Issue #80](https://github.com/evansjesse012/coach/issues/80)
+tracks three predictable failure modes the build can't catch —
+verify on first end-to-end test:
+
+1. **Tool-call rhythm** — whether the LLM batches `populate_review_field`
+   at the end vs calls it per-turn
+2. **Generation latency** — whether 6–10s of "..." between hitting send
+   and the chat reply landing feels acceptable
+3. **Theme line refresh** — whether the Today theme line updates
+   immediately after a check-in completes, or requires kill-and-relaunch
+   (SwiftUI @Observable edge case)
 
 ---
 

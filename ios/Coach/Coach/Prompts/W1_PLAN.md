@@ -5,6 +5,19 @@ The issue is the *spec* (purpose, structure, tone, edge cases). This file
 is the *plan* — what we build in this codebase, in what order, with
 which file touches and PR boundaries.
 
+## Status
+
+**Phase 1 is complete on `main`.** All five PRs landed (`af2d850` →
+`317a0a3`); end-to-end flow is wired. Three known soft spots are tracked
+in [issue #80](https://github.com/evansjesse012/coach/issues/80) for
+verification on the first real check-in conversation. Phases 2–5 below
+have not started.
+
+For the user-facing flow walkthrough, see
+[FEATURES.md → Weekly check-in, review, and preview](../../../FEATURES.md#weekly-check-in-review-and-preview).
+For the technical subsystem breakdown, see
+[ARCHITECTURE.md → Weekly check-in, review, and preview](../../../ARCHITECTURE.md#weekly-check-in-review-and-preview).
+
 ## What lands in W1
 
 - Two persistent artifacts (review covering the past week + preview

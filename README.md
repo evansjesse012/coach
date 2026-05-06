@@ -21,8 +21,13 @@ Sonnet 4.6 driving the coaching intelligence.
 - Live strength workout tracker with rest timer and auto PR rolling
 - HealthKit auto-matching — imported workouts pair to prescribed
   sessions by sport, duration, time-of-day, and HR zone
-- AI coach chat with 17 tools and a tiered memory system that
+- AI coach chat with 21 tools and a tiered memory system that
   remembers injuries, benchmarks, and patterns across conversations
+- Weekly check-in / review / preview ritual — Sunday-evening
+  conversation produces persistent paired artifacts that frame the
+  next week and assess the last one
+- CTL/ATL/TSB training-load tracking with per-sport TSS and
+  benchmark-versioned thresholds
 - Sign in with Apple authentication
 - 4 coaching personalities (Head Coach, Goggins, Hype, Custom)
 
@@ -67,7 +72,7 @@ ios/Coach/Coach/
 └── Utilities/                  # Helpers (adherence, exercise, dates, formatting)
 
 supabase/
-├── migrations/                 # Postgres schema (15 tables with RLS + a 234-exercise catalog)
+├── migrations/                 # Postgres schema (20 tables with RLS + a 234-exercise catalog)
 └── functions/chat/             # Anthropic API proxy Edge Function
 ```
 

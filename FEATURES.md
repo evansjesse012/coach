@@ -364,6 +364,168 @@ stop/modify, chest pain → stop immediately, sleep < 5h → easy only.
 
 ---
 
+## Weekly check-in, review, and preview
+
+The weekly ritual is the coaching relationship's heartbeat. Once a
+week the coach kicks off a wrap-up conversation in the chat thread.
+The conversation produces two **artifacts** — persistent documents,
+not chat messages — that the athlete can return to throughout the
+week. The review captures the week that just ended; the preview
+frames the week ahead. They get produced together as a paired
+ritual at the week boundary.
+
+### When it triggers
+
+The coach posts the wrap-up opener automatically when:
+
+- It's **Sunday after 4pm local time** OR **Monday before noon**
+- AND no completed review exists for the week being wrapped up
+- AND we haven't already prompted in this trigger window (debounced
+  via `UserDefaults` so reopening the app doesn't repost)
+
+The trigger fires from the app-open / scene-active path in
+`MainTabView`, not a server cron — so it requires the athlete to
+open the app within the window. Server-driven scheduling is on the
+backlog (issue #67 platform-agnostic agent refactor unblocks it).
+
+When the trigger fires, the Coach bar lights up green and
+auto-expands into its 300pt accent card showing the opener:
+
+> *"Hey, let's wrap up the week. How did it feel overall?"*
+
+### The check-in conversation
+
+The athlete taps the bar (or scrolls into chat) and replies. Their
+reply kicks off the agent loop normally; the coach then runs the
+**WEEKLY CHECK-IN** flow defined in Section 11 of the system prompt:
+
+1. The coach calls `start_weekly_review_check_in` once, before
+   asking the first question. That creates an in-progress
+   `weekly_reviews` row keyed to the week being reviewed and
+   returns a compact adherence summary (X% completed, Y skipped,
+   Z modified) so the coach can frame the conversation around
+   what actually happened.
+2. The coach asks one question per turn. The athlete answers.
+3. After each answer, the coach calls `populate_review_field`
+   with whichever fields the answer addressed. The structured
+   row fills incrementally — sleep hours, energy 1–10, motivation
+   1–10, soreness level, pain flag + description, life stress
+   1–10, life context, best/worst session, questions, next-week
+   focus.
+4. Coverage map (any order; the coach adapts to the athlete):
+   how the week felt overall, what stood out, pain/soreness, life
+   context, anything to flag for next week.
+5. When the conversation has covered the territory, the coach
+   calls `complete_weekly_review`. This:
+   - Stamps `completed_at` on the review row
+   - Auto-computes adherence percentage from logged-vs-prescribed
+     sessions
+   - Fires both AI generators in parallel (~6–10s wall time)
+
+### The review artifact (the week just ended)
+
+The completed review row holds:
+
+- **The athlete's check-in answers** — structured ratings and
+  free-text fields above
+- **The AI's response prose** — 100–250 words written by a Sonnet
+  4.6 call covering, in order: life context acknowledgment (if any
+  was raised), honest assessment of the week, specific feedback on
+  1–2 key sessions, pattern callout (only if something across
+  multiple weeks is genuinely surfacing), direct answers to
+  athlete-raised questions, bridge to next week
+- **Structured component breakdown** — the same prose split into
+  `life_acknowledgment`, `week_assessment`, `session_feedback`,
+  `pattern_callout`, `questions_answered`, `bridge_to_next_week` so
+  later analytics can read the structure without re-parsing prose
+- **Detected patterns** — currently empty in W1 Phase 1; pattern
+  detection across the trailing 4–8 weeks of reviews is the Phase 3
+  enhancement
+
+### The preview artifact (the week ahead)
+
+The paired preview row holds:
+
+- **Theme** — one prominently-displayed sentence stating what kind
+  of week this is. Examples:
+  > *"This is your hardest week of the build — everything is hard
+  > on purpose."*
+  > *"Recovery week — resist any urge to add intensity."*
+  > *"Race week. Everything you do should support the start line."*
+- **Theme category** — one of: build / recovery / peak / race_week
+  / taper / base / consolidation / return_from_break / bridge
+- **Macro position** — *"Week 4 of 8 in the build, 12 weeks until
+  Oceanside."*
+- **Volume metrics** (computed in Swift, not LLM) — total planned
+  hours, distance, quality vs easy session counts, delta from
+  previous week
+- **Key sessions** (1–3) — each named with day-of-week, why it
+  matters this week, what success looks like, what to watch for
+- **Watch-outs** — athlete-specific risk callouts based on dossier
+  + recent patterns (sleep deficit pattern, weather forecast,
+  scheduling conflict)
+- **Tactical notes** — pacing, fueling, gear, recovery, strength
+  integration as relevant
+- **Life management notes** — anticipatory framing using known life
+  context (work trip, kid schedules)
+- **Rendered prose** — 300–500 words; the body the athlete actually
+  reads
+- **Closing question** — one sentence inviting two-way conversation
+- **Engagement** — `read_at` stamped on first view, `reread_count`
+  incremented on subsequent opens
+
+### Where artifacts surface
+
+The artifacts are visible across four places:
+
+- **Coach bar** — the chat reply summarizing the wrap-up auto-expands
+  into the 300pt accent card. The athlete reads it without leaving
+  the current tab.
+- **Today tab** — a single-line "This week" theme line (accent-tinted
+  callout) sits below the week header. Tapping opens the full preview
+  in a modal sheet.
+- **WeekDetailView** — the prior week's review (if completed) and the
+  current week's preview (if it exists) embed as cards at the top of
+  any week's plan view. Both render via the shared
+  `WeeklyArtifactView`.
+- **Standalone modal sheet** — the full preview / review card with
+  every structured section expanded. Stamped as read on first view.
+
+### What happens if the athlete skips the check-in
+
+For W1 Phase 1, skipped check-ins are not auto-resolved (server cron
+deferred). If the athlete opens the app on Tuesday without having
+done the Sunday check-in, the trigger window is past and no opener
+posts. The plan stays held flat from the previous week until the
+athlete starts a check-in manually or waits for the next Sunday.
+
+Phase 2 of W1 will add a soft hard-gate: if the athlete navigates to
+next week's plan without a check-in, a banner appears explaining
+that the plan is held flat and offering to regenerate after the
+check-in.
+
+### What's still in flight
+
+W1 Phase 1 (the ritual end-to-end) shipped in commits `af2d850`
+through `317a0a3`. Three known soft spots are tracked in [issue
+#80](https://github.com/evansjesse012/coach/issues/80) — verify on
+first end-to-end test:
+
+1. Tool-call rhythm — whether the coach actually populates fields
+   per-turn vs batching at the end
+2. Generation latency — whether 6–10s of "..." between hitting send
+   and the chat reply landing feels acceptable
+3. Theme line refresh — whether the Today theme line updates
+   immediately after a check-in completes, or requires kill-and-
+   relaunch (SwiftUI @Observable edge case)
+
+Phase 2 (conversational refinement + soft hard-gate), Phase 3 (the
+6 multi-week pattern detectors that drive pattern callouts and
+watch-outs), and Phase 4–5 (life management layer + theme taxonomy)
+are tracked separately.
+
+---
+
 ## Workout completion tracking
 
 Every prescribed session can be in one of 6 states:
