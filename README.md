@@ -13,7 +13,8 @@ Sonnet 4.6 driving the coaching intelligence.
 
 ## At a glance
 
-- 5 tabs: Home, Goals, Plan, Log, Coach
+- 5 tabs: Home, Goals, Plan, Log, Stats — plus a persistent Coach
+  chat bar that's always one tap away from any tab
 - Periodized training plans with adherence tracking and lazy per-week
   generation (the coach shapes next week closer to when it starts, not
   months in advance)

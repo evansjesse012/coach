@@ -433,6 +433,237 @@ The banner navigates to `WeekDetailView` on tap and clears the flag.
 
 ---
 
+## Training load (CTL / ATL / TSB)
+
+The training-load system is the chronic-frame view of how much
+work the athlete is absorbing. CTL ("fitness," 42-day EWMA of TSS),
+ATL ("fatigue," 7-day EWMA), and TSB ("form," CTL − ATL) are
+computed daily from logged workouts and exposed to the coach prompt
+on every chat turn. Built across migrations 010 (data + benchmark
+versioning) and 011 (per-session RPE).
+
+### Data layer
+
+Two tables. `daily_training_load` is keyed by `(user_id, date)` and
+holds the authoritative CTL/ATL/TSB plus a JSONB `sources` array
+naming each contributing workout, the calculation method used, and a
+confidence level. Past rows are immutable by default — only edits to
+a workout in the row's date range trigger a forward recompute, which
+walks the row immediately preceding the trigger date and applies the
+EWMAs day-by-day to today.
+
+`benchmark_history` carries a versioned timeline of athlete
+thresholds (LTHR, FTP, threshold pace, CSS, max HR). When computing
+TSS for a workout dated D, the resolver picks the row whose
+`effective_from <= D` and is the latest such row, so historical
+workouts get scored against historical thresholds rather than today's
+FTP. Rows are append-only.
+
+Swift models in `Models/DailyTrainingLoad.swift` (carries the row
+plus a `LoadSource` nested type with method enums covering
+power-normalized, power-avg, pace-gap, pace-flat, swim-pace, HR
+zones, HR avg, session-RPE, volume-load, effort-category, and a
+sport-default fallback) and a `BenchmarkHistoryEntry` co-located
+in the same file.
+
+### Compute layer
+
+Three pieces under `Services/` and `Utilities/`:
+
+- **`TSSLadder.swift`** + **`TrainingStressCalculator.swift`** — pure
+  computation. Per-workout TSS via the per-sport ladder: try the
+  ideal method (power-normalized for cycling, pace-gap for running,
+  swim-pace for swimming), fall back through HR-zone, HR-avg, and
+  session-RPE / effort-category, finally to a sport-default flat
+  rate. Each tier stamps a confidence level so downstream callers
+  know how much to trust the number.
+- **`BenchmarkResolver.swift`** — wraps the benchmark history with a
+  date-aware lookup so the calculator can ask "what was this athlete's
+  FTP on 2025-08-15?" and get the right row in O(log n).
+- **`TrainingLoadService.swift`** — orchestration. `loadAll`,
+  `loadLatest`, and `loadRecent(days:)` are the read paths.
+  `recompute(from:cardio:strength:resolver:reason:)` is the
+  forward-walk that fires after every workout add/edit/delete and
+  stamps a `recompute_reason` ("new_workout", "workout_edited",
+  "workout_deleted", "threshold_changed", "backfill") on each
+  rewritten row.
+
+`DataService.recomputeTrainingLoad(touchingDate:reason:)` is the
+single entry point views and tools call when a workout changes. It
+debounces by triggering the recompute via the service then reloading
+`trainingLoad` into memory.
+
+### Prompt injection (Phase 4a)
+
+`CoachState.trainingLoad: TrainingLoadSnapshot?` carries the latest
+CTL/ATL/TSB plus a 7-day CTL ramp (oldest-vs-newest in an 8-row
+window) into the per-turn dynamic prompt block. `AgentLoop`
+fetches the snapshot via `TrainingLoadService.loadRecent(days: 8)`
+on every chat turn; failures are swallowed so a transient Supabase
+hiccup never blocks chat. The block renders as a single compact
+line: `Training load (as of YYYY-MM-DD): CTL X · ATL Y · TSB Z · 7d
+CTL Δ +A`.
+
+Section 7 of the prompt teaches the coach how to interpret the
+numbers — TSB ranges, CTL ramp guidance — as guides not rules, so
+the agent reasons about the load context without reciting numbers
+back at the athlete. The companion `recovery_picture` narrative is
+the acute overlay (see [Recovery picture](#recovery-picture-acute-state-narrative)).
+
+### UI
+
+`AnalyticsTab.swift` renders the PMC chart (CTL/ATL/TSB curves with
+phase boundaries) plus weekly volume by sport. The Today tab does
+not surface load directly anymore — the readiness chip was removed
+in favor of a "calibrating" note on Stats while the EWMAs warm up.
+
+---
+
+## Recovery picture (acute-state narrative)
+
+The recovery picture is the *acute*-frame counterpart to training
+load — an LLM-built 2–3 sentence paragraph describing what the
+athlete's body did last night, fed into the coach prompt every turn.
+Phase 4b authoring; companion to Section 7's already-written
+recovery-narrative content.
+
+### Data layer
+
+`Models/RecoverySnapshot.swift` carries nine HealthKit metrics, each
+paired with a 30-day rolling baseline where applicable: HRV (SDNN),
+resting heart rate, respiratory rate, wrist-temperature delta,
+sleep summary (asleep / inBed / deep / REM / awake hours via a
+nested `SleepSummary`), steps yesterday, active energy yesterday,
+VO2 max, body mass. Any field can be nil; the snapshot has a
+`hasAnySignal` flag so the generator can skip the LLM call when
+HealthKit returned nothing.
+
+No DB persistence — HealthKit is the source of truth and the
+snapshot is computed fresh per-day. The narrative produced from it
+is held in memory only (per-day cache; see below).
+
+### Service layer
+
+`HealthKitService.fetchRecoverySnapshot()` runs nine metric fetches
+in parallel via `async let`. The auth request was extended in Phase
+4b to cover HRV / RHR / respiratory rate / sleep stages / wrist
+sleeping temperature / VO2 max / body mass alongside the existing
+workout types. Wrist temperature is exposed by Apple as the absolute
+value; the service computes a signed delta against a 30-day mean to
+match the Health-app-style "warmer than usual" framing.
+
+Baselines exclude today's value so the comparison isn't tautological.
+"Latest" means the most recent overnight reading (HRV / RHR / RR are
+typically written by Apple Watch around wake-up); slow-moving
+metrics (VO2 max, body mass) just take the most-recent sample
+within a 6-month window.
+
+### Generation layer
+
+`AI/RecoveryPictureGenerator.swift` is a single Haiku 4.5 LLM call
+via the `chat` edge function. The system prompt frames it as a
+coach-to-coach briefing — the head coach (the main agent) reads it
+and decides what to say to the athlete in voice, so the briefing is
+plain and analytical, not personality-flavored. Output is 2–3
+sentences. The user prompt carries the snapshot fields formatted as
+deltas (`HRV: 41ms (baseline 52ms, -21%)`) plus the chronic-load
+context.
+
+System-prompt rules: reason about the data, don't recite numbers;
+frame deltas, not absolute values; weave training-load context
+(low TSB + rough recovery means something different than fresh TSB
++ rough recovery); call out illness possibilities when wrist temp
+is elevated alongside rising RHR or respiratory rate; output
+"limited data" rather than fabricating.
+
+### Cache + injection
+
+`AgentLoop.swift` holds a `recoveryPictureCache: (date: String,
+picture: String)?` keyed by `yyyy-MM-dd`. The first chat turn of a
+day fetches the snapshot, runs the generator, and stamps the cache;
+subsequent turns the same day reuse the cached narrative. Picture
+recovery is invariant across the day (overnight metrics don't
+change), so one Haiku call per day is enough.
+
+The narrative lands in `CoachState.recoveryPicture` and renders
+inside the `[COACH STATE]` block as:
+
+```
+Recovery picture:
+<2-3 sentence narrative>
+```
+
+### UI
+
+None — the recovery picture is athlete-invisible. It exists only as
+coach-prompt context. The athlete sees the *response* the coach
+gives based on it, not the picture itself. Section 7's
+"Read the narrative. Don't recompute it" instruction is what keeps
+the agent from recreating it as numerical recitation in chat.
+
+---
+
+## Conversations and thread-to-thread continuity
+
+The Coach chat is organized into discrete conversations rather than
+one infinite thread. Each conversation auto-archives after 2 hours
+of inactivity; on archive a 1–2 sentence summary is generated so the
+next conversation's prompt has continuity context without re-sending
+the full transcript. Migration 009 added the system.
+
+### Data layer
+
+`Models/Conversation.swift` carries `id`, `started_at`,
+`last_message_at`, optional `summary`, and `is_archived`. Plus
+computed `hoursSinceLastMessage` and `isStale` (`>= 2`).
+
+The `conversations` table holds one row per thread. `chat_messages`
+gained a `conversation_id` foreign key so messages scope to a thread.
+`DataService` exposes `currentConversation: Conversation?` (the
+non-archived one — at most one at a time) and `archivedConversations:
+[Conversation]` (all the rest, sorted newest-first).
+
+### Lifecycle
+
+1. Athlete sends the first message → `ensureActiveConversation`
+   creates a new row if `currentConversation == nil`.
+2. Each subsequent message updates `last_message_at` so staleness
+   resets per turn.
+3. `loadAll` on launch checks `currentConversation.isStale` — if
+   the previous active thread crossed the 2-hour mark while the
+   app was closed, it gets archived now and a fresh one starts on
+   the next user message.
+4. Archival fires `generateConversationSummary` — a small Claude
+   call that returns 1–2 sentences capturing what the thread
+   resolved or where it left off. Summary is written back to the
+   row.
+
+### Thread-to-thread continuity
+
+When the agent loop runs (`runAgentLoop` in `AgentLoop.swift`), it
+pulls the top 3 archived summaries (`archivedConversations.prefix(3)
+.compactMap(\.summary)`) and injects them into `CoachState
+.recentConversationSummaries`. The dynamic prompt block then renders:
+
+```
+Recent conversations (for thread-to-thread continuity):
+- 1. <summary 1>
+- 2. <summary 2>
+- 3. <summary 3>
+```
+
+This sits in the dynamic block (not the cached static block) so the
+prompt cache stays valid as summaries update.
+
+### UI
+
+`ChatTab` / `CoachTab` show only the current conversation's messages.
+A history surface (search and browse archived conversations) exists
+but is a peripheral feature; most of the value is the agent reading
+the summaries on its own to maintain continuity.
+
+---
+
 ## Weekly check-in, review, and preview
 
 The weekly ritual ships in five layers — data, tools, generation,

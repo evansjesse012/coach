@@ -15,7 +15,13 @@ Coach is a 5-tab iOS app:
 2. **Goals** — your upcoming races and training goals.
 3. **Plan** — your periodized training plan, phases and weeks.
 4. **Log** — your workout history and exercise library.
-5. **Coach** — a chat with your AI head coach.
+5. **Stats** — analytics: training-load curves (CTL/ATL/TSB), weekly
+   volume, intensity distribution.
+
+Plus the **Coach chat** itself — a persistent pill above the tab bar
+on every screen (the "Coach bar"), which expands into a chat sheet
+when tapped. Not a tab: it's the always-on access point to the
+coaching relationship.
 
 Underlying the whole thing: an AI coach (Claude Sonnet 4.6) that has read
 access to everything you've logged, can create and adjust plans, can log
@@ -295,7 +301,7 @@ The main AI chat. A clean messaging interface with:
 
 - **Personality-aware system prompt** — the coach's voice is set by
   the athlete's chosen personality (see [Settings](#settings)).
-- **Tool-use agent loop** — the coach can call up to 17 tools per
+- **Tool-use agent loop** — the coach can call any of 21 tools per
   turn (loop caps at 5 rounds by default). Tools are the coach's
   hands and eyes on your data.
 - **Streaming-looking output** — responses render with a loading
@@ -309,6 +315,17 @@ The main AI chat. A clean messaging interface with:
 - **Memory extraction** — runs in the background after every turn
   to harvest durable facts about you (injuries, benchmarks, patterns,
   equipment) and merge them into your coaching memory.
+- **Conversation auto-archive** — chat threads archive automatically
+  after 2 hours of inactivity. On archive a 1–2 sentence summary is
+  generated and stored on the conversation; the next thread's coach
+  has the last 3 summaries injected into its prompt for thread-to-
+  thread continuity without re-sending old transcripts.
+- **Per-turn coach state** — every chat turn the coach prompt
+  includes today's date, a chronic-load snapshot (CTL/ATL/TSB +
+  7-day ramp), an LLM-generated recovery picture from overnight
+  HealthKit data, and the recent-conversation summaries above. All
+  of this rides in a dynamic block so the rest of the (much larger)
+  prompt stays cached.
 
 ### What the coach can do
 
@@ -523,6 +540,62 @@ Phase 2 (conversational refinement + soft hard-gate), Phase 3 (the
 6 multi-week pattern detectors that drive pattern callouts and
 watch-outs), and Phase 4–5 (life management layer + theme taxonomy)
 are tracked separately.
+
+---
+
+## Stats tab — training load and analytics
+
+The Stats tab is the analytics view of how your training has been
+trending over weeks and months. The headline content is the
+**Performance Management Chart (PMC)** — three curves that summarize
+chronic vs acute training stress:
+
+- **CTL ("fitness")** — a 42-day exponentially-weighted average of
+  daily training stress. Climbs slowly with consistent training; the
+  chronic-frame view of how much work your body is absorbing.
+- **ATL ("fatigue")** — a 7-day EWMA of the same daily stress.
+  Reactive; spikes with hard sessions and decays within a few days.
+- **TSB ("form")** — `CTL − ATL`. Negative when fatigue exceeds
+  fitness (mid-build, expected); positive when you're freshening up
+  (taper, race week).
+
+Phase boundaries from the active training plan are overlaid so you
+can see when transitions happened relative to the curves. The chart
+also surfaces weekly-volume bars (per sport) and intensity
+distribution.
+
+### How the numbers get computed
+
+Per-workout TSS (training stress score) flows through a tiered
+"ladder" — for each workout the calculator tries the ideal method
+first and falls back through progressively coarser ones, stamping a
+confidence level so the curve below knows how much to trust each
+contribution:
+
+- **Cycling:** power-normalized (best) → power-avg → HR-zone →
+  HR-avg → session-RPE → sport default.
+- **Running:** pace-gap (uses your threshold pace, with elevation
+  adjustment) → flat pace → HR-zone → HR-avg → effort category.
+- **Swimming:** pace per 100 → HR → effort category.
+- **Strength:** session RPE × duration → volume load → effort
+  category fallback.
+
+Each method picks the threshold that was effective on the workout's
+date — `benchmark_history` carries a versioned timeline (LTHR, FTP,
+threshold pace, CSS) so a workout from 8 months ago doesn't get
+re-scored against today's FTP.
+
+`daily_training_load` rows are immutable once written. When you log,
+edit, or delete a workout, only the rows from that date forward
+recompute — past rows stay put.
+
+### "Calibrating" notes
+
+When the EWMAs haven't built up enough history (typically the first
+few weeks of using the app, or after a long gap), the curves are
+mathematically valid but don't yet reflect your real fitness picture.
+The Stats tab surfaces a "calibrating" note in those cases rather
+than presenting under-cooked numbers as authoritative.
 
 ---
 
