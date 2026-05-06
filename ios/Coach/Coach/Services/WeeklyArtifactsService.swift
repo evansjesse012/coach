@@ -194,10 +194,41 @@ enum WeeklyArtifactsService {
         return row
     }
 
-    // Engagement tracking (markPreviewOpened, increment reread_count)
-    // arrives with the UI surfaces in PR 1.5 — the schema reserves the
-    // columns but PR 1.1 has no caller, so the method is intentionally
-    // not present here yet.
+    // MARK: - Preview engagement
+
+    /// Stamp `read_at` on first view, or increment `reread_count` on
+    /// subsequent views. Best-effort: failures are swallowed since
+    /// engagement metrics shouldn't block the artifact rendering. The
+    /// caller passes the current `read_at` and `reread_count` from the
+    /// in-memory model so we don't burn an extra round-trip just to
+    /// check; this means concurrent devices could clobber each other,
+    /// but single-user-app simplification.
+    static func markPreviewOpened(
+        id: UUID,
+        currentReadAt: String?,
+        currentRereadCount: Int
+    ) async {
+        let client = SupabaseService.shared.client
+        do {
+            if currentReadAt == nil {
+                struct Patch: Encodable { let read_at: String }
+                _ = try await client
+                    .from("weekly_previews")
+                    .update(Patch(read_at: ISO8601DateFormatter().string(from: Date())))
+                    .eq("id", value: id.uuidString)
+                    .execute()
+            } else {
+                struct Patch: Encodable { let reread_count: Int }
+                _ = try await client
+                    .from("weekly_previews")
+                    .update(Patch(reread_count: currentRereadCount + 1))
+                    .eq("id", value: id.uuidString)
+                    .execute()
+            }
+        } catch {
+            // Engagement is best-effort.
+        }
+    }
 
     // MARK: - Trigger logic
 

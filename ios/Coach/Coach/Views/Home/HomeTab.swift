@@ -42,6 +42,7 @@ struct HomeTab: View {
 
     @State private var postStatusSheet: PostStatusContext?
     @State private var watchMatchSheet: PendingWatchMatch?
+    @State private var weeklyArtifactSheet: WeeklyArtifactView.Source?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -76,6 +77,11 @@ struct HomeTab: View {
                 )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $weeklyArtifactSheet) { source in
+                WeeklyArtifactSheet(source: source)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
             .sheet(item: $watchMatchSheet) { match in
                 WatchMatchConfirmSheet(
@@ -652,8 +658,42 @@ struct HomeTab: View {
            ) {
             VStack(alignment: .leading, spacing: 10) {
                 weekSectionHeader(plan: plan)
+                weeklyPreviewThemeLine
                 weekStripCard(plan: plan, adherence: adherence)
             }
+        }
+    }
+
+    /// Single-line theme line surfaced from the active week's preview
+    /// (PR 1.5). Tappable to open the full preview sheet. Renders nothing
+    /// when no preview exists for the current week — the rest of the
+    /// "This week" block stands alone.
+    @ViewBuilder
+    private var weeklyPreviewThemeLine: some View {
+        if let preview = data.activeWeekPreview {
+            Button {
+                weeklyArtifactSheet = .preview(preview)
+            } label: {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(preview.theme)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accent.opacity(0.7))
+                        .padding(.top, 2)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.accent.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("This week's theme: \(preview.theme). Open full preview.")
         }
     }
 

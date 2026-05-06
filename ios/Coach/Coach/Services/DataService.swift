@@ -92,6 +92,25 @@ final class DataService {
     /// Same ordering and lifecycle as `weeklyReviews`.
     var weeklyPreviews: [WeeklyPreview] = []
 
+    /// The preview row covering the week the athlete is currently in,
+    /// keyed by today's Monday. nil when the athlete hasn't completed
+    /// a check-in for last week yet (or when the trigger window
+    /// hasn't fired). Used by the Today "This week" theme line.
+    var activeWeekPreview: WeeklyPreview? {
+        let mondayStr = WeekBoundary.mondayString(of: Date())
+        return weeklyPreviews.first(where: { $0.weekStartDate == mondayStr })
+    }
+
+    /// Lookup helpers used by `WeekDetailView` to embed the artifacts
+    /// at the top of a week's view. Both match by Monday-of-week
+    /// against the corresponding artifact tables.
+    func weeklyReview(forWeekStarting monday: String) -> WeeklyReview? {
+        weeklyReviews.first(where: { $0.weekStartDate == monday })
+    }
+    func weeklyPreview(forWeekStarting monday: String) -> WeeklyPreview? {
+        weeklyPreviews.first(where: { $0.weekStartDate == monday })
+    }
+
     /// HealthKit-imported workouts that the WorkoutMatcher couldn't pair to
     /// any prescribed session. In-memory only — repopulated on each sync.
     /// The UI shows these as "New workout detected" cards in Today's Focus.

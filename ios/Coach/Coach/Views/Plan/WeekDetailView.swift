@@ -13,6 +13,8 @@ struct WeekDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 weekSelector
 
+                weeklyArtifactsBlock
+
                 if let plan = data.trainingPlan,
                    let wp = plan.weeklyPlans[String(weekNum)] {
                     if wp.isStub {
@@ -40,6 +42,51 @@ struct WeekDetailView: View {
             weekNum = initialWeekNum
             didInit = true
         }
+    }
+
+    // MARK: - Weekly artifacts (review + preview)
+
+    /// Embed the prior-week's review (if it exists) and the current
+    /// week's preview (if it exists) at the top of the week view.
+    /// Renders nothing for weeks with neither artifact.
+    @ViewBuilder
+    private var weeklyArtifactsBlock: some View {
+        let weekStart = mondayOfWeek(weekNum: weekNum)
+        let priorWeekStart = priorMonday(of: weekStart)
+
+        let preview = weekStart.flatMap(data.weeklyPreview(forWeekStarting:))
+        let priorReview = priorWeekStart.flatMap(data.weeklyReview(forWeekStarting:))
+
+        VStack(spacing: 12) {
+            if let preview {
+                WeeklyArtifactView(source: .preview(preview))
+            }
+            if let priorReview, priorReview.isComplete {
+                WeeklyArtifactView(source: .review(priorReview))
+            }
+        }
+    }
+
+    /// Monday-of-week as `yyyy-MM-dd` for `weekNum`. Computes against
+    /// the plan's startDate and falls back to nil when the plan or
+    /// start date isn't available.
+    private func mondayOfWeek(weekNum: Int) -> String? {
+        guard let plan = data.trainingPlan,
+              let startStr = plan.startDate else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let start = f.date(from: startStr) else { return nil }
+        let monday = Calendar.current.date(byAdding: .day, value: (weekNum - 1) * 7, to: start) ?? start
+        return f.string(from: monday)
+    }
+
+    private func priorMonday(of weekStart: String?) -> String? {
+        guard let weekStart else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let date = f.date(from: weekStart) else { return nil }
+        let prior = Calendar.current.date(byAdding: .day, value: -7, to: date) ?? date
+        return f.string(from: prior)
     }
 
     // MARK: - Week selector
