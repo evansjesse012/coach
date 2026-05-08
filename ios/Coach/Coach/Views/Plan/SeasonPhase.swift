@@ -129,18 +129,30 @@ extension TrainingPlan {
 // MARK: - Helpers
 
 extension SeasonPhase {
-    /// Produce a multi-line label from the technical phase name. Splits
-    /// before the last word so "Race-Specific Peak" → "Race-Specific\nPeak"
-    /// and "Threshold Introduction" → "Threshold\nIntroduction". Single
-    /// words pass through unchanged. The renderer must respect explicit
-    /// `\n` rather than relying on word-wrap (per the redesign spec).
+    /// Compact, single-line label for a phase tick on the timeline.
+    /// The full technical name still drives the detail card heading
+    /// and the nav-push title; this short form is purely for the
+    /// timeline label where per-phase slot width is narrow.
+    ///
+    /// Algorithm (race / sport / goal agnostic):
+    /// 1. Trim whitespace.
+    /// 2. Single word — return as-is.
+    /// 3. Two words where the second is a numeric disambiguator
+    ///    ("Build 1", "Phase 2") — keep both.
+    /// 4. Otherwise — return the first word.
+    ///
+    /// Trade-off worth knowing: trailing-noun phrasings like "Aerobic
+    /// Foundation" land at "Aerobic", which is weaker than "Foundation"
+    /// but always semantically meaningful. The proper fix is to have
+    /// the plan-generator AI emit a `short_label` per phase at
+    /// generation time; this algorithm is the fallback for plans that
+    /// predate that field.
     static func makeDisplayName(from name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
+        let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard parts.count >= 2 else { return trimmed }
-        let last = String(parts.last!)
-        let head = parts.dropLast().joined(separator: " ")
-        return "\(head)\n\(last)"
+        if parts.count == 2, Int(parts[1]) != nil { return trimmed }
+        return parts[0]
     }
 
     static func parseDate(_ s: String?) -> Date? {

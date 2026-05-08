@@ -41,7 +41,7 @@ struct JourneyTimeline: View {
     private let dotOuter: CGFloat = 10
     private let dotInner: CGFloat = 4
 
-    private let labelAreaHeight: CGFloat = 30
+    private let labelAreaHeight: CGFloat = 16
     private let labelLineGap: CGFloat = 8
     private let lineRowHeight: CGFloat = 16
 
@@ -61,18 +61,22 @@ struct JourneyTimeline: View {
             let ranges = phaseRanges(lineStartX: lineStartX, lineLength: lineLength, totalW: totalW)
 
             ZStack(alignment: .topLeading) {
-                // Phase labels — bottom-aligned in a fixed-height frame so
-                // single-line "Foundation" and two-line "Build · Threshold"
-                // share a baseline regardless of line count.
+                // Phase labels — single line, uniform size across all
+                // statuses so the row reads as a row of equal-weight ticks
+                // (only color and font weight vary). Names are pre-shortened
+                // by `SeasonPhase.makeDisplayName` to fit narrow phase
+                // slots without truncation.
                 ForEach(Array(phases.enumerated()), id: \.offset) { idx, phase in
                     let range = ranges[idx]
                     Text(phase.displayName)
                         .font(labelFont(for: phase))
                         .foregroundStyle(labelColor(for: phase))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(0)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
+                        // Near-invisible safety net: lets the rare
+                        // longest-first-word-in-narrowest-slot case
+                        // shrink ~10% rather than truncate. With most
+                        // phase names, this never engages.
+                        .minimumScaleFactor(0.9)
                         .frame(width: range.width, height: labelAreaHeight, alignment: .bottom)
                         .position(x: range.center, y: labelCenterY)
                 }
@@ -207,9 +211,12 @@ struct JourneyTimeline: View {
 
     // MARK: - Label styling
 
+    /// Uniform font size across all label states — only weight varies
+    /// for hierarchy (bold for the current phase, semibold for the
+    /// rest). Color carries most of the status signal (see labelColor).
     private func labelFont(for phase: SeasonPhase) -> Font {
         switch phase.status {
-        case .current:   return .system(size: 11.5, weight: .bold)
+        case .current:   return .system(size: 10.5, weight: .bold)
         case .completed: return .system(size: 10.5, weight: .semibold)
         case .upcoming:  return .system(size: 10.5, weight: .semibold)
         }
