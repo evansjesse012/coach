@@ -97,7 +97,7 @@ extension TrainingPlan {
             return SeasonPhase(
                 id: phase.number,
                 name: phase.name,
-                displayName: SeasonPhase.makeDisplayName(from: phase.name),
+                displayName: SeasonPhase.resolveDisplayName(name: phase.name, shortLabel: phase.shortLabel),
                 weeks: phase.weeks,
                 startWeek: cumulativeBefore + 1,
                 endWeek: cumulativeBefore + phase.weeks,
@@ -129,24 +129,30 @@ extension TrainingPlan {
 // MARK: - Helpers
 
 extension SeasonPhase {
-    /// Compact, single-line label for a phase tick on the timeline.
-    /// The full technical name still drives the detail card heading
-    /// and the nav-push title; this short form is purely for the
-    /// timeline label where per-phase slot width is narrow.
-    ///
-    /// Algorithm (race / sport / goal agnostic):
+    /// Resolve the timeline label for a phase. Prefers the AI-emitted
+    /// `short_label` (chosen at plan-generation time with full phase
+    /// context), falls back to the sport-agnostic algorithm below for
+    /// legacy plans that predate the field.
+    static func resolveDisplayName(name: String, shortLabel: String?) -> String {
+        if let s = shortLabel?.trimmingCharacters(in: .whitespaces), !s.isEmpty {
+            return s
+        }
+        return makeDisplayName(from: name)
+    }
+
+    /// Algorithmic fallback for the timeline label. Used only when the
+    /// underlying `TrainingPhase` doesn't carry a `short_label` (older
+    /// plans, partial AI output). Race / sport / goal agnostic:
     /// 1. Trim whitespace.
     /// 2. Single word — return as-is.
     /// 3. Two words where the second is a numeric disambiguator
     ///    ("Build 1", "Phase 2") — keep both.
     /// 4. Otherwise — return the first word.
     ///
-    /// Trade-off worth knowing: trailing-noun phrasings like "Aerobic
-    /// Foundation" land at "Aerobic", which is weaker than "Foundation"
-    /// but always semantically meaningful. The proper fix is to have
-    /// the plan-generator AI emit a `short_label` per phase at
-    /// generation time; this algorithm is the fallback for plans that
-    /// predate that field.
+    /// Trade-off: trailing-noun phrasings like "Aerobic Foundation"
+    /// land at "Aerobic" rather than the more meaningful "Foundation".
+    /// The AI-driven `short_label` path avoids this; the algorithm is
+    /// strictly a safety net.
     static func makeDisplayName(from name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)

@@ -277,6 +277,7 @@ enum TrainingPlanGenerator {
         Design the phase structure you'd use for this athlete and this race. You have full latitude on:
         - How many phases (typically 2–5, but use whatever the runway demands)
         - Phase names (Base / Build / Peak / Taper are common but use what fits)
+        - A `short_label` per phase: ONE word, max 12 characters, picked so the timeline label communicates the phase intent at a glance. For "Aerobic Foundation" the right short_label is "Foundation", not "Aerobic". For "Race-Specific Peak" it's "Peak". For numbered phases ("Build 1") keep them as-is.
         - How many weeks each phase runs — they MUST sum to exactly \(totalWeeks)
         - Physiological target per phase
         - Weekly intensity distribution for each phase (easy / tempo / threshold / VO2 max %)
@@ -304,6 +305,7 @@ enum TrainingPlanGenerator {
             {
               "number": 1,
               "name": "Base",
+              "short_label": "Base",
               "startDate": "YYYY-MM-DD",
               "endDate": "YYYY-MM-DD",
               "weeks": 12,
