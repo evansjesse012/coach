@@ -174,18 +174,28 @@ struct PlanTab: View {
 
     @ViewBuilder
     private func raceHeroBlock(plan: TrainingPlan) -> some View {
-        if let name = plan.raceName, !name.isEmpty, let dateStr = plan.raceDate {
+        // Mirror HomeTab's race-data sourcing: prefer the linked Event
+        // (which carries location + the canonical race name) and fall
+        // back to plan-level fields. Plan deliberately omits the kicker
+        // — the page header already says "Training Plan" so a
+        // "Training for" or "A-Race" label here would just echo it.
+        let event = plan.goalId.flatMap { id in
+            data.events.first(where: { $0.id == id })
+        }
+        let raceName = event?.name
+            ?? plan.raceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dateStr = event?.date ?? plan.raceDate
+
+        if let raceName, !raceName.isEmpty,
+           let dateStr, !dateStr.isEmpty {
             let (count, unit) = countdownParts(dateStr)
-            let event = plan.goalId.flatMap { id in
-                data.events.first(where: { $0.id == id })
-            }
             RaceCard(
-                raceName: name,
+                raceName: raceName,
                 location: event?.location,
                 dateString: formatRaceDate(dateStr),
                 count: count,
                 unit: unit,
-                kicker: "A-Race",
+                kicker: nil,
                 eventId: event?.id
             )
         }

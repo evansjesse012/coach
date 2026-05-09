@@ -44,7 +44,7 @@ struct RaceCard: View {
         VStack(alignment: .leading, spacing: 0) {
             if kicker != nil || showChevron {
                 topRow(showChevron: showChevron)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 4)
             }
 
             HStack(alignment: .lastTextBaseline, spacing: 16) {
