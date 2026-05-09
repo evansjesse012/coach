@@ -94,26 +94,43 @@ struct SessionCard: View {
                     .frame(width: 3)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 8) {
+                    // Top row: bigger discipline icon + workout name in
+                    // session-title font sit side-by-side. The discipline
+                    // word ("RUN", "BIKE", etc.) is intentionally absent —
+                    // the icon carries that identity now. The effort label
+                    // ("EASY", "LONG ENDURANCE") moved out of this row and
+                    // sits below the workout name in the inner VStack.
+                    HStack(alignment: .center, spacing: 12) {
                         Image(systemName: discipline.icon)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 24, weight: .semibold))
                             .foregroundStyle(discipline.color)
-                        Text(effortLine)
-                            .font(Theme.Typography.monoLabel)
-                            .foregroundStyle(discipline.color)
-                            .textCase(.uppercase)
-                            .tracking(Theme.Tracking.monoLabel)
+                            // 40pt frame fits the widest discipline glyph
+                            // (`bicycle`, ~36pt wide at 24pt size). A narrower
+                            // frame causes the bike icon to overflow into the
+                            // workout-name column.
+                            .frame(width: 40, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(name)
+                                .font(Theme.Typography.sessionTitle)
+                                .foregroundStyle(Theme.ink)
+                                .tracking(Theme.Tracking.headline)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if let effort, !effort.isEmpty {
+                                Text(effort)
+                                    .font(Theme.Typography.monoLabel)
+                                    .foregroundStyle(discipline.color)
+                                    .textCase(.uppercase)
+                                    .tracking(Theme.Tracking.monoLabel)
+                            }
+                        }
+
                         if let trailingAction {
                             Spacer(minLength: 8)
                             trailingAction
                         }
                     }
-
-                    Text(name)
-                        .font(Theme.Typography.sessionTitle)
-                        .foregroundStyle(Theme.ink)
-                        .tracking(Theme.Tracking.headline)
-                        .fixedSize(horizontal: false, vertical: true)
 
                     if !stats.isEmpty {
                         HStack(alignment: .top, spacing: 16) {
@@ -161,13 +178,6 @@ struct SessionCard: View {
         } else {
             card
         }
-    }
-
-    private var effortLine: String {
-        if let effort, !effort.isEmpty {
-            return "\(discipline.label) · \(effort)"
-        }
-        return discipline.label
     }
 
     @ViewBuilder

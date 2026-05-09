@@ -1091,12 +1091,17 @@ struct SessionStatusMenu: View {
                 Label("Edit details", systemImage: "square.and.pencil")
             }
         } label: {
+            // Vertical 3-dot glyph, no chrome — sits flush at the right
+            // edge of the session card. The rotation turns the horizontal
+            // `ellipsis` SF Symbol into a vertical stack since iOS doesn't
+            // ship a vertical-ellipsis symbol directly. Dropping the circle
+            // background frees horizontal room for the workout name.
             Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.ink2)
-                .frame(width: 28, height: 28)
-                .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
-                .contentShape(Circle())
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.ink3)
+                .rotationEffect(.degrees(90))
+                .frame(width: 20, height: 32)
+                .contentShape(Rectangle())
         }
         .menuStyle(.button)
         .accessibilityLabel("Session actions for \(sessionLabel)")
