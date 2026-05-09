@@ -176,12 +176,17 @@ struct PlanTab: View {
     private func raceHeroBlock(plan: TrainingPlan) -> some View {
         if let name = plan.raceName, !name.isEmpty, let dateStr = plan.raceDate {
             let (count, unit) = countdownParts(dateStr)
-            CountdownHero(
-                kicker: "A-Race",
-                name: name,
-                date: raceDateLine(plan: plan, dateStr: dateStr),
+            let event = plan.goalId.flatMap { id in
+                data.events.first(where: { $0.id == id })
+            }
+            RaceCard(
+                raceName: name,
+                location: event?.location,
+                dateString: formatRaceDate(dateStr),
                 count: count,
-                unit: unit
+                unit: unit,
+                kicker: "A-Race",
+                eventId: event?.id
             )
         }
     }
@@ -194,14 +199,6 @@ struct PlanTab: View {
         }
         if days <= 0 { return (0, "Today") }
         return (days, days == 1 ? "Day out" : "Days out")
-    }
-
-    private func raceDateLine(plan: TrainingPlan, dateStr: String) -> String {
-        let base = formatRaceDate(dateStr)
-        guard let goalId = plan.goalId,
-              let event = data.events.first(where: { $0.id == goalId }),
-              let location = event.location, !location.isEmpty else { return base }
-        return "\(base) · \(location)"
     }
 
     private func formatRaceDate(_ dateStr: String) -> String {
