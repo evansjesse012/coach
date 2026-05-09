@@ -34,11 +34,19 @@ struct JourneyConnector: View {
     var body: some View {
         GeometryReader { geo in
             let lineLength = max(0, geo.size.width - leftInset - rightInset)
-            if let centerX = selectedCenterX(lineLength: lineLength) {
-                connectorLine
-                    .frame(width: thickness, height: height)
-                    .position(x: leftInset + centerX, y: height / 2)
-            }
+            // Render the connector unconditionally and toggle visibility
+            // via opacity. SwiftUI only animates `.position()` on views
+            // it considers persistent across renders — wrapping in
+            // `if let` makes the connector a fresh view on every
+            // selection change, so `.position()` would teleport instead
+            // of slide. Using a default x + opacity preserves identity
+            // and lets the spring transaction in `JourneyTimeline`'s
+            // tap handler propagate cleanly.
+            let centerX = selectedCenterX(lineLength: lineLength) ?? 0
+            connectorLine
+                .frame(width: thickness, height: height)
+                .position(x: leftInset + centerX, y: height / 2)
+                .opacity(selectedId == nil ? 0 : 1)
         }
         .frame(height: height)
     }

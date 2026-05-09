@@ -48,7 +48,12 @@ struct PlanTab: View {
                 await data.ensurePlanPreGenerated()
             }
             .onAppear {
-                if selectedPhaseNumber == nil, let plan = data.trainingPlan {
+                // Reset to current phase on every Plan-tab visit per the
+                // redesign brief — selection from a previous visit doesn't
+                // carry across tab switches. The `??` fallback in the
+                // timeline's binding covers the brief moment before this
+                // fires (or when the plan is still loading).
+                if let plan = data.trainingPlan {
                     selectedPhaseNumber = plan.currentPhase
                 }
             }

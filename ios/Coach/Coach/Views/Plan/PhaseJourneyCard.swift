@@ -48,7 +48,7 @@ struct PhaseJourneyCard: View {
     // MARK: - Top row (serif name + status pill)
 
     private var topRow: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             Text(phase.name)
                 .font(.system(size: 22, weight: .medium, design: .serif))
                 .foregroundStyle(Theme.ink)
@@ -56,8 +56,17 @@ struct PhaseJourneyCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            StatusPill(phase: phase)
-                .layoutPriority(1)
+            HStack(spacing: 6) {
+                StatusPill(phase: phase)
+                // Drill-down chevron — advertises the whole card as a
+                // tap target. Without it the card looks like static
+                // content and users miss the navigation affordance.
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.ink3)
+                    .padding(.top, 2)
+            }
+            .layoutPriority(1)
         }
     }
 
@@ -234,13 +243,17 @@ private struct StatusPill: View {
 
 // MARK: - Press-dimmed button style
 
-/// Subtle pressed state for tappable cards. Touch-down dims the label to
-/// 0.95 opacity over 0.1s; release restores. No scale change — the
-/// redesign brief calls for a quiet press cue, not a bouncy one.
+/// Pressed state for tappable cards: a quiet opacity dim plus a tiny
+/// scale inset. The redesign brief asked for 0.95 opacity, but at that
+/// value the press is below the perceptual threshold — users tap the
+/// card and assume it's unresponsive. 0.85 + a 1pt scale inset matches
+/// iOS's native button feel (Settings, Mail, Files cells) while staying
+/// quieter than a `.bordered` button.
 struct PressDimmedButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.99 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }

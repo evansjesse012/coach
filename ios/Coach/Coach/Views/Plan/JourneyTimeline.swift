@@ -58,7 +58,11 @@ struct JourneyTimeline: View {
             let totalW = max(1, totalWeeks)
             let todayFraction = min(1, max(0, CGFloat(currentWeek) / CGFloat(totalW)))
             let todayX = lineStartX + todayFraction * lineLength
-            let ranges = phaseRanges(lineStartX: lineStartX, lineLength: lineLength, totalW: totalW)
+            // Pair each phase with its on-line slot so every ForEach can
+            // iterate by phase identity (stable across re-renders) rather
+            // than by array offset, which silently re-binds view state to
+            // the wrong slot if the phases array ever changes shape.
+            let slots = phaseSlots(lineStartX: lineStartX, lineLength: lineLength, totalW: totalW)
 
             ZStack(alignment: .topLeading) {
                 // Phase labels — single line, uniform size across all
@@ -66,19 +70,18 @@ struct JourneyTimeline: View {
                 // (only color and font weight vary). Names are pre-shortened
                 // by `SeasonPhase.makeDisplayName` to fit narrow phase
                 // slots without truncation.
-                ForEach(Array(phases.enumerated()), id: \.offset) { idx, phase in
-                    let range = ranges[idx]
-                    Text(phase.displayName)
-                        .font(labelFont(for: phase))
-                        .foregroundStyle(labelColor(for: phase))
+                ForEach(slots) { slot in
+                    Text(slot.phase.displayName)
+                        .font(labelFont(for: slot.phase))
+                        .foregroundStyle(labelColor(for: slot.phase))
                         .lineLimit(1)
                         // Near-invisible safety net: lets the rare
                         // longest-first-word-in-narrowest-slot case
                         // shrink ~10% rather than truncate. With most
                         // phase names, this never engages.
                         .minimumScaleFactor(0.9)
-                        .frame(width: range.width, height: labelAreaHeight, alignment: .bottom)
-                        .position(x: range.center, y: labelCenterY)
+                        .frame(width: slot.width, height: labelAreaHeight, alignment: .bottom)
+                        .position(x: slot.center, y: labelCenterY)
                 }
 
                 // Base track — full-length thin line.
@@ -98,23 +101,24 @@ struct JourneyTimeline: View {
                 // when the selected phase is the current phase; otherwise
                 // primary text color (35%) so completed/upcoming selections
                 // read as a quieter neutral highlight.
-                if let sid = selectedId, let idx = phases.firstIndex(where: { $0.id == sid }) {
-                    let range = ranges[idx]
-                    let isCurrent = phases[idx].status == .current
+                if let sid = selectedId,
+                   let slot = slots.first(where: { $0.id == sid }) {
+                    let isCurrent = slot.phase.status == .current
                     Rectangle()
                         .fill(isCurrent ? Theme.accent.opacity(0.5) : Theme.ink.opacity(0.35))
-                        .frame(width: range.width, height: ringThickness)
-                        .position(x: range.center, y: lineY)
+                        .frame(width: slot.width, height: ringThickness)
+                        .position(x: slot.center, y: lineY)
                 }
 
-                // Phase boundary ticks. Color flips at today: accent (60%
-                // alpha) for boundaries already crossed, neutral line2 for
-                // boundaries ahead.
-                ForEach(Array(boundaryXs(lineStartX: lineStartX, lineLength: lineLength).enumerated()), id: \.offset) { _, x in
+                // Phase boundary ticks at the right edge of every phase.
+                // Color flips at today: accent (60% alpha) for boundaries
+                // already crossed, neutral line2 for boundaries ahead.
+                ForEach(slots) { slot in
+                    let endX = slot.center + slot.width / 2
                     Rectangle()
-                        .fill(x <= todayX ? Theme.accent.opacity(0.6) : Theme.line2)
+                        .fill(endX <= todayX ? Theme.accent.opacity(0.6) : Theme.line2)
                         .frame(width: 1, height: tickHeight)
-                        .position(x: x, y: lineY)
+                        .position(x: endX, y: lineY)
                 }
 
                 // Today donut: outer accent dot with a soft accent-tinted
@@ -139,15 +143,14 @@ struct JourneyTimeline: View {
                 // anywhere in a phase's column (label or line area)
                 // selects it. Drawn last so they sit on top of all visual
                 // layers; Color.clear has no fill, so nothing is obscured.
-                ForEach(Array(phases.enumerated()), id: \.offset) { idx, phase in
-                    let range = ranges[idx]
+                ForEach(slots) { slot in
                     Color.clear
                         .contentShape(Rectangle())
-                        .frame(width: range.width, height: totalHeight)
-                        .position(x: range.center, y: totalHeight / 2)
+                        .frame(width: slot.width, height: totalHeight)
+                        .position(x: slot.center, y: totalHeight / 2)
                         .onTapGesture {
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                                selectedId = phase.id
+                                selectedId = slot.phase.id
                             }
                         }
                 }
@@ -179,12 +182,24 @@ struct JourneyTimeline: View {
 
     // MARK: - Geometry
 
-    /// Per-phase center x-coordinate and slot width on the line. Used
-    /// both to position labels above the line and (in step 5) to build
-    /// the per-phase tap targets across the same x-spans.
-    private func phaseRanges(lineStartX: CGFloat, lineLength: CGFloat, totalW: Int) -> [(center: CGFloat, width: CGFloat)] {
+    /// Pairing of a phase with its computed slot on the line. Identity
+    /// is the underlying `phase.id`, so SwiftUI's `ForEach` can track
+    /// view state across re-renders correctly even if the phases array
+    /// changes shape — which is what `\.offset` quietly broke.
+    private struct PhaseSlot: Identifiable {
+        let phase: SeasonPhase
+        let center: CGFloat
+        let width: CGFloat
+        var id: Int { phase.id }
+    }
+
+    /// One slot per phase in source order, laid out along the line by
+    /// proportional weeks. Used by every per-phase ForEach in the body
+    /// (labels, boundary ticks, tap targets) and by the selected-phase
+    /// ring lookup, so the geometry math lives in exactly one place.
+    private func phaseSlots(lineStartX: CGFloat, lineLength: CGFloat, totalW: Int) -> [PhaseSlot] {
         var cum = 0
-        var out: [(CGFloat, CGFloat)] = []
+        var out: [PhaseSlot] = []
         out.reserveCapacity(phases.count)
         for p in phases {
             let startFrac = CGFloat(cum) / CGFloat(totalW)
@@ -192,21 +207,13 @@ struct JourneyTimeline: View {
             let endFrac = CGFloat(cum) / CGFloat(totalW)
             let startX = lineStartX + startFrac * lineLength
             let endX = lineStartX + endFrac * lineLength
-            out.append((center: (startX + endX) / 2, width: max(0, endX - startX)))
+            out.append(PhaseSlot(
+                phase: p,
+                center: (startX + endX) / 2,
+                width: max(0, endX - startX)
+            ))
         }
         return out
-    }
-
-    /// Right-edge x-coordinates for every phase — used to draw boundary
-    /// ticks at each cumulative-weeks position.
-    private func boundaryXs(lineStartX: CGFloat, lineLength: CGFloat) -> [CGFloat] {
-        let totalW = max(1, totalWeeks)
-        var cum = 0
-        return phases.map { p in
-            cum += p.weeks
-            let frac = CGFloat(cum) / CGFloat(totalW)
-            return lineStartX + frac * lineLength
-        }
     }
 
     // MARK: - Label styling
