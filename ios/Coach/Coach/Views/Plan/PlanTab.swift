@@ -196,7 +196,8 @@ struct PlanTab: View {
                 count: count,
                 unit: unit,
                 kicker: nil,
-                eventId: event?.id
+                eventId: event?.id,
+                showChevron: false
             )
         }
     }

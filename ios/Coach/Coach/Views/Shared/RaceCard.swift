@@ -26,13 +26,21 @@ struct RaceCard: View {
     let unit: String            // "Weeks out", "Day out", "Today", etc.
     var kicker: String? = nil
     var eventId: String? = nil
+    /// Whether to render a drill chevron in the top-right when the card
+    /// is navigable. Defaults to true (Home, where the chevron advertises
+    /// the tap among many other tap targets). Plan passes `false`: the
+    /// race card is already the page's iconic header — the chrome plus
+    /// the lack of a kicker is enough affordance, and dropping the
+    /// chevron also removes the otherwise-empty top row that introduced
+    /// excess space above the race name.
+    var showChevron: Bool = true
 
     var body: some View {
         if let eventId {
             NavigationLink {
                 RaceDetailView(eventId: eventId)
             } label: {
-                cardBody(showChevron: true)
+                cardBody(showChevron: showChevron)
             }
             .buttonStyle(PressDimmedButtonStyle())
         } else {
