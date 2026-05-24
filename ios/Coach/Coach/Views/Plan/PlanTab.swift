@@ -12,6 +12,13 @@ struct PlanTab: View {
         NavigationStack(path: $path) {
             ScrollView {
                 if let plan = data.trainingPlan {
+                    // Compute the derived phase list once per render and
+                    // pass it into every block that needs it. The
+                    // derivation runs name-keyword regex per key session
+                    // to infer disciplines; recomputing in every block
+                    // added ~3× the regex cost and ran on every tap-
+                    // driven body re-eval during the timeline animation.
+                    let seasonPhases = plan.seasonPhases
                     VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                         headerBlock(planExists: true)
                         pregeneratedBanner
@@ -21,9 +28,9 @@ struct PlanTab: View {
                         // visual unit, so they live in their own spacing-0
                         // VStack inside the page's section rhythm.
                         VStack(alignment: .leading, spacing: 0) {
-                            journeyTimelineBlock(plan: plan)
-                            journeyConnectorBlock(plan: plan)
-                            phaseDetailCardBlock(plan: plan)
+                            journeyTimelineBlock(plan: plan, phases: seasonPhases)
+                            journeyConnectorBlock(plan: plan, phases: seasonPhases)
+                            phaseDetailCardBlock(plan: plan, phases: seasonPhases)
                         }
                         thisWeekBlock(plan: plan)
                     }
@@ -48,12 +55,14 @@ struct PlanTab: View {
                 await data.ensurePlanPreGenerated()
             }
             .onAppear {
-                // Reset to current phase on every Plan-tab visit per the
-                // redesign brief — selection from a previous visit doesn't
-                // carry across tab switches. The `??` fallback in the
-                // timeline's binding covers the brief moment before this
-                // fires (or when the plan is still loading).
-                if let plan = data.trainingPlan {
+                // Initialize the selection to the current phase on first
+                // appear only. The unconditional reset that briefly lived
+                // here also stomped the user's selection every time a
+                // pushed PhaseDetailView popped back — `NavigationStack`'s
+                // `.onAppear` fires on every pop-to-root, not just tab
+                // visits. The `??` fallback in the timeline's binding
+                // covers the moment before this fires.
+                if selectedPhaseNumber == nil, let plan = data.trainingPlan {
                     selectedPhaseNumber = plan.currentPhase
                 }
             }
@@ -273,9 +282,9 @@ struct PlanTab: View {
     // MARK: - Journey timeline (step 3 — line only, no labels / connector)
 
     @ViewBuilder
-    private func journeyTimelineBlock(plan: TrainingPlan) -> some View {
+    private func journeyTimelineBlock(plan: TrainingPlan, phases: [SeasonPhase]) -> some View {
         JourneyTimeline(
-            phases: plan.seasonPhases,
+            phases: phases,
             currentWeek: plan.currentWeek,
             totalWeeks: plan.totalWeeks,
             selectedId: Binding(
@@ -288,9 +297,9 @@ struct PlanTab: View {
     // MARK: - Journey connector (step 7 — vertical hairline timeline → card)
 
     @ViewBuilder
-    private func journeyConnectorBlock(plan: TrainingPlan) -> some View {
+    private func journeyConnectorBlock(plan: TrainingPlan, phases: [SeasonPhase]) -> some View {
         JourneyConnector(
-            phases: plan.seasonPhases,
+            phases: phases,
             totalWeeks: plan.totalWeeks,
             selectedId: selectedPhaseNumber ?? plan.currentPhase
         )
@@ -303,9 +312,9 @@ struct PlanTab: View {
     // touch-down cue without competing with the nav-push transition.
 
     @ViewBuilder
-    private func phaseDetailCardBlock(plan: TrainingPlan) -> some View {
+    private func phaseDetailCardBlock(plan: TrainingPlan, phases: [SeasonPhase]) -> some View {
         let target = selectedPhaseNumber ?? plan.currentPhase
-        if let seasonPhase = plan.seasonPhases.first(where: { $0.id == target }),
+        if let seasonPhase = phases.first(where: { $0.id == target }),
            let trainingPhase = plan.phases.first(where: { $0.number == target }) {
             NavigationLink {
                 PhaseDetailView(plan: plan, phase: trainingPhase)

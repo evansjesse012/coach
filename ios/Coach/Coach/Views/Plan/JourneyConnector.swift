@@ -42,11 +42,16 @@ struct JourneyConnector: View {
             // of slide. Using a default x + opacity preserves identity
             // and lets the spring transaction in `JourneyTimeline`'s
             // tap handler propagate cleanly.
-            let centerX = selectedCenterX(lineLength: lineLength) ?? 0
+            //
+            // Hide when the selected id resolves to no phase (stale
+            // state, plan reload, or `currentPhase` past end-of-plan) —
+            // a floating hairline at x=leftInset with no card below
+            // would read as a visual orphan.
+            let centerX = selectedCenterX(lineLength: lineLength)
             connectorLine
                 .frame(width: thickness, height: height)
-                .position(x: leftInset + centerX, y: height / 2)
-                .opacity(selectedId == nil ? 0 : 1)
+                .position(x: leftInset + (centerX ?? 0), y: height / 2)
+                .opacity(centerX == nil ? 0 : 1)
         }
         .frame(height: height)
     }
