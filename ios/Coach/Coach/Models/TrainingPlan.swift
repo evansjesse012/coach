@@ -72,6 +72,16 @@ struct TrainingPhase: Codable, Identifiable {
     /// absent the client falls back to `Self.plainLanguageFallbacks`.
     var plainLanguageDescription: String?
 
+    /// Compact 1–2 word label for the journey timeline tick. The full
+    /// `name` still drives the detail card heading and the nav title;
+    /// this short form exists because timeline slots can be narrow
+    /// (a 4-week phase in a 24-week plan is ~16% of the line). Emitted
+    /// by the plan generator at design time so the label is chosen with
+    /// full phase context, not algorithmically truncated at render time.
+    /// Optional for backward compatibility — `SeasonPhase` falls back to
+    /// a sport-agnostic algorithm when this is absent.
+    var shortLabel: String?
+
     // Legacy fields kept nullable so historical plan_history rows still decode
     var weeklyVolume: String?
     var intensityCeiling: String?
@@ -99,6 +109,7 @@ struct TrainingPhase: Codable, Identifiable {
         case progressionRules = "progression_rules"
         case raceSpecificNotes = "race_specific_notes"
         case plainLanguageDescription = "plain_language_description"
+        case shortLabel = "short_label"
         case weeklyVolume
         case intensityCeiling
         case intensityMix

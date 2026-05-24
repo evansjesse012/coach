@@ -226,11 +226,12 @@ struct HomeTab: View {
         }
     }
 
-    // MARK: - Today header (race + phase blocks)
+    // MARK: - Today header (race + phase cards)
     //
-    // Stacked at the top of the page in place of the old CountdownHero.
-    // Each block renders a hairline at its bottom, so the two share a
-    // tight 16pt seam and sit visually together.
+    // Two stacked cards at the top of the page — race on top, current
+    // training phase below. Both share `RaceCard` / `TrainingPhaseCard`'s
+    // matched chrome (surface1 fill, 1pt line border, rounded corners),
+    // so the pair reads as a unit. Each is its own NavigationLink target.
 
     @ViewBuilder
     private var todayHeaderBlocks: some View {
@@ -242,10 +243,10 @@ struct HomeTab: View {
         }
     }
 
-    /// Race-block built from the plan's linked Event when present (so we
-    /// get location), falling back to plan-level fields. Wrapped in a
-    /// NavigationLink to RaceDetailView; tapping anywhere on the block
-    /// pushes the race detail page.
+    /// Race card built from the plan's linked Event when present (so we
+    /// get location), falling back to plan-level fields. The card itself
+    /// wires the navigation to `RaceDetailView` when an event id is
+    /// available; renders flat when there is no event link yet.
     @ViewBuilder
     private func raceHeaderBlock(plan: TrainingPlan) -> some View {
         let raceEvent = linkedRaceEvent(plan: plan)
@@ -259,43 +260,30 @@ struct HomeTab: View {
         if let raceName, !raceName.isEmpty,
            let dateStr, !dateStr.isEmpty {
             let (count, unit) = countdownParts(dateStr)
-            let block = RaceBlockView(
+            RaceCard(
                 raceName: raceName,
                 location: location,
-                date: formattedRaceDate(dateStr),
+                dateString: formattedRaceDate(dateStr),
                 count: count,
-                unit: unit
+                unit: unit,
+                kicker: "Training for",
+                eventId: raceEvent?.id
             )
-
-            if let event = raceEvent {
-                NavigationLink {
-                    RaceDetailView(eventId: event.id)
-                } label: {
-                    block
-                }
-                .pressableBlock()
-            } else {
-                // No linked event — render flat (no navigation target yet).
-                block
-            }
         }
     }
 
-    /// Phase-block showing the current phase's plain-language description
-    /// and weeks remaining. Tapping pushes PhaseDetailView for the
+    /// Phase card showing the current phase's plain-language description
+    /// and weeks remaining. Tapping pushes `PhaseDetailView` for the
     /// current phase.
     @ViewBuilder
     private func phaseHeaderBlock(plan: TrainingPlan) -> some View {
         if let phase = plan.current {
-            NavigationLink {
-                PhaseDetailView(plan: plan, phase: phase)
-            } label: {
-                TrainingPhaseBlockView(
-                    phaseDescription: phase.plainLanguageLabel,
-                    weeksLeft: plan.weeksLeftInPhase(phase)
-                )
-            }
-            .pressableBlock()
+            TrainingPhaseCard(
+                plan: plan,
+                phase: phase,
+                phaseDescription: phase.plainLanguageLabel,
+                weeksLeft: plan.weeksLeftInPhase(phase)
+            )
         }
     }
 
