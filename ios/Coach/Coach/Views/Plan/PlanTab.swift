@@ -13,17 +13,16 @@ struct PlanTab: View {
             ScrollView {
                 if let plan = data.trainingPlan {
                     VStack(alignment: .leading, spacing: Theme.Spacing.section) {
-                        headerBlock(planExists: true)
+                        headerBlock(plan: plan, planExists: true)
                         pregeneratedBanner
                         raceHeroBlock(plan: plan)
-                        seasonPhasesBlock(plan: plan)
-                        currentPhaseDetailBlock(plan: plan)
+                        seasonBlock(plan: plan)
                     }
                     .padding(.horizontal, Theme.Spacing.screenH)
                     .padding(.top, 16)
                 } else {
                     VStack(alignment: .leading, spacing: Theme.Spacing.section) {
-                        headerBlock(planExists: false)
+                        headerBlock(plan: nil, planExists: false)
                         emptyPlanState
                     }
                     .padding(.horizontal, Theme.Spacing.screenH)
@@ -51,18 +50,18 @@ struct PlanTab: View {
     // MARK: - Header
 
     @ViewBuilder
-    private func headerBlock(planExists: Bool) -> some View {
+    private func headerBlock(plan: TrainingPlan?, planExists: Bool) -> some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Season plan")
-                    .font(Theme.Typography.monoLabel)
-                    .foregroundStyle(Theme.ink3)
-                    .textCase(.uppercase)
-                    .tracking(Theme.Tracking.monoLabel)
-                Text("Your training plan")
+                Text("Training Plan")
                     .font(Theme.Typography.pageTitle)
                     .foregroundStyle(Theme.ink)
                     .tracking(-0.5)
+                if let subtitle = planRangeSubtitle(plan: plan) {
+                    Text(subtitle)
+                        .font(Theme.Typography.monoData)
+                        .foregroundStyle(Theme.ink3)
+                }
             }
             Spacer(minLength: 0)
             Button {
@@ -79,6 +78,19 @@ struct PlanTab: View {
                     .background(Circle().strokeBorder(Theme.line, lineWidth: 1))
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// "Apr 19 → Sep 27 · 24 weeks" — start of plan, race day, total length.
+    private func planRangeSubtitle(plan: TrainingPlan?) -> String? {
+        guard let plan else { return nil }
+        let start = plan.startDate.flatMap(monthDay)
+        let end = plan.raceDate.flatMap(monthDay)
+        let weeks = "\(plan.totalWeeks) weeks"
+        switch (start, end) {
+        case let (s?, e?): return "\(s) → \(e) · \(weeks)"
+        case let (s?, nil): return "\(s) · \(weeks)"
+        default:            return weeks
         }
     }
 
@@ -123,16 +135,16 @@ struct PlanTab: View {
         }
     }
 
-    // MARK: - Race hero
+    // MARK: - Race hero (containerized)
 
     @ViewBuilder
     private func raceHeroBlock(plan: TrainingPlan) -> some View {
         if let name = plan.raceName, !name.isEmpty, let dateStr = plan.raceDate {
             let (count, unit) = countdownParts(dateStr)
-            CountdownHero(
-                kicker: "A-Race",
+            RaceHeroCard(
                 name: name,
-                date: raceDateLine(plan: plan, dateStr: dateStr),
+                location: raceLocation(plan: plan),
+                date: formatRaceDate(dateStr),
                 count: count,
                 unit: unit
             )
@@ -149,12 +161,11 @@ struct PlanTab: View {
         return (days, days == 1 ? "Day out" : "Days out")
     }
 
-    private func raceDateLine(plan: TrainingPlan, dateStr: String) -> String {
-        let base = formatRaceDate(dateStr)
+    private func raceLocation(plan: TrainingPlan) -> String? {
         guard let goalId = plan.goalId,
               let event = data.events.first(where: { $0.id == goalId }),
-              let location = event.location, !location.isEmpty else { return base }
-        return "\(base) · \(location)"
+              let location = event.location, !location.isEmpty else { return nil }
+        return location
     }
 
     private func formatRaceDate(_ dateStr: String) -> String {
@@ -166,43 +177,80 @@ struct PlanTab: View {
         return outF.string(from: d)
     }
 
-    // MARK: - Season phases
+    // MARK: - Season (timeline + phase detail)
 
     @ViewBuilder
-    private func seasonPhasesBlock(plan: TrainingPlan) -> some View {
+    private func seasonBlock(plan: TrainingPlan) -> some View {
         let sorted = plan.phases.sorted { $0.number < $1.number }
-        VStack(alignment: .leading, spacing: 14) {
-            SectionHeader(
-                title: "Season phases",
-                meta: "\(sorted.count) phases · \(plan.totalWeeks) wks"
-            )
-            PhaseRuler(phases: sorted, currentPhase: plan.currentPhase, totalWeeks: plan.totalWeeks)
-            VStack(spacing: 6) {
-                ForEach(sorted) { phase in
-                    PhasePlanRow(
-                        phase: phase,
-                        startDate: phaseStart(for: phase, plan: plan),
-                        endDate: phaseEnd(for: phase, plan: plan),
-                        isCurrent: phase.number == plan.currentPhase,
-                        isSelected: phase.number == (selectedPhaseNumber ?? plan.currentPhase)
-                    ) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedPhaseNumber = phase.number
-                        }
-                    }
-                }
+        let selected = selectedPhaseNumber ?? plan.currentPhase
+        VStack(alignment: .leading, spacing: 18) {
+            seasonHeader(plan: plan)
+
+            SeasonTimeline(
+                phases: sorted,
+                totalWeeks: plan.totalWeeks,
+                currentPhase: plan.currentPhase,
+                selectedPhase: selected,
+                progress: progressFraction(plan: plan)
+            ) { number in
+                select(number)
+            }
+
+            if let phase = sorted.first(where: { $0.number == selected }) {
+                PhaseDetailCard(
+                    phase: phase,
+                    plan: plan,
+                    startDate: phaseStart(for: phase, plan: plan),
+                    endDate: phaseEnd(for: phase, plan: plan),
+                    phaseNumbers: sorted.map(\.number),
+                    onSelectPhase: { select($0) }
+                )
+                .id(selected)
+                .transition(.opacity)
             }
         }
     }
 
-    // MARK: - Current phase detail
+    @ViewBuilder
+    private func seasonHeader(plan: TrainingPlan) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Your season")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                    .tracking(-0.3)
+                Spacer(minLength: 8)
+                Text("Tap a phase")
+                    .font(Theme.Typography.monoLabelS)
+                    .foregroundStyle(Theme.ink3)
+                    .textCase(.uppercase)
+                    .tracking(Theme.Tracking.monoLabel)
+            }
+            seasonSubtitle(plan: plan)
+        }
+    }
 
     @ViewBuilder
-    private func currentPhaseDetailBlock(plan: TrainingPlan) -> some View {
-        let target = selectedPhaseNumber ?? plan.currentPhase
-        if let phase = plan.phases.first(where: { $0.number == target }) {
-            PhaseDetailCard(phase: phase, plan: plan)
+    private func seasonSubtitle(plan: TrainingPlan) -> some View {
+        let started = plan.startDate.flatMap(monthDay) ?? "—"
+        Text("Started **\(started)**  ·  Week **\(plan.currentWeek) of \(plan.totalWeeks)**")
+            .font(Theme.Typography.monoMeta)
+            .foregroundStyle(Theme.ink3)
+    }
+
+    private func select(_ number: Int) {
+        withAnimation(.easeInOut(duration: 0.22)) {
+            selectedPhaseNumber = number
         }
+    }
+
+    /// Fraction [0,1] of the plan elapsed as of today — drives the "now" dot.
+    /// Anchored to the midpoint of the current week so the dot sits inside the
+    /// active week's slot rather than on its boundary.
+    private func progressFraction(plan: TrainingPlan) -> Double {
+        guard plan.totalWeeks > 0 else { return 0 }
+        let raw = (Double(plan.currentWeek) - 0.5) / Double(plan.totalWeeks)
+        return min(0.985, max(0.015, raw))
     }
 
     // MARK: - Phase date helpers
@@ -258,116 +306,206 @@ struct PlanTab: View {
     }
 }
 
-// MARK: - Phase ruler
+// MARK: - Month/day helper
 
-private struct PhaseRuler: View {
-    let phases: [TrainingPhase]
-    let currentPhase: Int
-    let totalWeeks: Int
+/// "Apr 19" from a "yyyy-MM-dd" string, or nil.
+private func monthDay(_ dateStr: String) -> String? {
+    let inF = DateFormatter(); inF.dateFormat = "yyyy-MM-dd"
+    guard let d = inF.date(from: dateStr) else { return nil }
+    let outF = DateFormatter(); outF.dateFormat = "MMM d"
+    return outF.string(from: d)
+}
 
-    private let height: CGFloat = 8
-    private let gap: CGFloat = 3
+// MARK: - Race hero card
+
+/// Containerized race countdown: serif race name + location + date on the
+/// left, big serif countdown number + mono unit on the right.
+private struct RaceHeroCard: View {
+    let name: String
+    let location: String?
+    let date: String
+    let count: Int
+    let unit: String
 
     var body: some View {
-        GeometryReader { geo in
-            let available = max(0, geo.size.width - gap * CGFloat(max(0, phases.count - 1)))
-            HStack(spacing: gap) {
-                ForEach(phases) { phase in
-                    let frac = Double(phase.weeks) / Double(max(1, totalWeeks))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(fill(for: phase))
-                        .frame(width: max(4, CGFloat(frac) * available), height: height)
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(name)
+                    .font(Theme.Typography.serifRace)
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .minimumScaleFactor(0.8)
+                if let location, !location.isEmpty {
+                    Text(location)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.ink2)
                 }
+                Text(date)
+                    .font(Theme.Typography.monoData)
+                    .foregroundStyle(Theme.ink3)
+                    .padding(.top, 2)
+            }
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .trailing, spacing: 0) {
+                Text("\(count)")
+                    .font(Theme.Typography.serifNumber(72))
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(unit)
+                    .font(Theme.Typography.monoLabelS)
+                    .foregroundStyle(Theme.ink3)
+                    .textCase(.uppercase)
+                    .tracking(Theme.Tracking.monoLabel)
+                    .padding(.top, 2)
             }
         }
-        .frame(height: height)
-    }
-
-    private func fill(for phase: TrainingPhase) -> Color {
-        if phase.number == currentPhase { return Theme.accent }
-        if phase.number < currentPhase { return Theme.ink2.opacity(0.5) }
-        return Theme.line2
+        .padding(Theme.Spacing.cardP)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.line, lineWidth: 1)
+        )
     }
 }
 
-// MARK: - Phase plan row
+// MARK: - Season timeline
 
-private struct PhasePlanRow: View {
-    let phase: TrainingPhase
-    let startDate: String?
-    let endDate: String?
-    let isCurrent: Bool
-    let isSelected: Bool
-    let onTap: () -> Void
+/// Horizontal phase timeline: tappable phase labels above an axis, proportional
+/// phase segments, boundary ticks, a glowing "now" dot at today's position, and
+/// a connector dropping from the selected phase toward the detail card below.
+private struct SeasonTimeline: View {
+    let phases: [TrainingPhase]
+    let totalWeeks: Int
+    let currentPhase: Int
+    let selectedPhase: Int
+    /// Fraction [0,1] of the plan elapsed as of today.
+    let progress: Double
+    let onSelect: (Int) -> Void
+
+    private let axisY: CGFloat = 30
+    private let labelY: CGFloat = 8
+    private let connectorDrop: CGFloat = 20
+    private var totalHeight: CGFloat { axisY + connectorDrop + 8 }
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(alignment: .center, spacing: 12) {
-                numberBadge
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        if isCurrent {
-                            Circle()
-                                .fill(Theme.accent)
-                                .frame(width: 5, height: 5)
-                        }
-                        Text(phase.name)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Theme.ink)
+        GeometryReader { geo in
+            let w = geo.size.width
+            let layout = segments()
+
+            ZStack(alignment: .topLeading) {
+                // Phase labels (tappable)
+                ForEach(layout, id: \.number) { seg in
+                    let x = clamp(seg.center * w, w)
+                    Button { onSelect(seg.number) } label: {
+                        Text(seg.label)
+                            .font(.system(size: 13, weight: seg.number == selectedPhase ? .semibold : .medium))
+                            .foregroundStyle(labelColor(seg.number))
                             .lineLimit(1)
+                            .fixedSize()
                     }
-                    if let range = dateRangeText {
-                        Text(range)
-                            .font(Theme.Typography.monoMeta)
-                            .foregroundStyle(Theme.ink3)
-                    }
+                    .buttonStyle(.plain)
+                    .position(x: x, y: labelY)
                 }
-                Spacer(minLength: 8)
-                Text("\(phase.weeks) wks")
-                    .font(Theme.Typography.mono(12, weight: .medium))
-                    .foregroundStyle(isCurrent ? Theme.accent : Theme.ink2)
+
+                // Track (unfilled)
+                Capsule()
+                    .fill(Theme.line2)
+                    .frame(width: w, height: 2)
+                    .position(x: w / 2, y: axisY)
+
+                // Filled portion up to "now"
+                Capsule()
+                    .fill(Theme.accent)
+                    .frame(width: max(2, progress * w), height: 2)
+                    .position(x: max(2, progress * w) / 2, y: axisY)
+
+                // Boundary ticks (internal phase joins)
+                ForEach(layout.dropLast(), id: \.number) { seg in
+                    Rectangle()
+                        .fill(Theme.line2)
+                        .frame(width: 1, height: 9)
+                        .position(x: seg.end * w, y: axisY)
+                }
+
+                // End arrow
+                Image(systemName: "arrowtriangle.right.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.line2)
+                    .position(x: w - 2, y: axisY)
+
+                // Connector from selected phase down to the card
+                if let sel = layout.first(where: { $0.number == selectedPhase }) {
+                    let cx = clamp(sel.center * w, w)
+                    let connectorColor = selectedPhase == currentPhase ? Theme.accent : Theme.line2
+                    Rectangle()
+                        .fill(connectorColor)
+                        .frame(width: 1.5, height: connectorDrop)
+                        .position(x: cx, y: axisY + connectorDrop / 2)
+                }
+
+                // "Now" dot (glowing) — drawn last so it sits on top
+                nowDot
+                    .position(x: progress * w, y: axisY)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.card)
-                    .strokeBorder(borderColor, lineWidth: 1)
-            )
+            .frame(width: w, height: totalHeight)
         }
-        .buttonStyle(.plain)
+        .frame(height: totalHeight)
     }
 
-    private var numberBadge: some View {
-        Text("\(phase.number)")
-            .font(Theme.Typography.mono(12, weight: .medium))
-            .foregroundStyle(isCurrent ? Theme.accentInk : Theme.ink2)
-            .frame(width: 22, height: 22)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.badge)
-                    .fill(isCurrent ? Theme.accent : Theme.surface2)
-            )
+    private var nowDot: some View {
+        ZStack {
+            Circle()
+                .fill(Theme.accent.opacity(0.25))
+                .frame(width: 18, height: 18)
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 10, height: 10)
+                .overlay(Circle().strokeBorder(Theme.bg, lineWidth: 2))
+        }
+        .shadow(color: Theme.accent.opacity(0.6), radius: 5)
     }
 
-    private var background: Color {
-        if isCurrent { return Theme.accentSoft }
-        if isSelected { return Theme.surface2 }
-        return Theme.surface1
+    private func labelColor(_ number: Int) -> Color {
+        if number == currentPhase { return Theme.accent }
+        if number == selectedPhase { return Theme.ink }
+        return Theme.ink3
     }
 
-    private var borderColor: Color {
-        if isCurrent { return Theme.accent.opacity(0.5) }
-        if isSelected { return Theme.line2 }
-        return Theme.line
+    /// Keeps a label/connector center inside the timeline so edge phases
+    /// don't clip past the screen padding.
+    private func clamp(_ x: CGFloat, _ w: CGFloat) -> CGFloat {
+        min(w - 24, max(24, x))
     }
 
-    private var dateRangeText: String? {
-        guard let s = startDate, let e = endDate else { return nil }
-        let inF = DateFormatter(); inF.dateFormat = "yyyy-MM-dd"
-        guard let sd = inF.date(from: s), let ed = inF.date(from: e) else { return nil }
-        let outF = DateFormatter(); outF.dateFormat = "MMM d"
-        return "\(outF.string(from: sd)) — \(outF.string(from: ed))"
+    private struct Segment {
+        let number: Int
+        let label: String
+        let start: Double   // fraction
+        let end: Double     // fraction
+        var center: Double { (start + end) / 2 }
+    }
+
+    private func segments() -> [Segment] {
+        let total = max(1, totalWeeks)
+        var cursor = 0
+        return phases.map { phase in
+            let start = Double(cursor) / Double(total)
+            cursor += phase.weeks
+            let end = Double(cursor) / Double(total)
+            return Segment(number: phase.number, label: shortName(phase.name), start: start, end: end)
+        }
+    }
+
+    /// Timeline labels use the leading word of the phase name
+    /// ("Base Development" → "Base", "Build 2" → "Build").
+    private func shortName(_ name: String) -> String {
+        name.split(separator: " ").first.map(String.init) ?? name
     }
 }
 
@@ -376,97 +514,150 @@ private struct PhasePlanRow: View {
 private struct PhaseDetailCard: View {
     let phase: TrainingPhase
     let plan: TrainingPlan
+    let startDate: String?
+    let endDate: String?
+    let phaseNumbers: [Int]
+    let onSelectPhase: (Int) -> Void
+
+    @GestureState private var dragOffset: CGFloat = 0
 
     var body: some View {
         NavigationLink {
             PhaseDetailView(plan: plan, phase: phase)
         } label: {
-            VStack(alignment: .leading, spacing: 14) {
-                // Top row: chip + meta
-                HStack(alignment: .center) {
-                    Chip(title: statusChipTitle, variant: isCurrent ? .done : .default)
-                    Spacer(minLength: 8)
-                    Text(positionText)
-                        .font(Theme.Typography.monoMeta)
-                        .foregroundStyle(Theme.ink3)
-                }
+            cardBody
+        }
+        .buttonStyle(.plain)
+        .offset(x: dragOffset)
+        .simultaneousGesture(swipeGesture)
+    }
 
-                // Serif name
+    private var cardBody: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Top row: status pill + chevron
+            HStack(alignment: .center, spacing: 8) {
                 Text(phase.name)
                     .font(Theme.Typography.serifRace)
                     .foregroundStyle(Theme.ink)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                statusPill
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.ink3)
+            }
 
-                // Description
-                if let philosophy = phase.philosophy, !philosophy.isEmpty {
-                    Text(philosophy)
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.ink2)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            // Date range
+            if let range = dateRangeText {
+                Text(range)
+                    .font(Theme.Typography.monoMeta)
+                    .foregroundStyle(Theme.ink3)
+            }
 
-                // Stats row
-                HStack(alignment: .top, spacing: 16) {
-                    statColumn(label: "Volume",    value: volumeValue,    unit: volumeUnit)
-                    statColumn(label: "Sessions",  value: sessionsValue,  unit: sessionsUnit)
-                    statColumn(label: "Intensity", value: intensityValue, unit: nil)
-                }
+            Hairline()
 
-                // Key sessions
-                if let keys = phase.keyWorkouts, !keys.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Key sessions")
-                            .font(Theme.Typography.monoLabelS)
-                            .foregroundStyle(Theme.ink3)
-                            .textCase(.uppercase)
-                            .tracking(Theme.Tracking.monoLabel)
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(Array(keys.prefix(4))) { kw in
-                                HStack(alignment: .top, spacing: 8) {
-                                    DisciplineDot(discipline: disciplineForKey(kw))
-                                        .padding(.top, 6)
-                                    Text(kw.name)
-                                        .font(Theme.Typography.body)
-                                        .foregroundStyle(Theme.ink)
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                    }
+            // Description
+            if let philosophy = phase.philosophy, !philosophy.isEmpty {
+                Text(philosophy)
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.ink2)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Stats row
+            HStack(alignment: .top, spacing: 16) {
+                statColumn(label: "Volume",    value: volumeValue,    unit: volumeUnit)
+                statColumn(label: "Sessions",  value: sessionsValue,  unit: sessionsUnit)
+                statColumn(label: "Easy work", value: easyValue,      unit: nil)
+            }
+        }
+        .padding(Theme.Spacing.cardP)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isCurrent ? Theme.accentSoft : Theme.surface1)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(isCurrent ? Theme.accent.opacity(0.5) : Theme.line, lineWidth: 1)
+        )
+    }
+
+    // MARK: Swipe between phases
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .updating($dragOffset) { value, state, _ in
+                // Only track largely-horizontal drags; resist past the ends.
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                state = value.translation.width * 0.35
+            }
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let threshold: CGFloat = 60
+                if value.translation.width <= -threshold {
+                    advance(by: 1)
+                } else if value.translation.width >= threshold {
+                    advance(by: -1)
                 }
             }
-            .padding(Theme.Spacing.cardP)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface1)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.card)
-                    .strokeBorder(Theme.line, lineWidth: 1)
+    }
+
+    private func advance(by step: Int) {
+        guard let idx = phaseNumbers.firstIndex(of: phase.number) else { return }
+        let next = idx + step
+        guard next >= 0, next < phaseNumbers.count else { return }
+        onSelectPhase(phaseNumbers[next])
+    }
+
+    // MARK: Status pill
+
+    @ViewBuilder
+    private var statusPill: some View {
+        Text(pillText)
+            .font(Theme.Typography.mono(11, weight: .semibold))
+            .textCase(.uppercase)
+            .tracking(Theme.Tracking.monoLabelTight)
+            .foregroundStyle(isCurrent ? Theme.accentInk : Theme.ink2)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().fill(isCurrent ? Theme.accent : Theme.surface2)
             )
+            .overlay(
+                Capsule().strokeBorder(isCurrent ? .clear : Theme.line, lineWidth: 1)
+            )
+    }
+
+    private var pillText: String {
+        if isCurrent {
+            let idx = plan.weekIndexInPhase(phase)
+            return "Now · Wk \(idx) of \(phase.weeks)"
         }
-        .buttonStyle(.plain)
+        if phase.number < plan.currentPhase {
+            return "Completed"
+        }
+        if let start = startDate, let days = daysUntil(start), days > 0 {
+            let weeks = Int((Double(days) / 7.0).rounded())
+            if weeks >= 1 { return "\(weeks) \(weeks == 1 ? "week" : "weeks") out" }
+            return "\(days) \(days == 1 ? "day" : "days") out"
+        }
+        return "Upcoming"
     }
 
     private var isCurrent: Bool {
         phase.number == plan.currentPhase
     }
 
-    private var statusChipTitle: String {
-        if isCurrent { return "Current phase" }
-        if phase.number < plan.currentPhase { return "Completed" }
-        return "Upcoming"
-    }
+    // MARK: Stats
 
-    private var positionText: String {
-        if isCurrent {
-            let idx = plan.weekIndexInPhase(phase)
-            return "Week \(idx) of \(phase.weeks)"
-        }
-        let start = plan.startWeek(for: phase)
-        let end = plan.endWeek(for: phase)
-        return "Wk \(start)–\(end)"
+    private var dateRangeText: String? {
+        guard let s = startDate, let e = endDate else { return nil }
+        let inF = DateFormatter(); inF.dateFormat = "yyyy-MM-dd"
+        guard let sd = inF.date(from: s), let ed = inF.date(from: e) else { return nil }
+        let outF = DateFormatter(); outF.dateFormat = "MMM d"
+        let weeks = "\(phase.weeks) \(phase.weeks == 1 ? "week" : "weeks")"
+        return "\(outF.string(from: sd)) — \(outF.string(from: ed))  ·  \(weeks)"
     }
 
     private var volumeValue: String {
@@ -497,9 +688,9 @@ private struct PhaseDetailCard: View {
         phase.sessionsPerWeek == nil ? nil : "/ wk"
     }
 
-    private var intensityValue: String {
+    private var easyValue: String {
         guard let dist = phase.intensityDistribution else { return "—" }
-        return "Easy \(dist.easy)%"
+        return "\(dist.easy)%"
     }
 
     private func statColumn(label: String, value: String, unit: String?) -> some View {
@@ -522,14 +713,4 @@ private struct PhaseDetailCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    private func disciplineForKey(_ kw: KeyWorkout) -> Theme.Discipline {
-        let lower = kw.name.lowercased()
-        if lower.contains("swim") { return .swim }
-        if lower.contains("bike") || lower.contains("ride") || lower.contains("cycle") || lower.contains("spin") { return .bike }
-        if lower.contains("strength") || lower.contains("lift") || lower.contains("gym") { return .strength }
-        if lower.contains("recovery") || lower.contains("rest") { return .recovery }
-        return .run
-    }
 }
-
