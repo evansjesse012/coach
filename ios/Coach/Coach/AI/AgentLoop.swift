@@ -126,16 +126,25 @@ struct AnyCodable: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
+        // Order matters: try Int before Double so JSON integer values stay
+        // as Int rather than getting silently widened to Double. The previous
+        // ordering broke every strict `as? Int` cast in ToolExecutor because
+        // a JSON `5` always came through as `5.0 Double`, failing the cast.
+        // Bool comes before Int as defense — current Foundation rejects
+        // Bool→Int decoding but the ordering protects against future
+        // tolerance changes.
         if let dict = try? container.decode([String: AnyCodable].self) {
             value = dict.mapValues(\.value)
         } else if let arr = try? container.decode([AnyCodable].self) {
             value = arr.map(\.value)
         } else if let str = try? container.decode(String.self) {
             value = str
-        } else if let num = try? container.decode(Double.self) {
-            value = num
         } else if let bool = try? container.decode(Bool.self) {
             value = bool
+        } else if let num = try? container.decode(Int.self) {
+            value = num
+        } else if let num = try? container.decode(Double.self) {
+            value = num
         } else {
             value = NSNull()
         }

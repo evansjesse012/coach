@@ -204,7 +204,8 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
     case "log_workout":
         guard let sportStr = input["sport"] as? String,
               let sport = Sport(rawValue: sportStr),
-              let duration = input["duration"] as? Int else {
+              let duration = intFrom(input["duration"]) else {
+            print("⚠️ log_workout rejected — missing/unparseable sport or duration. input=\(input)")
             return ToolResult(summary: #"{"error":"Missing sport or duration"}"#)
         }
         let notes = input["notes"] as? String
@@ -312,7 +313,8 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
         guard let plan = dataService.trainingPlan else {
             return ToolResult(summary: jsonString(["error": "No training plan to generate a week for. Create one first with create_training_plan."]))
         }
-        guard let weekNum = input["weekNumber"] as? Int, weekNum >= 1, weekNum <= plan.totalWeeks else {
+        guard let weekNum = intFrom(input["weekNumber"]), weekNum >= 1, weekNum <= plan.totalWeeks else {
+            print("⚠️ generate_week_plan rejected — missing/out-of-range weekNumber. input=\(input)")
             return ToolResult(summary: jsonString(["error": "weekNumber must be between 1 and \(plan.totalWeeks)."]))
         }
         guard let goalId = plan.goalId,
@@ -385,13 +387,15 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
         guard let plan = dataService.trainingPlan else {
             return ToolResult(summary: #"{"error":"No training plan to patch. Create one first with create_training_plan."}"#)
         }
-        guard let weekNum = input["weekNumber"] as? Int else {
+        guard let weekNum = intFrom(input["weekNumber"]) else {
+            print("⚠️ patch_weekly_plan rejected — missing/unparseable weekNumber. input=\(input)")
             return ToolResult(summary: #"{"error":"patch_weekly_plan requires weekNumber."}"#)
         }
         guard var wp = plan.weeklyPlans[String(weekNum)] else {
             return ToolResult(summary: jsonString(["error": "Week \(weekNum) not found in plan. Call get_training_plan first to see available weeks."]))
         }
         guard let operations = input["operations"] as? [[String: Any]], !operations.isEmpty else {
+            print("⚠️ patch_weekly_plan rejected — missing/empty operations array. input=\(input)")
             return ToolResult(summary: #"{"error":"patch_weekly_plan requires a non-empty operations array."}"#)
         }
 
@@ -421,8 +425,16 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
 
     // MARK: update_plan_progress
     case "update_plan_progress":
-        let week = input["currentWeek"] as? Int ?? 1
-        let phase = input["currentPhase"] as? Int ?? 1
+        // Previously defaulted both to 1 on cast failure — silently
+        // corrupted plan progress when the cast failed (always, before
+        // the AnyCodable fix). Now we require both and surface a clear
+        // error so the LLM can retry rather than blindly resetting the
+        // athlete to week 1, phase 1.
+        guard let week = intFrom(input["currentWeek"]),
+              let phase = intFrom(input["currentPhase"]) else {
+            print("⚠️ update_plan_progress rejected — missing/unparseable currentWeek or currentPhase. input=\(input)")
+            return ToolResult(summary: #"{"error":"update_plan_progress requires currentWeek and currentPhase as integers."}"#)
+        }
         return ToolResult(
             summary: jsonString(["updated": true, "currentWeek": week, "currentPhase": phase]),
             effects: [.progressUpdated(currentWeek: week, currentPhase: phase)]
@@ -519,15 +531,15 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
         }
 
         let patch = ReviewFieldPatch(
-            sleep_avg_hours:     fields["sleep_avg_hours"] as? Double,
-            energy_rating:       fields["energy_rating"]   as? Int,
-            motivation_rating:   fields["motivation_rating"] as? Int,
+            sleep_avg_hours:     doubleFrom(fields["sleep_avg_hours"]),
+            energy_rating:       intFrom(fields["energy_rating"]),
+            motivation_rating:   intFrom(fields["motivation_rating"]),
             soreness_level:      fields["soreness_level"]  as? String,
             soreness_location:   fields["soreness_location"] as? String,
             pain_flag:           fields["pain_flag"]       as? Bool,
             pain_description:    fields["pain_description"] as? String,
-            life_stress_rating:  fields["life_stress_rating"] as? Int,
-            body_weight:         fields["body_weight"]     as? Double,
+            life_stress_rating:  intFrom(fields["life_stress_rating"]),
+            body_weight:         doubleFrom(fields["body_weight"]),
             best_session_text:   fields["best_session_text"] as? String,
             best_session_id:     (fields["best_session_id"] as? String).flatMap(UUID.init(uuidString:)),
             worst_session_text:  fields["worst_session_text"] as? String,
@@ -829,7 +841,7 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             if let sportStr = data["sport"] as? String, let sport = Sport(rawValue: sportStr) {
                 workout.sport = sport
             }
-            if let duration = data["duration"] as? Int { workout.duration = duration }
+            if let duration = intFrom(data["duration"]) { workout.duration = duration }
             if let distance = data["distance"] as? String {
                 workout.distance = distance.isEmpty ? nil : distance
             }
@@ -839,9 +851,9 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             if let notes = data["notes"] as? String {
                 workout.notes = notes.isEmpty ? nil : notes
             }
-            if let avgHR = data["avgHR"] as? Int { workout.avgHR = avgHR }
-            if let maxHR = data["maxHR"] as? Int { workout.maxHR = maxHR }
-            if let calories = data["calories"] as? Int { workout.calories = calories }
+            if let avgHR = intFrom(data["avgHR"]) { workout.avgHR = avgHR }
+            if let maxHR = intFrom(data["maxHR"]) { workout.maxHR = maxHR }
+            if let calories = intFrom(data["calories"]) { workout.calories = calories }
             if let location = data["location"] as? String {
                 workout.location = location.isEmpty ? nil : location
             }
@@ -1104,6 +1116,38 @@ private func hasAnyPopulatedField(_ r: WeeklyReview) -> Bool {
         || (r.nextWeekFocus?.isEmpty == false)
 }
 
+// MARK: - Tolerant numeric coercion
+//
+// AnyCodable's `init(from:)` (AgentLoop.swift) now tries `Int.self` before
+// `Double.self` so integer-typed JSON values stay as Int. These helpers
+// add a second layer of tolerance for the cases the type fix doesn't
+// cover: the LLM occasionally emits `5.0` (decimal point) when the
+// schema says `number`, and very occasionally `"5"` (string). Without
+// them, a single stray format would silently reject the tool call.
+//
+// Use these instead of `as? Int` / `as? Double` at any strict-guard site
+// in the executor — anywhere a missing value rejects the call.
+
+/// Coerce a JSON-decoded value to `Int`. Accepts `Int`, integer-valued
+/// `Double`, and numeric strings. Returns nil for fractional, NaN,
+/// infinite, or overflowing values.
+private func intFrom(_ value: Any?) -> Int? {
+    if let i = value as? Int { return i }
+    if let d = value as? Double, let i = Int(exactly: d) { return i }
+    if let s = value as? String, let i = Int(s) { return i }
+    return nil
+}
+
+/// Coerce a JSON-decoded value to `Double`. Accepts `Double`, `Int`
+/// (widened), and numeric strings. Returns nil if no representation
+/// parses cleanly.
+private func doubleFrom(_ value: Any?) -> Double? {
+    if let d = value as? Double { return d }
+    if let i = value as? Int { return Double(i) }
+    if let s = value as? String, let d = Double(s) { return d }
+    return nil
+}
+
 // MARK: - JSON Helper
 
 private func jsonString(_ value: Any) -> String {
@@ -1183,9 +1227,9 @@ private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) t
 
     switch type {
     case "move":
-        guard let fromDay = op["fromDay"] as? Int,
-              let fromIndex = op["fromIndex"] as? Int,
-              let toDay = op["toDay"] as? Int else {
+        guard let fromDay = intFrom(op["fromDay"]),
+              let fromIndex = intFrom(op["fromIndex"]),
+              let toDay = intFrom(op["toDay"]) else {
             throw PatchError.invalidOp("move requires fromDay, fromIndex, toDay")
         }
         try validateDay(fromDay, in: wp)
@@ -1198,13 +1242,13 @@ private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) t
         if wp.sessions[toDay].isRest == true {
             wp.sessions[toDay].isRest = false
         }
-        let rawTo = op["toIndex"] as? Int ?? wp.sessions[toDay].sessions.count
+        let rawTo = intFrom(op["toIndex"]) ?? wp.sessions[toDay].sessions.count
         let toIndex = max(0, min(rawTo, wp.sessions[toDay].sessions.count))
         wp.sessions[toDay].sessions.insert(session, at: toIndex)
 
     case "update":
-        guard let day = op["day"] as? Int,
-              let index = op["index"] as? Int,
+        guard let day = intFrom(op["day"]),
+              let index = intFrom(op["index"]),
               let fields = op["fields"] as? [String: Any] else {
             throw PatchError.invalidOp("update requires day, index, fields")
         }
@@ -1232,7 +1276,7 @@ private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) t
         wp.sessions[day].sessions[index] = updated
 
     case "set_rest":
-        guard let day = op["day"] as? Int,
+        guard let day = intFrom(op["day"]),
               let isRest = op["isRest"] as? Bool else {
             throw PatchError.invalidOp("set_rest requires day, isRest")
         }
@@ -1246,7 +1290,7 @@ private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) t
         }
 
     case "add":
-        guard let day = op["day"] as? Int,
+        guard let day = intFrom(op["day"]),
               let sessionDict = op["session"] as? [String: Any] else {
             throw PatchError.invalidOp("add requires day, session")
         }
@@ -1258,7 +1302,7 @@ private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) t
         } catch {
             throw PatchError.invalidOp("add session failed to decode: \(error.localizedDescription)")
         }
-        let rawIdx = op["index"] as? Int ?? wp.sessions[day].sessions.count
+        let rawIdx = intFrom(op["index"]) ?? wp.sessions[day].sessions.count
         let idx = max(0, min(rawIdx, wp.sessions[day].sessions.count))
         if wp.sessions[day].isRest == true {
             wp.sessions[day].isRest = false
@@ -1266,8 +1310,8 @@ private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) t
         wp.sessions[day].sessions.insert(newSession, at: idx)
 
     case "delete":
-        guard let day = op["day"] as? Int,
-              let index = op["index"] as? Int else {
+        guard let day = intFrom(op["day"]),
+              let index = intFrom(op["index"]) else {
             throw PatchError.invalidOp("delete requires day, index")
         }
         try validateDay(day, in: wp)
