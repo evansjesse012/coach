@@ -184,12 +184,13 @@ let coachToolDefinitions: [ToolDefinition] = [
     ),
     ToolDefinition(
         name: "patch_weekly_plan",
-        description: "Surgical edits to a single week's plan. Apply one or more operations — move a session between days, update a session's fields, toggle rest, add a session, delete a session. All operations are applied atomically: if any op is invalid, none are applied. Call get_training_plan first to know the day and session indices. Day indices are 0-based (0=Monday, 6=Sunday).",
+        description: "Surgical edits to a single week's plan. Apply one or more operations — move a session between days, update a session's fields, toggle rest, add a session, delete a session. All operations are applied atomically: if any op is invalid, none are applied. Call get_training_plan first to know the day and session indices. Day indices are 0-based (0=Monday, 6=Sunday). Each op you send is logged with its before/after state and the `reason` field — that log is what the week retrospective renders, so include a reason whenever the athlete gave one.",
         inputSchema: ToolInputSchema(
             type: "object",
             properties: [
                 "weekNumber": ToolProperty(type: "number", description: "Week index to patch (1-based). Must already exist in the plan.", enum: nil),
                 "operations": ToolProperty(type: "array", description: "Array of operations. Each op is one of: {op:'move', fromDay, fromIndex, toDay, toIndex?} (toIndex defaults to end); {op:'update', day, index, fields:{...}} (shallow-merges fields into existing session — use null to clear a field; field names are snake_case e.g. distance_miles, effort_category, pace_range); {op:'set_rest', day, isRest, restNote?} (setting isRest:true clears that day's sessions); {op:'add', day, session:{...}, index?} (index defaults to end; session shape matches get_training_plan output); {op:'delete', day, index}.", enum: nil),
+                "reason": ToolProperty(type: "string", description: "Strongly preferred. One short sentence (under ~80 chars) explaining why this patch is being applied, paraphrased from what the athlete said: 'no pool access Friday', 'knee felt off this morning', 'work travel Tuesday', 'pushing the long ride to Sunday for weather'. Logged once per op against the edit row and surfaced in the week retrospective so the athlete can later see why the plan diverged from the original. Omit only when the athlete genuinely gave no reason (rare — usually they have one even if it's just 'feeling tired'). All ops in a single patch_weekly_plan call share the same reason; if two changes have genuinely different reasons, send two patch_weekly_plan calls.", enum: nil),
             ],
             required: ["weekNumber", "operations"]
         )

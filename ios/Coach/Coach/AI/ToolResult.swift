@@ -44,4 +44,18 @@ enum ToolEffect {
     /// `complete_weekly_review`. The DataService dispatcher upserts it
     /// into `weeklyPreviews` keyed by id, mirroring the review path.
     case previewSaved(WeeklyPreview)
+
+    /// A new immutable per-week snapshot was generated and should be
+    /// written to `weekly_plan_snapshots`. Emitted by
+    /// `create_training_plan` (source=create_plan) and
+    /// `generate_week_plan` (source=generate_week or regenerate_week).
+    /// Plain INSERT — pre-existing snapshots for the same (plan, week)
+    /// are intentionally preserved as regen history.
+    case planSnapshotCreated(PlanSnapshot)
+
+    /// One or more `patch_weekly_plan` ops succeeded and should be
+    /// appended to `plan_edits`. The DataService dispatcher resolves
+    /// the latest `snapshot_id` for (plan, week) before insert so the
+    /// retrospective can bracket edits under their parent snapshot.
+    case planEditsLogged([PlanEdit])
 }
