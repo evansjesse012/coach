@@ -48,6 +48,9 @@ struct CoachApp: App {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active && isAuthenticated {
+                    // Snap any running rest timer back to real elapsed time —
+                    // the ticking task is suspended while backgrounded.
+                    dataService.refreshRestTimer()
                     Task { await dataService.preGenerateOnForeground() }
                 }
             }
