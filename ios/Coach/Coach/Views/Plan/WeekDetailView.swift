@@ -276,7 +276,7 @@ private struct WeekDaySessionCard: View {
                             .frame(width: 3)
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(session.label)
+                            Text(session.displayTitle)
                                 .font(Theme.Typography.sessionTitle)
                                 .foregroundStyle(Theme.ink)
                                 .tracking(Theme.Tracking.headline)
