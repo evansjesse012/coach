@@ -141,9 +141,10 @@ struct PlanTab: View {
     private func raceHeroBlock(plan: TrainingPlan) -> some View {
         if let name = plan.raceName, !name.isEmpty, let dateStr = plan.raceDate {
             let (count, unit) = countdownParts(dateStr)
+            let location = raceLocation(plan: plan)
             RaceHeroCard(
-                name: name,
-                location: raceLocation(plan: plan),
+                name: raceTypeTitle(name: name, location: location),
+                location: location,
                 date: formatRaceDate(dateStr),
                 count: count,
                 unit: unit
@@ -314,64 +315,6 @@ private func monthDay(_ dateStr: String) -> String? {
     guard let d = inF.date(from: dateStr) else { return nil }
     let outF = DateFormatter(); outF.dateFormat = "MMM d"
     return outF.string(from: d)
-}
-
-// MARK: - Race hero card
-
-/// Containerized race countdown: serif race name + location + date on the
-/// left, big serif countdown number + mono unit on the right.
-private struct RaceHeroCard: View {
-    let name: String
-    let location: String?
-    let date: String
-    let count: Int
-    let unit: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(name)
-                    .font(Theme.Typography.serifRace)
-                    .foregroundStyle(Theme.ink)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .minimumScaleFactor(0.8)
-                if let location, !location.isEmpty {
-                    Text(location)
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.ink2)
-                }
-                Text(date)
-                    .font(Theme.Typography.monoData)
-                    .foregroundStyle(Theme.ink3)
-                    .padding(.top, 2)
-            }
-
-            Spacer(minLength: 12)
-
-            VStack(alignment: .trailing, spacing: 0) {
-                Text("\(count)")
-                    .font(Theme.Typography.serifNumber(72))
-                    .foregroundStyle(Theme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                Text(unit)
-                    .font(Theme.Typography.monoLabelS)
-                    .foregroundStyle(Theme.ink3)
-                    .textCase(.uppercase)
-                    .tracking(Theme.Tracking.monoLabel)
-                    .padding(.top, 2)
-            }
-        }
-        .padding(Theme.Spacing.cardP)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface1)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .strokeBorder(Theme.line, lineWidth: 1)
-        )
-    }
 }
 
 // MARK: - Season timeline
