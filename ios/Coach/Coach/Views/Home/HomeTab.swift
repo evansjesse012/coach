@@ -518,7 +518,7 @@ struct HomeTab: View {
         SessionCard(
             discipline: disciplineFor(session),
             effort: effortLabel(for: session),
-            name: session.label,
+            name: session.displayTitle,
             stats: statsFor(session),
             status: session.sessionCardStatus,
             trailingAction: AnyView(menu),
@@ -541,6 +541,12 @@ struct HomeTab: View {
     }
 
     private func effortLabel(for session: PrescribedSession) -> String? {
+        // Strength sessions carry effortCategory == .strength, which would
+        // render a "STRENGTH" subtitle under a dumbbell icon and a now
+        // type-free title — triple redundancy. Drop it for strength.
+        if session.type == "strength", session.effortCategory == .strength {
+            return nil
+        }
         if let e = session.effortCategory {
             return e.rawValue
                 .replacingOccurrences(of: "_", with: " ")

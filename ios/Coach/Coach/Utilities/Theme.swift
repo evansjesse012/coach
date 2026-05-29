@@ -156,15 +156,18 @@ enum Theme {
     // Mono: SF Mono for data, dates, durations, and system labels.
 
     enum Typography {
-        // Sans — sizes scaled up from the original redesign. Every
-        // surface that wants to grow with the app should route through
-        // these tokens rather than hardcoding `.font(.system(size:))`.
-        static let pageTitle     = Font.system(size: 30, weight: .semibold)
-        static let cardTitle     = Font.system(size: 15, weight: .semibold)
-        static let sessionTitle  = Font.system(size: 20, weight: .semibold)
-        static let body          = Font.system(size: 17, weight: .medium)
-        static let bodyS         = Font.system(size: 15, weight: .medium)
-        static let small         = Font.system(size: 12, weight: .regular)
+        // Sans — SF Pro Rounded (`design: .rounded`) for a softer, friendlier
+        // feel. Sizes scaled up from the original redesign. Every surface that
+        // wants to grow with the app should route through these tokens rather
+        // than hardcoding `.font(.system(size:))`. A global `.fontDesign(.rounded)`
+        // at the app root (see CoachApp) rounds any straggler `.system` text;
+        // mono and serif tokens below pin their own design and are unaffected.
+        static let pageTitle     = Font.system(size: 30, weight: .semibold, design: .rounded)
+        static let cardTitle     = Font.system(size: 15, weight: .semibold, design: .rounded)
+        static let sessionTitle  = Font.system(size: 20, weight: .semibold, design: .rounded)
+        static let body          = Font.system(size: 17, weight: .medium, design: .rounded)
+        static let bodyS         = Font.system(size: 15, weight: .medium, design: .rounded)
+        static let small         = Font.system(size: 12, weight: .regular, design: .rounded)
 
         // Mono
         static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
