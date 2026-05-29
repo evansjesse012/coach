@@ -115,6 +115,8 @@ struct SessionCard: View {
                                 .font(Theme.Typography.sessionTitle)
                                 .foregroundStyle(Theme.ink)
                                 .tracking(Theme.Tracking.headline)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.9)
                                 .fixedSize(horizontal: false, vertical: true)
 
                             if let effort, !effort.isEmpty {
@@ -136,7 +138,7 @@ struct SessionCard: View {
                         HStack(alignment: .top, spacing: 16) {
                             ForEach(stats.prefix(3)) { stat in
                                 statColumn(stat)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(maxWidth: .infinity, alignment: .center)
                             }
                         }
                         .padding(.top, 2)
@@ -182,7 +184,7 @@ struct SessionCard: View {
 
     @ViewBuilder
     private func statColumn(_ stat: Stat) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .center, spacing: 4) {
             Text(stat.label)
                 .font(Theme.Typography.monoLabelS)
                 .foregroundStyle(Theme.ink3)

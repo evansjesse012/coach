@@ -359,6 +359,65 @@ extension PrescribedSession {
     }
 }
 
+// MARK: - Display title
+
+extension PrescribedSession {
+    /// Athlete-facing workout title with the redundant discipline/type word
+    /// stripped out — the card's colored discipline icon already signals the
+    /// sport, so "Swim — Continuous Effort Block + Drills" reads cleaner as
+    /// "Continuous Effort Block + Drills" and "Strength-Endurance — Upper Body,
+    /// Hip Flexor & Core" as "Upper Body, Hip Flexor & Core". Falls back to the
+    /// raw label if stripping would leave nothing meaningful.
+    var displayTitle: String {
+        Self.stripDisciplineWords(from: label, type: type)
+    }
+
+    /// Type words removed from titles, keyed by session `type`. Multi-word /
+    /// hyphenated entries are listed before their shorter forms so the longest
+    /// match is removed first (e.g. "strength-endurance" before "strength",
+    /// otherwise "Strength-Endurance" would collapse to a dangling "-Endurance").
+    private static func synonyms(for type: String) -> [String] {
+        switch type.lowercased() {
+        case "swim":            return ["swimming", "swim"]
+        case "bike", "cycling": return ["cycling", "bike", "ride", "cycle", "spin"]
+        case "run":             return ["running", "run"]
+        case "strength":        return ["strength-endurance", "strength endurance", "strength", "lifting", "lift"]
+        case "brick":           return ["brick"]
+        default:                return []
+        }
+    }
+
+    static func stripDisciplineWords(from label: String, type: String) -> String {
+        let words = synonyms(for: type)
+        guard !words.isEmpty else { return label }
+
+        var result = label
+        for word in words {
+            let pattern = #"\b"# + NSRegularExpression.escapedPattern(for: word) + #"\b"#
+            result = result.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+
+        // Collapse the gaps and dangling separators left behind by removal,
+        // e.g. "Easy Aerobic  — Z2 Base" → "Easy Aerobic — Z2 Base", and a
+        // leading " — Continuous…" → "Continuous…".
+        result = result.replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"^[\s—–\-:•,]+"#, with: "", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"[\s—–\-:•,]+$"#, with: "", options: .regularExpression)
+        result = result.trimmingCharacters(in: .whitespaces)
+
+        // Guard against over-stripping: when the type word was the only real
+        // noun ("Long Ride" → "Long", "Z2 Spin" → "Z2"), the remainder is a
+        // meaningless fragment. Keep the original unless at least two
+        // word-characters groups survive.
+        let wordCount = result.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).count
+        return (result.isEmpty || wordCount < 2) ? label : result
+    }
+}
+
 // MARK: - Day Plan
 struct DayPlan: Codable, Identifiable {
     var id: String { day }

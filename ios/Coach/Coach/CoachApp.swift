@@ -26,6 +26,10 @@ struct CoachApp: App {
                     MainTabView()
                         .environment(dataService)
                         .preferredColorScheme(preferredScheme)
+                        // App-wide rounded sans. Explicit `.monospaced` (data,
+                        // dates) and `.serif` (race names, countdowns) fonts pin
+                        // their own design and stay unaffected.
+                        .fontDesign(.rounded)
                 } else if let errorMessage {
                     VStack(spacing: 12) {
                         Text("Sign-in failed")
