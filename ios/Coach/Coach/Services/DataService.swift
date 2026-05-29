@@ -220,6 +220,12 @@ final class DataService {
     var restTimerSecondsRemaining: Int?
     var restTimerTotalSeconds: Int?
 
+    /// Wall-clock deadline the rest timer counts down to. `restTimerSecondsRemaining`
+    /// is *derived* from this each tick rather than decremented, so the countdown
+    /// stays accurate even when the app is backgrounded and the ticking task is
+    /// suspended — on return we recompute against the real clock.
+    private var restTimerEndsAt: Date?
+
     /// Background task running the rest-timer countdown. Cancelled whenever
     /// the timer is stopped, skipped, or restarted.
     private var restTimerTask: Task<Void, Never>?
@@ -1091,31 +1097,52 @@ final class DataService {
     func startRestTimer(seconds: Int) {
         guard seconds > 0 else { return }
         restTimerTotalSeconds = seconds
+        restTimerEndsAt = Date().addingTimeInterval(TimeInterval(seconds))
         restTimerSecondsRemaining = seconds
+        startRestTimerTick()
+    }
+
+    /// (Re)launch the per-second tick. Each tick derives the remaining seconds
+    /// from `restTimerEndsAt` against the wall clock rather than decrementing a
+    /// counter, so a stretch of suspended time while backgrounded is accounted
+    /// for the moment the task resumes.
+    private func startRestTimerTick() {
         restTimerTask?.cancel()
         restTimerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 if Task.isCancelled { return }
                 await MainActor.run {
-                    guard let self, let remaining = self.restTimerSecondsRemaining else { return }
-                    if remaining <= 1 {
-                        self.restTimerSecondsRemaining = nil
-                        self.restTimerTotalSeconds = nil
-                        self.restTimerTask = nil
-                    } else {
-                        self.restTimerSecondsRemaining = remaining - 1
-                    }
+                    self?.refreshRestTimer()
                 }
             }
+        }
+    }
+
+    /// Recompute `restTimerSecondsRemaining` from the deadline. Clears the timer
+    /// when the deadline has passed. Safe to call on foreground to snap the
+    /// display back to real elapsed time after the app was backgrounded.
+    func refreshRestTimer() {
+        guard let endsAt = restTimerEndsAt else { return }
+        let remaining = Int(endsAt.timeIntervalSinceNow.rounded(.up))
+        if remaining <= 0 {
+            restTimerSecondsRemaining = nil
+            restTimerTotalSeconds = nil
+            restTimerEndsAt = nil
+            restTimerTask?.cancel()
+            restTimerTask = nil
+        } else {
+            restTimerSecondsRemaining = remaining
         }
     }
 
     /// Shift the rest timer by a positive or negative number of seconds.
     /// Used by the +15 / -15 buttons in the overlay.
     func adjustRestTimer(by delta: Int) {
-        guard var remaining = restTimerSecondsRemaining else { return }
-        remaining = max(1, remaining + delta)
+        guard let endsAt = restTimerEndsAt else { return }
+        let newEndsAt = max(Date().addingTimeInterval(1), endsAt.addingTimeInterval(TimeInterval(delta)))
+        restTimerEndsAt = newEndsAt
+        let remaining = max(1, Int(newEndsAt.timeIntervalSinceNow.rounded(.up)))
         restTimerSecondsRemaining = remaining
         if let total = restTimerTotalSeconds {
             restTimerTotalSeconds = max(total, remaining)
@@ -1128,6 +1155,7 @@ final class DataService {
         restTimerTask = nil
         restTimerSecondsRemaining = nil
         restTimerTotalSeconds = nil
+        restTimerEndsAt = nil
     }
 
     // MARK: - Active Workout persistence
@@ -1274,6 +1302,42 @@ final class DataService {
     func savePlan(_ plan: TrainingPlan) async throws {
         trainingPlan = plan
         try await client.from("training_plans").upsert(plan).execute()
+    }
+
+    /// Insert an immutable per-week snapshot. Called via the
+    /// `.planSnapshotCreated` effect after `create_training_plan` or
+    /// `generate_week_plan` runs. Pre-existing snapshots for the same
+    /// (plan, week) are intentionally preserved — they're regen history.
+    func savePlanSnapshot(_ snapshot: PlanSnapshot) async throws {
+        try await client.from("weekly_plan_snapshots").insert(snapshot).execute()
+    }
+
+    /// Append a batch of `plan_edits` rows from a single
+    /// `patch_weekly_plan` call. All edits in the batch share the same
+    /// (plan, week), so we resolve the latest snapshot id once and
+    /// stamp it on every row before insert. That snapshot id is what
+    /// lets the retrospective bracket edits under the snapshot they
+    /// modified (helpful when a mid-week regen creates a new snapshot).
+    func recordPlanEdits(_ edits: [PlanEdit]) async throws {
+        guard let first = edits.first else { return }
+
+        let snapshots: [PlanSnapshot] = try await client
+            .from("weekly_plan_snapshots")
+            .select()
+            .eq("plan_id", value: first.planId)
+            .eq("week_number", value: first.weekNumber)
+            .order("frozen_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+        let snapshotId = snapshots.first?.id
+
+        let stamped = edits.map { e -> PlanEdit in
+            var copy = e
+            copy.snapshotId = snapshotId
+            return copy
+        }
+        try await client.from("plan_edits").insert(stamped).execute()
     }
 
     /// Generate full daily detail for a stub week and splice it into the
@@ -1630,6 +1694,8 @@ final class DataService {
             case .tabChanged(let t):      selectedTab = t
             case .reviewUpdated(let r):   upsertReviewLocal(r)
             case .previewSaved(let p):    upsertPreviewLocal(p)
+            case .planSnapshotCreated(let s): try? await savePlanSnapshot(s)
+            case .planEditsLogged(let es):    try? await recordPlanEdits(es)
             }
         }
     }
