@@ -259,8 +259,8 @@ struct HomeTab: View {
         if let raceName, !raceName.isEmpty,
            let dateStr, !dateStr.isEmpty {
             let (count, unit) = countdownParts(dateStr)
-            let block = RaceBlockView(
-                raceName: raceName,
+            let block = RaceHeroCard(
+                name: raceTypeTitle(name: raceName, location: location),
                 location: location,
                 date: formattedRaceDate(dateStr),
                 count: count,
@@ -290,7 +290,7 @@ struct HomeTab: View {
             NavigationLink {
                 PhaseDetailView(plan: plan, phase: phase)
             } label: {
-                TrainingPhaseBlockView(
+                PhaseHeroCard(
                     phaseDescription: phase.plainLanguageLabel,
                     weeksLeft: plan.weeksLeftInPhase(phase)
                 )
