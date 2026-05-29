@@ -239,14 +239,22 @@ private func fetchRecoveryPicture(trainingLoad: TrainingLoadSnapshot?) async -> 
 // MARK: - Agent Loop
 
 /// Port of runAgentLoop from page.jsx lines 914-931.
-/// Executes multi-turn tool use with the AI coach, max 7 rounds.
+/// Executes multi-turn tool use with the AI coach.
+///
+/// `maxRounds` is a safety ceiling, not a UX feature: it's the loop's only
+/// guaranteed termination condition. Without it, a model that keeps calling
+/// tools without ever returning `end_turn` would loop forever — hanging the
+/// chat and running up API cost with no exit. It's set high enough that
+/// realistic multi-step requests (e.g. logging several workouts AND adjusting
+/// a plan in one message) finish comfortably; a turn that still hasn't
+/// converged after this many rounds is almost certainly stuck, not busy.
 @MainActor
 func runAgentLoop(
     personality: Personality,
     customText: String,
     messages: [ChatMessage],
     dataService: DataService,
-    maxRounds: Int = 6,
+    maxRounds: Int = 15,
     recentConversationSummaries: [String] = []
 ) async throws -> AgentResult {
     // Clean messages for API format — only current conversation, not
