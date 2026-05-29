@@ -187,27 +187,31 @@ struct PlanTab: View {
         VStack(alignment: .leading, spacing: 18) {
             seasonHeader(plan: plan)
 
-            SeasonTimeline(
-                phases: sorted,
-                totalWeeks: plan.totalWeeks,
-                currentPhase: plan.currentPhase,
-                selectedPhase: selected,
-                progress: progressFraction(plan: plan)
-            ) { number in
-                select(number)
-            }
+            // Timeline and card are flush (spacing 0) so the connector dropping
+            // from the selected phase reaches all the way down to the card.
+            VStack(alignment: .leading, spacing: 0) {
+                SeasonTimeline(
+                    phases: sorted,
+                    totalWeeks: plan.totalWeeks,
+                    currentPhase: plan.currentPhase,
+                    selectedPhase: selected,
+                    progress: progressFraction(plan: plan)
+                ) { number in
+                    select(number)
+                }
 
-            if let phase = sorted.first(where: { $0.number == selected }) {
-                PhaseDetailCard(
-                    phase: phase,
-                    plan: plan,
-                    startDate: phaseStart(for: phase, plan: plan),
-                    endDate: phaseEnd(for: phase, plan: plan),
-                    phaseNumbers: sorted.map(\.number),
-                    onSelectPhase: { select($0) }
-                )
-                .id(selected)
-                .transition(.opacity)
+                if let phase = sorted.first(where: { $0.number == selected }) {
+                    PhaseDetailCard(
+                        phase: phase,
+                        plan: plan,
+                        startDate: phaseStart(for: phase, plan: plan),
+                        endDate: phaseEnd(for: phase, plan: plan),
+                        phaseNumbers: sorted.map(\.number),
+                        onSelectPhase: { select($0) }
+                    )
+                    .id(selected)
+                    .transition(.opacity)
+                }
             }
         }
     }
@@ -333,8 +337,10 @@ private struct SeasonTimeline: View {
 
     private let axisY: CGFloat = 30
     private let labelY: CGFloat = 8
-    private let connectorDrop: CGFloat = 20
-    private var totalHeight: CGFloat { axisY + connectorDrop + 8 }
+    // Drops from the axis to the very bottom of the timeline frame so the
+    // connector meets the detail card mounted flush below (spacing 0).
+    private let connectorDrop: CGFloat = 26
+    private var totalHeight: CGFloat { axisY + connectorDrop }
 
     var body: some View {
         GeometryReader { geo in
@@ -376,16 +382,28 @@ private struct SeasonTimeline: View {
                         .position(x: seg.end * w, y: axisY)
                 }
 
-                // End arrow
-                Image(systemName: "arrowtriangle.right.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Theme.line2)
-                    .position(x: w - 2, y: axisY)
+                // Highlight the selected *future* phase's segment so it reads
+                // a step brighter than the faint unfilled track (the current
+                // phase is already shown by the green fill).
+                if selectedPhase > currentPhase,
+                   let sel = layout.first(where: { $0.number == selectedPhase }) {
+                    Capsule()
+                        .fill(Theme.ink3)
+                        .frame(width: max(2, (sel.end - sel.start) * w), height: 2)
+                        .position(x: (sel.start + sel.end) / 2 * w, y: axisY)
+                }
 
-                // Connector from selected phase down to the card
+                // Finish flag at the end of the timeline (race day).
+                Image(systemName: "flag.checkered")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.ink2)
+                    .position(x: w - 7, y: axisY)
+
+                // Connector from selected phase down to the card. Accent when
+                // the current phase is selected, a neutral grey otherwise.
                 if let sel = layout.first(where: { $0.number == selectedPhase }) {
                     let cx = clamp(sel.center * w, w)
-                    let connectorColor = selectedPhase == currentPhase ? Theme.accent : Theme.line2
+                    let connectorColor = selectedPhase == currentPhase ? Theme.accent : Theme.ink3
                     Rectangle()
                         .fill(connectorColor)
                         .frame(width: 1.5, height: connectorDrop)
