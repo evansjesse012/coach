@@ -294,6 +294,27 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                 dataService: dataService
             )
             let phasesSummary = plan.phases.map { "\($0.name) (\($0.weeks)w)" }.joined(separator: ", ")
+
+            // Snapshot every week the generator actually populated (stubs —
+            // weeks with all-empty `sessions` arrays — get snapshotted later
+            // when `generate_week_plan` fills them).
+            var effects: [ToolEffect] = [.planCreated(plan)]
+            for (weekKey, wp) in plan.weeklyPlans {
+                guard let weekNum = Int(weekKey),
+                      wp.sessions.contains(where: { !$0.sessions.isEmpty }) else { continue }
+                effects.append(.planSnapshotCreated(PlanSnapshot(
+                    id: UUID(),
+                    userId: nil,
+                    planId: plan.id,
+                    weekNumber: weekNum,
+                    frozenAt: nil,
+                    source: .createPlan,
+                    sessions: wp.sessions,
+                    phase: wp.phase,
+                    focusOfWeek: wp.focusOfWeek
+                )))
+            }
+
             return ToolResult(
                 summary: jsonString([
                     "created": true,
@@ -302,7 +323,7 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                     "currentWeek": plan.currentWeek,
                     "weeksPopulated": plan.weeklyPlans.count,
                 ]),
-                effects: [.planCreated(plan)]
+                effects: effects
             )
         } catch {
             return ToolResult(summary: jsonString(["error": "Plan generation failed: \(error.localizedDescription)"]))
@@ -321,6 +342,18 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
               let event = dataService.events.first(where: { $0.id == goalId }) else {
             return ToolResult(summary: jsonString(["error": "Couldn't find the race event this plan is anchored to."]))
         }
+
+        // Determine snapshot source before the generator runs. A week
+        // whose existing sessions are all empty is a stub being filled
+        // for the first time (source=generate_week); any pre-existing
+        // session content means we're overwriting a real prescription
+        // (source=regenerate_week) and want the prior snapshot kept as
+        // history.
+        let priorWasStub: Bool = {
+            guard let prior = plan.weeklyPlans[String(weekNum)] else { return true }
+            return prior.sessions.allSatisfy { $0.sessions.isEmpty }
+        }()
+
         do {
             let week = try await TrainingPlanGenerator.generateWeek(
                 weekNumber: weekNum,
@@ -330,6 +363,17 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                 dataService: dataService
             )
             let dayCount = week.sessions.count
+            let snapshot = PlanSnapshot(
+                id: UUID(),
+                userId: nil,
+                planId: plan.id,
+                weekNumber: weekNum,
+                frozenAt: nil,
+                source: priorWasStub ? .generateWeek : .regenerateWeek,
+                sessions: week.sessions,
+                phase: week.phase,
+                focusOfWeek: week.focusOfWeek
+            )
             return ToolResult(
                 summary: jsonString([
                     "generated": true,
@@ -337,7 +381,10 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                     "focusOfWeek": week.focusOfWeek ?? "",
                     "daysPopulated": dayCount,
                 ]),
-                effects: [.weekUpdated(weekNumber: weekNum, weekPlan: week)]
+                effects: [
+                    .weekUpdated(weekNumber: weekNum, weekPlan: week),
+                    .planSnapshotCreated(snapshot),
+                ]
             )
         } catch {
             return ToolResult(summary: jsonString(["error": "Week generation failed: \(error.localizedDescription)"]))
@@ -399,23 +446,48 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             return ToolResult(summary: #"{"error":"patch_weekly_plan requires a non-empty operations array."}"#)
         }
 
+        // Carry the athlete's stated reason onto every edit row in this
+        // batch (Section 10 prompt asks the model to forward it). Treat
+        // empty/whitespace as nil so retrospective rendering doesn't
+        // get bogus blank rows.
+        let rawReason = (input["reason"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reason: String? = (rawReason?.isEmpty == false) ? rawReason : nil
+
         do {
+            var pendingEdits: [PlanEdit] = []
             for (i, op) in operations.enumerated() {
+                let beforeSlice = captureAffectedSlice(op, in: wp)
                 do {
                     try applyPatchOperation(op, to: &wp)
                 } catch let PatchError.invalidOp(msg) {
                     throw PatchError.invalidOp("op #\(i): \(msg)")
                 }
+                let afterSlice = captureAffectedSlice(op, in: wp)
+
+                if let edit = buildPlanEdit(
+                    op: op,
+                    planId: plan.id,
+                    weekNumber: wp.weekNumber,
+                    before: beforeSlice,
+                    after: afterSlice,
+                    reason: reason
+                ) {
+                    pendingEdits.append(edit)
+                }
             }
             if let err = firstFutureCompletionMark(in: wp, planStartDate: plan.startDate) {
                 return ToolResult(summary: jsonString(["error": err]))
+            }
+            var effects: [ToolEffect] = [.weekUpdated(weekNumber: wp.weekNumber, weekPlan: wp)]
+            if !pendingEdits.isEmpty {
+                effects.append(.planEditsLogged(pendingEdits))
             }
             return ToolResult(
                 summary: jsonString([
                     "applied": operations.count,
                     "weekNumber": wp.weekNumber,
                 ]),
-                effects: [.weekUpdated(weekNumber: wp.weekNumber, weekPlan: wp)]
+                effects: effects
             )
         } catch let PatchError.invalidOp(msg) {
             return ToolResult(summary: jsonString(["error": "patch rejected — \(msg)"]))
@@ -1205,7 +1277,7 @@ private func firstFutureCompletionMark(
             let pretty = DateFormatter()
             pretty.dateFormat = "EEE, MMM d"
             let when = pretty.string(from: date)
-            return "Rejected — can't mark a future session. '\(session.label)' on \(when) (week \(wp.weekNumber), day \(dayIdx)) is scheduled for the future. A session can't be completed / modified / swapped / skipped before its date; it hasn't happened yet. If the athlete is claiming they did or missed this session, the date is future — push back and confirm what they actually meant (wrong day, different session) before any edit."
+            return "Rejected — '\(session.label)' on \(when) (week \(wp.weekNumber), day \(dayIdx)) is in the future, and the patch set a completion field on it (completion_status / actual_sport / actual_duration / skip_reason / completion_note). Completion fields describe what actually happened and only apply once the session's date has arrived. For a forward-looking prescription change (e.g. Friday swim → Friday run), use `update` with prescription fields (type, sport, label, workout, distance_miles, pace_range, fuel) — or `delete` + `add` — instead. This is not an app bug; re-issue as a prescription edit. If instead the athlete is reporting a session they already did differently, the date is wrong — confirm which day they actually meant before any edit."
         }
     }
     return nil
@@ -1329,6 +1401,87 @@ private func validateDay(_ day: Int, in wp: WeeklyPlan) throws {
     guard day >= 0, day < wp.sessions.count else {
         throw PatchError.invalidOp("day \(day) out of bounds (expected 0-\(wp.sessions.count - 1), day 0 = Monday)")
     }
+}
+
+// MARK: - Edit-log support
+
+/// Snapshot the slice of the week that an op touches, as a JSON-serializable
+/// dict, for the `plan_edits.before_state` / `after_state` columns. Called
+/// twice per op (pre- and post-mutation); the retrospective UI diffs the
+/// two to render "swim → run" cards.
+///
+/// For `move` the slice includes both the from- and to-day blobs (a move
+/// touches two days), keyed under `from_day` and `to_day`. For all other
+/// ops the slice is the single affected day blob keyed under `day`.
+/// Returns nil if the op refers to a day outside the week — the op will
+/// have failed validation anyway and we don't want a misleading row.
+private func captureAffectedSlice(_ op: [String: Any], in wp: WeeklyPlan) -> [String: Any]? {
+    let type = op["op"] as? String ?? ""
+    let encoder = JSONEncoder()
+    let asDict: (DayPlan) -> [String: Any] = { day in
+        guard let data = try? encoder.encode(day),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return dict
+    }
+    switch type {
+    case "move":
+        guard let fromDay = intFrom(op["fromDay"]),
+              let toDay = intFrom(op["toDay"]),
+              fromDay >= 0, fromDay < wp.sessions.count,
+              toDay >= 0, toDay < wp.sessions.count else { return nil }
+        return [
+            "from_day_idx": fromDay,
+            "from_day": asDict(wp.sessions[fromDay]),
+            "to_day_idx": toDay,
+            "to_day": asDict(wp.sessions[toDay]),
+        ]
+    case "update", "set_rest", "add", "delete":
+        guard let day = intFrom(op["day"]),
+              day >= 0, day < wp.sessions.count else { return nil }
+        return [
+            "day_idx": day,
+            "day": asDict(wp.sessions[day]),
+        ]
+    default:
+        return nil
+    }
+}
+
+/// Build a `PlanEdit` row from an applied op + its before/after slices.
+/// Returns nil if the op type or day/index can't be parsed cleanly; the
+/// op already mutated the week successfully, so dropping the log row is
+/// preferable to inserting a half-typed row that fails the table's
+/// CHECK constraints.
+private func buildPlanEdit(
+    op: [String: Any],
+    planId: String,
+    weekNumber: Int,
+    before: [String: Any]?,
+    after: [String: Any]?,
+    reason: String?
+) -> PlanEdit? {
+    guard let typeStr = op["op"] as? String,
+          let opType = PlanEdit.OpType(rawValue: typeStr) else { return nil }
+    let day = intFrom(op["day"]) ?? intFrom(op["fromDay"])
+    let sessionIndex = intFrom(op["index"]) ?? intFrom(op["fromIndex"])
+    return PlanEdit(
+        id: UUID(),
+        userId: nil,
+        planId: planId,
+        weekNumber: weekNumber,
+        appliedAt: nil,
+        snapshotId: nil,                     // DataService.recordPlanEdits fills this in
+        opType: opType,
+        day: day,
+        sessionIndex: sessionIndex,
+        payload: AnyCodable(op),
+        beforeState: before.map(AnyCodable.init),
+        afterState: after.map(AnyCodable.init),
+        reason: reason,
+        source: "chat"
+    )
 }
 
 // MARK: - Memory update support
