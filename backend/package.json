@@ -1,0 +1,29 @@
+{
+  "name": "coach-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Coach backend API — the server seam in front of Postgres (see ../BACKEND_FOUNDATION_PLAN.md)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "drizzle-orm": "^0.38.3",
+    "hono": "^4.6.14",
+    "pg-boss": "^10.1.5",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

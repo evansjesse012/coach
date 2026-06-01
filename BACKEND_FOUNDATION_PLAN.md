@@ -124,9 +124,12 @@ queue or a read replica — neither is needed now, and neither forces a rewrite.
 ### 3.2 Auth & RLS once the backend is the writer
 
 - The iOS app already sends a Supabase JWT (`AgentLoop.swift` invokes
-  `functions/v1/chat` with the user's session). The backend **verifies that JWT**
-  (same secret/JWKS the edge function uses) and derives `user_id` from it — the
-  client never gets to assert who it is.
+  `functions/v1/chat` with the user's session). The backend **verifies that JWT
+  the same way the edge function does** — by calling `${SUPABASE_URL}/auth/v1/user`
+  with the token + anon key (`chat/index.ts:74-93`). This matters: the project
+  uses **asymmetric ES256 signing keys**, so local secret verification would
+  fail; the auth-endpoint check is the verified path. The backend derives
+  `user_id` from the response — the client never gets to assert who it is.
 - The backend connects to Postgres with a **service-role / direct connection**,
   which **bypasses RLS**. That is intentional: the backend is now the trusted
   writer and enforces ownership in code (`where user_id = <jwt subject>`).
@@ -354,8 +357,9 @@ instructions will accompany each:
    Settings → API for the `service_role` key). These let the backend talk to
    Postgres as the trusted writer. *(Secrets — paste into Railway's env vars, not
    into the repo.)*
-3. **Supabase JWT secret** — Settings → API → JWT secret, so the backend can
-   verify the app's tokens.
+3. **Supabase project URL + anon key** — Settings → API. The backend verifies
+   the app's tokens by calling `/auth/v1/user` with these (matching the edge
+   function), which is required because the project uses asymmetric ES256 keys.
 4. **Anthropic API key** — only needed in the backend once we relocate the agent
    loop (Phase 4); the edge proxy already has its own. Reuse the same key.
 
