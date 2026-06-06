@@ -219,30 +219,78 @@ struct WeekDetailView: View {
     // MARK: - Sessions list
 
     private func sessionsList(plan: TrainingPlan, weeklyPlan: WeeklyPlan) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 20) {
+            monthYearHeader
             ForEach(Array(weeklyPlan.sessions.enumerated()), id: \.offset) { dayIdx, dayPlan in
-                dayGroup(plan: plan, dayPlan: dayPlan, dayIdx: dayIdx)
+                dayRow(plan: plan, dayPlan: dayPlan, dayIdx: dayIdx)
             }
         }
     }
 
+    /// Year + month(s) the week spans, e.g. "2026 JUN" or "2026 JUN / JUL".
     @ViewBuilder
-    private func dayGroup(plan: TrainingPlan, dayPlan: DayPlan, dayIdx: Int) -> some View {
+    private var monthYearHeader: some View {
+        if let text = monthYearText {
+            Text(text)
+                .font(.system(size: 22, weight: .light))
+                .tracking(4)
+                .foregroundStyle(Theme.ink3)
+        }
+    }
+
+    private var monthYearText: String? {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let monStr = mondayOfWeek(weekNum: weekNum),
+              let monday = f.date(from: monStr) else { return nil }
+        let sunday = Calendar.current.date(byAdding: .day, value: 6, to: monday) ?? monday
+        let mo = DateFormatter(); mo.dateFormat = "MMM"
+        let yr = DateFormatter(); yr.dateFormat = "yyyy"
+        let startMonth = mo.string(from: monday).uppercased()
+        let endMonth = mo.string(from: sunday).uppercased()
+        let startYear = yr.string(from: monday)
+        let endYear = yr.string(from: sunday)
+        if startYear == endYear {
+            return startMonth == endMonth
+                ? "\(startYear) \(startMonth)"
+                : "\(startYear) \(startMonth) / \(endMonth)"
+        }
+        // Week straddles New Year.
+        return "\(startYear) \(startMonth) / \(endYear) \(endMonth)"
+    }
+
+    @ViewBuilder
+    private func dayRow(plan: TrainingPlan, dayPlan: DayPlan, dayIdx: Int) -> some View {
         let dateStr = dateString(plan: plan, dayIdx: dayIdx)
         let isToday = !dateStr.isEmpty && dateStr == todayString()
         let isRest = dayPlan.isRest == true
 
         if isRest || !dayPlan.sessions.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                DayHeader(dayName: dayPlan.day, isToday: isToday)
-                    .padding(.leading, 4)
+            HStack(alignment: .top, spacing: 0) {
+                DayDateColumn(dayName: dayPlan.day, dateString: dateStr, isToday: isToday)
+                    .frame(width: 46, alignment: .leading)
+
+                // Fixed-width gutter so cards align whether or not the
+                // multi-session connector line is present.
+                ZStack(alignment: .top) {
+                    if dayPlan.sessions.count > 1 {
+                        Rectangle()
+                            .fill(Theme.line)
+                            .frame(width: 1)
+                            .frame(maxHeight: .infinity)
+                            .padding(.top, 40)
+                            .padding(.bottom, 6)
+                    }
+                }
+                .frame(width: 14)
 
                 if isRest {
-                    RestDayCard(dayPlan: dayPlan, dateString: dateStr)
+                    RestDayRow().padding(.top, 14)
+                    Spacer(minLength: 0)
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 8) {
                         ForEach(Array(dayPlan.sessions.enumerated()), id: \.offset) { sessionIdx, session in
-                            WeekDaySessionCard(
+                            WeekSessionRow(
                                 session: session,
                                 dateString: dateStr,
                                 weekNum: weekNum,
@@ -261,208 +309,169 @@ struct WeekDetailView: View {
     }
 }
 
-// MARK: - Day header
+// MARK: - Day / date column
 
-private struct DayHeader: View {
+/// Left-column label for a day: "MON" over the date number. Today's date
+/// number gets a white box highlight.
+private struct DayDateColumn: View {
     let dayName: String
+    let dateString: String
     let isToday: Bool
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(dayAbbrev)
+                .font(Theme.Typography.mono(11, weight: .medium))
+                .tracking(1.0)
+                .foregroundStyle(Theme.ink3)
+            Text(dayNumber)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(isToday ? Theme.bg : Theme.ink2)
+                .padding(.horizontal, isToday ? 7 : 0)
+                .padding(.vertical, isToday ? 3 : 0)
+                .background {
+                    if isToday {
+                        RoundedRectangle(cornerRadius: 7).fill(.white)
+                    }
+                }
+        }
+    }
+
+    private var parsedDate: Date? {
+        guard !dateString.isEmpty else { return nil }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: dateString)
+    }
+
+    private var dayAbbrev: String {
+        if let d = parsedDate {
+            let f = DateFormatter(); f.dateFormat = "EEE"
+            return f.string(from: d).uppercased()
+        }
+        return String(dayName.prefix(3)).uppercased()
+    }
+
+    private var dayNumber: String {
+        guard let d = parsedDate else { return "" }
+        let f = DateFormatter(); f.dateFormat = "d"
+        return f.string(from: d)
+    }
+}
+
+// MARK: - Rest day row
+
+/// Borderless inline rest-day marker shown next to the date column.
+private struct RestDayRow: View {
+    var body: some View {
         HStack(spacing: 8) {
-            Text(dayName.capitalized)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.ink)
-            if isToday {
-                Text("TODAY")
-                    .font(Theme.Typography.monoLabel)
-                    .tracking(Theme.Tracking.monoLabel)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Theme.accent))
-                    .foregroundStyle(Theme.accentInk)
-            }
-            Spacer()
+            Text("\u{1F6CF}\u{FE0F}")   // 🛏️
+                .font(.system(size: 17))
+            Text("Rest day")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Theme.ink2)
         }
     }
 }
 
-// MARK: - Session card
+// MARK: - Session row
 
-private struct WeekDaySessionCard: View {
+/// Compact session row for the week view: status badge · discipline icon ·
+/// title · duration/distance. Upcoming sessions show a right chevron instead
+/// of a left status badge. Tapping opens the same SessionDetailView as Home.
+private struct WeekSessionRow: View {
     let session: PrescribedSession
     let dateString: String
     let weekNum: Int
     let dayIdx: Int
     let sessionIdx: Int
 
-    @Environment(DataService.self) private var data
-    @State private var postStatusSheet: HomeTab.PostStatusContext?
-
     var body: some View {
-        let status = session.sessionCardStatus
-        return ZStack(alignment: .topTrailing) {
-            NavigationLink {
-                SessionDetailView(
-                    session: session,
-                    dateString: dateString,
-                    weekNum: weekNum,
-                    dayIdx: dayIdx,
-                    sessionIdx: sessionIdx
-                )
-            } label: {
-                VStack(spacing: 0) {
-                    if let status {
-                        SessionStatusStrip(status: status)
-                    }
+        NavigationLink {
+            SessionDetailView(
+                session: session,
+                dateString: dateString,
+                weekNum: weekNum,
+                dayIdx: dayIdx,
+                sessionIdx: sessionIdx
+            )
+        } label: {
+            HStack(spacing: 10) {
+                if statusKind != .pending {
+                    statusBadge
+                }
 
-                    HStack(spacing: 0) {
-                        // Sport-colored left rule — matches Home's Today SessionCard.
-                        Rectangle()
-                            .fill(discipline.color)
-                            .frame(width: 3)
+                Image(systemName: discipline.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(discipline.color)
+                    .frame(width: 22)
 
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(session.displayTitle)
-                                .font(Theme.Typography.sessionTitle)
-                                .foregroundStyle(Theme.ink)
-                                .tracking(Theme.Tracking.headline)
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            Text(metaLine)
-                                .font(Theme.Typography.monoMeta)
-                                .foregroundStyle(Theme.ink2)
-
-                            if let note = session.notes, !note.isEmpty {
-                                Text(note)
-                                    .font(Theme.Typography.small)
-                                    .foregroundStyle(Theme.ink2)
-                                    .lineLimit(2)
-                                    .padding(.top, 2)
-                            }
-
-                            if let completionNote = session.completionNote, !completionNote.isEmpty {
-                                Text("\u{201C}\(completionNote)\u{201D}")
-                                    .font(Theme.Typography.small)
-                                    .italic()
-                                    .foregroundStyle(Theme.ink3)
-                                    .lineLimit(2)
-                                    .padding(.top, 2)
-                            }
-                        }
-                        .padding(.leading, 14)
-                        .padding(.vertical, 14)
-                        // Leave trailing space for the absolute-positioned menu.
-                        .padding(.trailing, 50)
-
-                        Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.displayTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !metaLine.isEmpty {
+                        Text(metaLine)
+                            .font(Theme.Typography.mono(11))
+                            .foregroundStyle(Theme.ink2)
                     }
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
 
-            // Menu lives outside the NavigationLink so its taps don't
-            // trigger the push. Positioned in the top-right corner of
-            // the body (below the status strip when one is present).
-            SessionStatusMenu(
-                sessionLabel: session.label,
-                currentStatus: session.statusKind,
-                onDone:     { Task { await commitStatus(.done) } },
-                onModified: { Task { await commitStatus(.modified) } },
-                onSwapped:  { Task { await commitStatus(.swapped) } },
-                onSkipped:  { Task { await commitStatus(.skipped) } },
-                onEdit:     {}, // Body tap handles navigation.
-                onClear:    { Task { await clearStatus() } }
-            )
-            .padding(.top, status == nil ? 10 : 40)
-            .padding(.trailing, 10)
+                Spacer(minLength: 6)
+
+                if statusKind == .pending {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.ink3)
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
         .background(Theme.surface1)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
+            RoundedRectangle(cornerRadius: 14)
                 .strokeBorder(Theme.line, lineWidth: 1)
         )
-        .dsCardShadow()
-        .sheet(item: $postStatusSheet) { ctx in
-            PostStatusChatSheet(
-                sessionLabel: ctx.sessionLabel,
-                status: ctx.status,
-                weekNum: ctx.weekNum,
-                dayIdx: ctx.dayIdx,
-                sessionIdx: ctx.sessionIdx
+    }
+
+    // MARK: Status badge
+
+    /// Rounded-square badge in the canonical status color family. Shown only
+    /// for resolved sessions; pending sessions use the right chevron instead.
+    private var statusBadge: some View {
+        let kind = statusKind
+        return RoundedRectangle(cornerRadius: 8)
+            .fill(kind.fill)
+            .frame(width: 28, height: 28)
+            .overlay(
+                Image(systemName: badgeGlyph)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(kind.tint)
             )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-    }
-
-    // MARK: - Status mutations
-
-    @MainActor
-    private func commitStatus(_ kind: Theme.SessionStatusKind) async {
-        do {
-            try await data.updateSessionCompletion(
-                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
-            ) { s in
-                let iso = ISO8601DateFormatter().string(from: Date())
-                switch kind {
-                case .done:
-                    s.completionStatus = .completed
-                    s.completed = true
-                    s.completionResolvedAt = iso
-                case .modified:
-                    s.completionStatus = .modified
-                    s.completed = true
-                    s.completionResolvedAt = iso
-                case .swapped:
-                    s.completionStatus = .swapped
-                    s.completed = true
-                    s.completionResolvedAt = iso
-                case .skipped:
-                    s.completionStatus = .skipped
-                    s.completed = false
-                    s.completionResolvedAt = iso
-                case .pending:
-                    return
-                }
-            }
-            // Same check-in pattern as Today: every status opens the
-            // sheet so the coach gets context on every logged session,
-            // not just the ones the athlete botched.
-            postStatusSheet = HomeTab.PostStatusContext(
-                sessionLabel: session.label,
-                status: kind,
-                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(kind.border ?? .clear, lineWidth: 1)
             )
-        } catch {
-            print("WeekDetail.commitStatus failed (\(kind) week \(weekNum) day \(dayIdx) idx \(sessionIdx)): \(error)")
+    }
+
+    private var badgeGlyph: String {
+        switch statusKind {
+        case .done:     return "checkmark"
+        case .skipped:  return "xmark"
+        case .modified: return "pencil"
+        case .swapped:  return "arrow.2.squarepath"
+        case .pending:  return "circle"
         }
     }
 
-    @MainActor
-    private func clearStatus() async {
-        do {
-            try await data.updateSessionCompletion(
-                weekNum: weekNum, dayIdx: dayIdx, sessionIdx: sessionIdx
-            ) { s in
-                s.completionStatus = nil
-                s.completed = nil
-                s.actualDuration = nil
-                s.actualDistance = nil
-                s.actualSport = nil
-                s.actualEffort = nil
-                s.replacedWithLabel = nil
-                s.skipReason = nil
-                s.completionNote = nil
-                s.completionResolvedAt = nil
-            }
-        } catch {
-            print("WeekDetail.clearStatus failed (week \(weekNum) day \(dayIdx) idx \(sessionIdx)): \(error)")
-        }
-    }
+    private var statusKind: Theme.SessionStatusKind { session.statusKind }
 
     // MARK: Derived — discipline
 
@@ -474,38 +483,26 @@ private struct WeekDaySessionCard: View {
 
     // MARK: Derived — meta line (discipline-aware)
 
-    /// One uppercase mono line whose content depends on the session's
-    /// discipline (see the week-detail spec, §4):
-    ///   swim     → duration · distance (meters)
-    ///   bike/run → duration · distance (miles)
-    ///   strength → exercise count · duration
-    /// Mobility / yoga / functional are not yet in the data model — see TODO.
+    /// One uppercase mono line: swim → duration · meters, bike/run →
+    /// duration · miles, strength → exercise count · duration.
     private var metaLine: String {
         let dur = durationUpper
         switch session.type.lowercased() {
         case "strength":
-            // Strength tracks exercises, not distance.
             if let n = session.exercises?.count, n > 0 {
                 return joinMeta(["\(n) EXERCISE\(n == 1 ? "" : "S")", dur])
             }
             return dur
-
         case "swim":
             // No native meters field — convert from distance_miles and round
-            // to the nearest 25m (pool length) for clean values.
-            // TODO: use a real meters field if one is added to the model.
+            // to the nearest 25m. TODO: use a real meters field if added.
             if let mi = session.distanceMiles, mi > 0 {
                 let meters = Int((mi * 1609.34 / 25).rounded()) * 25
                 return joinMeta([dur, "\(meters) M"])
             }
             return dur
-
-        // TODO: mobility / yoga / functional aren't in the Sport model yet.
-        // When added, render "duration · DESCRIPTOR" (RESTORATIVE / FLOW /
-        // CORE) pulled from session metadata.
-
+        // TODO: mobility / yoga / functional descriptors once in the model.
         default:
-            // Bike, run, brick, hike, other: duration · distance (user units).
             if let mi = session.distanceMiles, mi > 0 {
                 return joinMeta([dur, String(format: "%.1f MI", mi)])
             }
@@ -513,8 +510,6 @@ private struct WeekDaySessionCard: View {
         }
     }
 
-    /// Uppercase duration, e.g. "1 HR 10 MIN", "59 MIN", or an estimated
-    /// "45–60 MIN" range when no fixed duration is set.
     private var durationUpper: String {
         if let d = session.duration, d > 0 {
             let h = d / 60, m = d % 60
@@ -530,57 +525,6 @@ private struct WeekDaySessionCard: View {
 
     private func joinMeta(_ parts: [String]) -> String {
         parts.filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
-    }
-}
-
-// MARK: - Rest day card
-
-private struct RestDayCard: View {
-    let dayPlan: DayPlan
-    let dateString: String
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(Theme.Discipline.recovery.color)
-                .frame(width: 3)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: "moon.zzz.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Theme.Discipline.recovery.color)
-                    Text("Rest day")
-                        .font(Theme.Typography.sessionTitle)
-                        .foregroundStyle(Theme.ink)
-                }
-
-                if !dateString.isEmpty {
-                    Text(formatDayLong(dateString))
-                        .font(Theme.Typography.monoMeta)
-                        .foregroundStyle(Theme.ink3)
-                }
-
-                if let note = dayPlan.restNote, !note.isEmpty {
-                    Text(note)
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-                }
-            }
-            .padding(.leading, 14)
-            .padding(.vertical, 14)
-            .padding(.trailing, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(Theme.surface1)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card)
-                .strokeBorder(Theme.line, lineWidth: 1)
-        )
-        .dsCardShadow()
     }
 }
 
