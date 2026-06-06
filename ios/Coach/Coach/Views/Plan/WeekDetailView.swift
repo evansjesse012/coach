@@ -58,12 +58,16 @@ struct WeekDetailView: View {
         let preview = weekStart.flatMap(data.weeklyPreview(forWeekStarting:))
         let priorReview = priorWeekStart.flatMap(data.weeklyReview(forWeekStarting:))
 
+        // Review on top (expanded by default), preview below (collapsed).
+        // The `.id` resets each card's expand state when the week changes.
         VStack(spacing: 12) {
-            if let preview {
-                WeeklyArtifactView(source: .preview(preview))
-            }
             if let priorReview, priorReview.isComplete {
-                WeeklyArtifactView(source: .review(priorReview))
+                WeekReviewCard(review: priorReview)
+                    .id(priorReview.id)
+            }
+            if let preview {
+                WeekPreviewCard(preview: preview)
+                    .id(preview.id)
             }
         }
     }
