@@ -121,18 +121,27 @@ struct WeekDetailView: View {
                 }
             } label: {
                 VStack(spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text(weekTitle)
-                            .font(.system(size: 20, weight: .semibold))
+                    // Week number — "Week 4 /20". The "/20" total reads
+                    // faint and smaller, per the week-header spec.
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("Week \(weekNum)")
+                            .font(.system(size: 34, weight: .semibold))
+                            .tracking(-0.68)   // ~-0.02em on 34pt
                             .foregroundStyle(Theme.ink)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Theme.ink3)
+                        if let total = data.trainingPlan?.totalWeeks {
+                            Text("/\(total)")
+                                .font(.system(size: 20, weight: .regular))
+                                .foregroundStyle(Theme.ink3)
+                        }
                     }
-                    if let range = weekDateRange {
-                        Text(range)
-                            .font(Theme.Typography.monoMeta)
-                            .foregroundStyle(Theme.ink3)
+                    // Phase label — "△ BASE phase". Keyword uppercase,
+                    // "phase" lowercase, moss accent.
+                    if let phase = phaseLabel {
+                        Text(phase)
+                            .font(Theme.Typography.monoLabel)
+                            .tracking(1.3)     // ~0.1em on 13pt
+                            .foregroundStyle(Theme.accent)
+                            .padding(.top, 2)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -168,6 +177,17 @@ struct WeekDetailView: View {
 
     private var weekDateRange: String? {
         weekRangeLabel(planStartDate: data.trainingPlan?.startDate, weekNumber: weekNum)
+    }
+
+    /// "△ BASE phase" for the week header — keyword uppercased, "phase"
+    /// lowercase. Nil when the week has no phase recorded (e.g. no plan).
+    private var phaseLabel: String? {
+        guard let plan = data.trainingPlan,
+              let wp = plan.weeklyPlans[String(weekNum)],
+              let phaseNum = wp.phase,
+              let phase = plan.phases.first(where: { $0.number == phaseNum })
+        else { return nil }
+        return "\u{25B3} \(phase.name.uppercased()) phase"
     }
 
     // MARK: - Sessions list
