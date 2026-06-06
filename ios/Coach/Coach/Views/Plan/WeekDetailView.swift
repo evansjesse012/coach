@@ -55,21 +55,42 @@ struct WeekDetailView: View {
         let weekStart = mondayOfWeek(weekNum: weekNum)
         let priorWeekStart = priorMonday(of: weekStart)
 
-        let preview = weekStart.flatMap(data.weeklyPreview(forWeekStarting:))
-        let priorReview = priorWeekStart.flatMap(data.weeklyReview(forWeekStarting:))
+        let artifacts = resolvedArtifacts(weekStart: weekStart, priorWeekStart: priorWeekStart)
 
         // Review on top (expanded by default), preview below (collapsed).
         // The `.id` resets each card's expand state when the week changes.
         VStack(spacing: 12) {
-            if let priorReview, priorReview.isComplete {
-                WeekReviewCard(review: priorReview)
-                    .id(priorReview.id)
+            if let review = artifacts.review {
+                WeekReviewCard(review: review)
+                    .id(review.id)
             }
-            if let preview {
+            if let preview = artifacts.preview {
                 WeekPreviewCard(preview: preview)
                     .id(preview.id)
             }
         }
+    }
+
+    /// Resolves which preview/review to show for the current week. Real
+    /// artifacts when present; in DEBUG, sample content fills the gaps so the
+    /// cards are visible without check-in data. Release builds return nil when
+    /// data is absent. Kept out of the `@ViewBuilder` body because `#if` inside
+    /// a builder is parsed as conditional view content. See SampleCoachArtifacts.
+    private func resolvedArtifacts(
+        weekStart: String?,
+        priorWeekStart: String?
+    ) -> (review: WeeklyReview?, preview: WeeklyPreview?) {
+        let realPreview = weekStart.flatMap(data.weeklyPreview(forWeekStarting:))
+        let realReview = priorWeekStart.flatMap(data.weeklyReview(forWeekStarting:))
+        #if DEBUG
+        let review: WeeklyReview? = (realReview?.isComplete == true)
+            ? realReview : .sample(weekStart: priorWeekStart)
+        let preview: WeeklyPreview? = realPreview ?? .sample(weekStart: weekStart)
+        #else
+        let review: WeeklyReview? = (realReview?.isComplete == true) ? realReview : nil
+        let preview: WeeklyPreview? = realPreview
+        #endif
+        return (review, preview)
     }
 
     /// Monday-of-week as `yyyy-MM-dd` for `weekNum`. Computes against
