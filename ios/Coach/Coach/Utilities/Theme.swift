@@ -27,6 +27,18 @@ enum Theme {
     static let warnBg     = dyn(l: "FBE8E4", d: "2C1611")
     static let info       = dyn(l: "2C5DC7", d: "7CB0FF")
 
+    // MARK: Support & narrative accents (Week Detail redesign)
+    //
+    // New accents introduced for the week-detail page. `coach` and
+    // `mobility` are brand-new tokens with no prior conflict. `strengthBronze`
+    // is a SEPARATE bronze used only on the week-detail support tier — the
+    // global strength discipline color (`Discipline.strength`) stays purple,
+    // so Home / Log and other surfaces are unaffected. Light-mode values are
+    // deeper variants of the dark hues so they contrast against cream/white.
+    static let coach          = dyn(l: "7C5FC0", d: "B9A6E8")  // violet
+    static let mobility       = dyn(l: "5E8470", d: "94B5A0")  // sage
+    static let strengthBronze = dyn(l: "9A6B28", d: "D4A85C")  // bronze
+
     // Status fills for modified / swapped sessions. Amber family, not a
     // core brand color — lives here because the canonical status palette
     // requires it. Dark variant approximates `rgba(232,179,71,0.18)` over
