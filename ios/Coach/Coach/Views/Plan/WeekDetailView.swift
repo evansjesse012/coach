@@ -20,6 +20,7 @@ struct WeekDetailView: View {
                     if wp.isStub {
                         StubWeekCard(plan: plan, weeklyPlan: wp)
                     } else {
+                        WeekTotalsCard(weeklyPlan: wp)
                         sessionsList(plan: plan, weeklyPlan: wp)
                     }
                 } else {
