@@ -303,12 +303,8 @@ private struct WeekDaySessionCard: View {
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
 
-                            Text(secondLine)
+                            Text(metaLine)
                                 .font(Theme.Typography.monoMeta)
-                                .foregroundStyle(Theme.ink3)
-
-                            Text(thirdLine)
-                                .font(Theme.Typography.bodyS)
                                 .foregroundStyle(Theme.ink2)
 
                             if let note = session.notes, !note.isEmpty {
@@ -450,49 +446,64 @@ private struct WeekDaySessionCard: View {
         return .run
     }
 
-    // MARK: Derived — text
+    // MARK: Derived — meta line (discipline-aware)
 
-    private var secondLine: String {
-        var parts: [String] = []
-        if let short = shortDate {
-            parts.append(short)
+    /// One uppercase mono line whose content depends on the session's
+    /// discipline (see the week-detail spec, §4):
+    ///   swim     → duration · distance (meters)
+    ///   bike/run → duration · distance (miles)
+    ///   strength → exercise count · duration
+    /// Mobility / yoga / functional are not yet in the data model — see TODO.
+    private var metaLine: String {
+        let dur = durationUpper
+        switch session.type.lowercased() {
+        case "strength":
+            // Strength tracks exercises, not distance.
+            if let n = session.exercises?.count, n > 0 {
+                return joinMeta(["\(n) EXERCISE\(n == 1 ? "" : "S")", dur])
+            }
+            return dur
+
+        case "swim":
+            // No native meters field — convert from distance_miles and round
+            // to the nearest 25m (pool length) for clean values.
+            // TODO: use a real meters field if one is added to the model.
+            if let mi = session.distanceMiles, mi > 0 {
+                let meters = Int((mi * 1609.34 / 25).rounded()) * 25
+                return joinMeta([dur, "\(meters) M"])
+            }
+            return dur
+
+        // TODO: mobility / yoga / functional aren't in the Sport model yet.
+        // When added, render "duration · DESCRIPTOR" (RESTORATIVE / FLOW /
+        // CORE) pulled from session metadata.
+
+        default:
+            // Bike, run, brick, hike, other: duration · distance (user units).
+            if let mi = session.distanceMiles, mi > 0 {
+                return joinMeta([dur, String(format: "%.1f MI", mi)])
+            }
+            return dur
         }
-        if let durRange = durationRange {
-            parts.append(durRange)
-        } else if let dur = session.duration {
-            parts.append("\(dur)m")
-        }
-        return parts.joined(separator: " · ")
     }
 
-    private var shortDate: String? {
-        guard !dateString.isEmpty else { return nil }
-        let input = DateFormatter()
-        input.dateFormat = "yyyy-MM-dd"
-        guard let date = input.date(from: dateString) else { return nil }
-        let output = DateFormatter()
-        output.dateFormat = "MMM d"
-        return output.string(from: date)
-    }
-
-    private var thirdLine: String {
-        var parts: [String] = []
-        if let cat = session.effortCategory {
-            parts.append(cat.label)
-        } else if !session.type.isEmpty {
-            parts.append(session.type.capitalized)
+    /// Uppercase duration, e.g. "1 HR 10 MIN", "59 MIN", or an estimated
+    /// "45–60 MIN" range when no fixed duration is set.
+    private var durationUpper: String {
+        if let d = session.duration, d > 0 {
+            let h = d / 60, m = d % 60
+            if h > 0 && m > 0 { return "\(h) HR \(m) MIN" }
+            if h > 0 { return "\(h) HR" }
+            return "\(m) MIN"
         }
-        if let mi = session.distanceMiles, mi > 0 {
-            parts.append(String(format: "%.1f mi", mi))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private var durationRange: String? {
         if let lo = session.estimatedDurationMin, let hi = session.estimatedDurationMax {
-            return "\(lo)–\(hi)m"
+            return "\(lo)\u{2013}\(hi) MIN"
         }
-        return nil
+        return ""
+    }
+
+    private func joinMeta(_ parts: [String]) -> String {
+        parts.filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
     }
 }
 
