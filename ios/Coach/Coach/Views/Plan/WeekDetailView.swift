@@ -102,7 +102,11 @@ struct WeekDetailView: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         guard let start = f.date(from: startStr) else { return nil }
-        let monday = Calendar.current.date(byAdding: .day, value: (weekNum - 1) * 7, to: start) ?? start
+        // Snap to the week's Monday, matching sessionDateString / weekRangeLabel
+        // / the Home grid. Without this snap a non-Monday startDate makes the
+        // header date range disagree with the day cells by up to 6 days.
+        let raw = Calendar.current.date(byAdding: .day, value: (weekNum - 1) * 7, to: start) ?? start
+        let monday = mondayOf(raw)
         return f.string(from: monday)
     }
 
