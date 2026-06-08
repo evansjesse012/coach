@@ -266,12 +266,9 @@ struct WeekDetailView: View {
         let isRest = dayPlan.isRest == true
 
         if isRest || !dayPlan.sessions.isEmpty {
-            HStack(alignment: .top, spacing: 0) {
-                DayDateColumn(dayName: dayPlan.day, dateString: dateStr, isToday: isToday)
-                    .frame(width: 46, alignment: .leading)
-
-                // Fixed-width gutter so cards align whether or not the
-                // multi-session connector line is present.
+            HStack(alignment: .top, spacing: 12) {
+                // Day column with the multi-session connector line centered
+                // beneath the day name / number.
                 ZStack(alignment: .top) {
                     if dayPlan.sessions.count > 1 {
                         Rectangle()
@@ -281,8 +278,10 @@ struct WeekDetailView: View {
                             .padding(.top, 40)
                             .padding(.bottom, 6)
                     }
+                    DayDateColumn(dayName: dayPlan.day, dateString: dateStr, isToday: isToday)
+                        .frame(maxWidth: .infinity)
                 }
-                .frame(width: 14)
+                .frame(width: 46)
 
                 if isRest {
                     RestDayRow().padding(.top, 14)
@@ -319,7 +318,7 @@ private struct DayDateColumn: View {
     let isToday: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .center, spacing: 3) {
             Text(dayAbbrev)
                 .font(Theme.Typography.mono(11, weight: .medium))
                 .tracking(1.0)
