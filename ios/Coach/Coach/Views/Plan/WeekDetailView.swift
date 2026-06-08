@@ -414,9 +414,9 @@ private struct WeekSessionRow: View {
             )
         } label: {
             HStack(spacing: 10) {
-                if statusKind != .pending {
-                    statusBadge
-                }
+                // Always show a status badge to the left of the sport icon.
+                // Upcoming sessions get a grey box with a right arrow.
+                statusBadge
 
                 Image(systemName: discipline.icon)
                     .font(.system(size: 16, weight: .semibold))
@@ -438,12 +438,6 @@ private struct WeekSessionRow: View {
                 }
 
                 Spacer(minLength: 6)
-
-                if statusKind == .pending {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.ink3)
-                }
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
@@ -485,7 +479,7 @@ private struct WeekSessionRow: View {
         case .skipped:  return "xmark"
         case .modified: return "pencil"
         case .swapped:  return "arrow.2.squarepath"
-        case .pending:  return "circle"
+        case .pending:  return "arrow.right"
         }
     }
 
