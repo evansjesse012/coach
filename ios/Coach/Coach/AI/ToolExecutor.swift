@@ -1261,22 +1261,32 @@ private func firstFutureCompletionMark(
     in wp: WeeklyPlan,
     planStartDate: String?
 ) -> String? {
-    guard let startDateStr = planStartDate else { return nil }
+    guard planStartDate != nil else { return nil }
     let iso = DateFormatter()
     iso.dateFormat = "yyyy-MM-dd"
-    guard let planStart = iso.date(from: startDateStr) else { return nil }
     let today = todayString()
 
     for (dayIdx, day) in wp.sessions.enumerated() {
-        let offset = (wp.weekNumber - 1) * 7 + dayIdx
-        guard let date = Calendar.current.date(byAdding: .day, value: offset, to: planStart) else { continue }
-        let dateStr = iso.string(from: date)
+        // Resolve each day's date through the same Monday-snapped helper the
+        // rest of the app uses (sessionDateString → mondayOf). Recomputing
+        // the offset inline without that snap shifts every day by however far
+        // the plan's startDate sits from its Monday, which can push a
+        // past/today session forward past `today` and trip a false "future
+        // completion" rejection on plans with a non-Monday startDate.
+        guard let dateStr = sessionDateString(
+            planStartDate: planStartDate,
+            weekNumber: wp.weekNumber,
+            dayIdx: dayIdx
+        ) else { continue }
         guard dateStr > today else { continue }   // past or today — marking is allowed
         for session in day.sessions {
             guard session.completionStatus != nil || session.completed == true else { continue }
-            let pretty = DateFormatter()
-            pretty.dateFormat = "EEE, MMM d"
-            let when = pretty.string(from: date)
+            let when: String = {
+                guard let date = iso.date(from: dateStr) else { return dateStr }
+                let pretty = DateFormatter()
+                pretty.dateFormat = "EEE, MMM d"
+                return pretty.string(from: date)
+            }()
             return "Rejected — '\(session.label)' on \(when) (week \(wp.weekNumber), day \(dayIdx)) is in the future, and the patch set a completion field on it (completion_status / actual_sport / actual_duration / skip_reason / completion_note). Completion fields describe what actually happened and only apply once the session's date has arrived. For a forward-looking prescription change (e.g. Friday swim → Friday run), use `update` with prescription fields (type, sport, label, workout, distance_miles, pace_range, fuel) — or `delete` + `add` — instead. This is not an app bug; re-issue as a prescription edit. If instead the athlete is reporting a session they already did differently, the date is wrong — confirm which day they actually meant before any edit."
         }
     }
