@@ -160,6 +160,13 @@ struct WeekDetailView: View {
                                 .foregroundStyle(Theme.ink3)
                         }
                     }
+                    // Date range — "Jun 1 - Jun 7".
+                    if let range = weekDateRangeText {
+                        Text(range)
+                            .font(Theme.Typography.monoMeta)
+                            .foregroundStyle(Theme.ink3)
+                            .padding(.top, 2)
+                    }
                     // Phase label — "△ BASE phase". Keyword uppercase,
                     // "phase" lowercase, moss accent.
                     if let phase = phaseLabel {
@@ -203,6 +210,18 @@ struct WeekDetailView: View {
 
     private var weekDateRange: String? {
         weekRangeLabel(planStartDate: data.trainingPlan?.startDate, weekNumber: weekNum)
+    }
+
+    /// Week date range for the header, e.g. "Jun 1 - Jun 7".
+    private var weekDateRangeText: String? {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let monStr = mondayOfWeek(weekNum: weekNum),
+              let monday = f.date(from: monStr) else { return nil }
+        let sunday = Calendar.current.date(byAdding: .day, value: 6, to: monday) ?? monday
+        let out = DateFormatter()
+        out.dateFormat = "MMM d"
+        return "\(out.string(from: monday)) - \(out.string(from: sunday))"
     }
 
     /// "△ BASE phase" for the week header — keyword uppercased, "phase"
