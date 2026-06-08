@@ -239,14 +239,14 @@ private func fetchRecoveryPicture(trainingLoad: TrainingLoadSnapshot?) async -> 
 // MARK: - Agent Loop
 
 /// Port of runAgentLoop from page.jsx lines 914-931.
-/// Executes multi-turn tool use with the AI coach, max 7 rounds.
+/// Executes multi-turn tool use with the AI coach, max 20 rounds.
 @MainActor
 func runAgentLoop(
     personality: Personality,
     customText: String,
     messages: [ChatMessage],
     dataService: DataService,
-    maxRounds: Int = 6,
+    maxRounds: Int = 20,
     recentConversationSummaries: [String] = []
 ) async throws -> AgentResult {
     // Clean messages for API format — only current conversation, not
