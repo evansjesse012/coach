@@ -395,10 +395,10 @@ enum SeedData {
         for pr in prs { try await data.savePR(pr) }
 
         // 5. Training plan with rich phase data + 6 weeks of base sessions.
-        // Plan start is snapped to Monday so week math lines up: day 0 of
-        // week N is always a Monday for consumers downstream.
+        // The seeded plan is Monday-anchored; its start is snapped so week
+        // math lines up: day 0 of week N is always a Monday downstream.
         let rawStart = cal.date(byAdding: .day, value: -14, to: today)!
-        let planStartStr = localDateString(from: mondayOf(rawStart))
+        let planStartStr = localDateString(from: weekStart(of: rawStart, anchor: .monday))
         let plan = TrainingPlan(
             id: UUID().uuidString,
             goalId: marathon.id,
@@ -409,6 +409,7 @@ enum SeedData {
             currentWeek: 3,
             currentPhase: 1,
             trainingDaysPerWeek: 6,
+            weekStartDay: .monday,
             phases: [
                 basePhase(startOffset: -14),
                 buildPhase(startOffset: 28),

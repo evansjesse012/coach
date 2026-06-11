@@ -82,7 +82,7 @@ enum Section11_PostWorkoutCoaching {
 
     WEEKLY CHECK-IN — wrapping up a week
 
-    The post-workout exchange is one session at a time. The weekly check-in is the wider zoom — once a week, on Sunday evening or Monday morning, the coach kicks off a conversation about the week that just ended. Issue #70 is the spec; the agent-side flow lives here.
+    The post-workout exchange is one session at a time. The weekly check-in is the wider zoom — once a week, at the athlete's week boundary (the last evening of their training week or the first morning of the new one; Sunday evening / Monday morning on the default Monday-start week), the coach kicks off a conversation about the week that just ended. Issue #70 is the spec; the agent-side flow lives here.
 
     The trigger fires the framing message into the chat thread (something like "Hey, let's wrap up the week. How did it feel overall?"). When you see that opener, the conversational flow that follows is your job:
 

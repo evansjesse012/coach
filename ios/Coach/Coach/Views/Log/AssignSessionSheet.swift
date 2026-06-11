@@ -46,8 +46,7 @@ struct AssignSessionSheet: View {
     /// (session, computed date string, day offset vs workout date)
     private var candidates: [(PrescribedSession, String, Int)] {
         guard let plan = data.trainingPlan,
-              let planStartStr = plan.startDate,
-              let planStart = parseDate(planStartStr),
+              plan.startDate != nil,
               let workoutDate = parseDate(workout.date) else { return [] }
 
         let workoutSport = workout.sport.rawValue
@@ -56,8 +55,15 @@ struct AssignSessionSheet: View {
         for (weekKey, wp) in plan.weeklyPlans {
             guard let weekNum = Int(weekKey) else { continue }
             for (dayIdx, dayPlan) in wp.sessions.enumerated() {
-                let totalDays = (weekNum - 1) * 7 + dayIdx
-                guard let sessionDate = Calendar.current.date(byAdding: .day, value: totalDays, to: planStart) else { continue }
+                // Resolve the day's date through the canonical anchor-snapped
+                // helper — the raw planStart + offset math here drifted by up
+                // to 6 days whenever startDate wasn't on the week anchor.
+                guard let isoDateStr = sessionDateString(
+                    planStartDate: plan.startDate,
+                    weekNumber: weekNum,
+                    dayIdx: dayIdx,
+                    anchor: plan.weekAnchor
+                ), let sessionDate = parseDate(isoDateStr) else { continue }
                 let offset = Calendar.current.dateComponents([.day], from: workoutDate, to: sessionDate).day ?? 99
                 guard abs(offset) <= windowDays else { continue }
                 let dateStr = formatDate(sessionDate)

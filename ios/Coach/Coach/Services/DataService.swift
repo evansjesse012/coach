@@ -93,22 +93,23 @@ final class DataService {
     var weeklyPreviews: [WeeklyPreview] = []
 
     /// The preview row covering the week the athlete is currently in,
-    /// keyed by today's Monday. nil when the athlete hasn't completed
-    /// a check-in for last week yet (or when the trigger window
-    /// hasn't fired). Used by the Today "This week" theme line.
+    /// keyed by today's week-start day (athlete's anchor). nil when the
+    /// athlete hasn't completed a check-in for last week yet (or when
+    /// the trigger window hasn't fired). Used by the Today "This week"
+    /// theme line.
     var activeWeekPreview: WeeklyPreview? {
-        let mondayStr = WeekBoundary.mondayString(of: Date())
-        return weeklyPreviews.first(where: { $0.weekStartDate == mondayStr })
+        let weekStartStr = WeekBoundary.weekStartString(of: Date(), anchor: settings.weekAnchor)
+        return weeklyPreviews.first(where: { $0.weekStartDate == weekStartStr })
     }
 
     /// Lookup helpers used by `WeekDetailView` to embed the artifacts
-    /// at the top of a week's view. Both match by Monday-of-week
+    /// at the top of a week's view. Both match by week-start date
     /// against the corresponding artifact tables.
-    func weeklyReview(forWeekStarting monday: String) -> WeeklyReview? {
-        weeklyReviews.first(where: { $0.weekStartDate == monday })
+    func weeklyReview(forWeekStarting weekStart: String) -> WeeklyReview? {
+        weeklyReviews.first(where: { $0.weekStartDate == weekStart })
     }
-    func weeklyPreview(forWeekStarting monday: String) -> WeeklyPreview? {
-        weeklyPreviews.first(where: { $0.weekStartDate == monday })
+    func weeklyPreview(forWeekStarting weekStart: String) -> WeeklyPreview? {
+        weeklyPreviews.first(where: { $0.weekStartDate == weekStart })
     }
 
     /// HealthKit-imported workouts that the WorkoutMatcher couldn't pair to
@@ -568,8 +569,8 @@ final class DataService {
         let currentWeek = plan.currentWeek
         guard let wp = plan.weeklyPlans[String(currentWeek)] else { return [] }
 
-        // Monday-indexed day: 0 = Monday .. 6 = Sunday.
-        let dayIdx = (Calendar.current.component(.weekday, from: Date()) + 5) % 7
+        // Day index within the plan's week (0 = the plan's week-start day).
+        let dayIdx = todayDayIndex(anchor: plan.weekAnchor)
         guard dayIdx < wp.sessions.count else { return [] }
 
         let dayPlan = wp.sessions[dayIdx]
@@ -722,7 +723,11 @@ final class DataService {
         guard let startStr = plan.startDate else { return nil }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        guard let start = f.date(from: startStr), let target = f.date(from: dateString) else { return nil }
+        guard let rawStart = f.date(from: startStr), let target = f.date(from: dateString) else { return nil }
+        // Snap to the plan's week-start anchor before the day math —
+        // matching sessionDateString — so a startDate that drifted off
+        // the anchor can't shift every coordinate by up to 6 days.
+        let start = weekStart(of: rawStart, anchor: plan.weekAnchor)
         let days = Calendar.current.dateComponents([.day], from: start, to: target).day ?? -1
         guard days >= 0 else { return nil }
         let weekNum = days / 7 + 1
@@ -1000,7 +1005,8 @@ final class DataService {
                 guard let scheduled = sessionDateString(
                     planStartDate: plan.startDate,
                     weekNumber: weekNum,
-                    dayIdx: dayIdx
+                    dayIdx: dayIdx,
+                    anchor: plan.weekAnchor
                 ), scheduled == targetDate else { continue }
 
                 // Lowercase the type filter — SessionDetailView and other
@@ -1395,20 +1401,20 @@ final class DataService {
         guard var plan = trainingPlan else { return }
 
         // Calendar math. Both dates at day granularity. We anchor to the
-        // *Monday* of the plan's start week — not `startDate` itself —
-        // because every other surface (sessionDateString, weekRangeLabel,
-        // computeWeekAdherence, WeekStripCell's grid) does the same. A
-        // plan whose startDate lands on, say, Sunday would otherwise
-        // compute currentWeek a full week behind those surfaces, and
-        // the Home card would render last week's grid.
+        // *week-start day* of the plan's start week — not `startDate`
+        // itself — because every other surface (sessionDateString,
+        // weekRangeLabel, computeWeekAdherence, WeekStripCell's grid)
+        // does the same. A plan whose startDate drifted off its anchor
+        // would otherwise compute currentWeek a full week behind those
+        // surfaces, and the Home card would render last week's grid.
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         guard let startStr = plan.startDate,
               let start = formatter.date(from: startStr) else { return }
 
         let calendar = Calendar.current
-        let planMonday = mondayOf(start)
-        let startDay = calendar.startOfDay(for: planMonday)
+        let planWeekStart = weekStart(of: start, anchor: plan.weekAnchor)
+        let startDay = calendar.startOfDay(for: planWeekStart)
         let todayDay = calendar.startOfDay(for: Date())
         let daysSinceStart = calendar.dateComponents([.day], from: startDay, to: todayDay).day ?? 0
         guard daysSinceStart >= 0 else { return } // plan hasn't started yet
@@ -1553,14 +1559,14 @@ final class DataService {
 
     /// Computes the `yyyy-MM-dd` date for a session at the given plan
     /// coordinates. Delegates to `sessionDateString`, which applies the
-    /// same `mondayOf` snap every display surface uses. Without the
-    /// snap, a plan whose `startDate` is not a Monday produced a date
-    /// up to 6 days off — the future-session guard below was wrongly
+    /// same week-start snap every display surface uses. Without the
+    /// snap, a plan whose `startDate` drifted off its anchor produced a
+    /// date up to 6 days off — the future-session guard below was wrongly
     /// rejecting today's sessions as "scheduled in the future" and
     /// silently throwing, which is why status marks and workout links
     /// weren't persisting.
     private func scheduledDate(plan: TrainingPlan, weekNum: Int, dayIdx: Int) -> String? {
-        sessionDateString(planStartDate: plan.startDate, weekNumber: weekNum, dayIdx: dayIdx)
+        sessionDateString(planStartDate: plan.startDate, weekNumber: weekNum, dayIdx: dayIdx, anchor: plan.weekAnchor)
     }
 
     func deletePlan(_ id: String, archiveTo history: PlanHistory) async throws {

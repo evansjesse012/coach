@@ -156,14 +156,16 @@ struct MainTabView: View {
     // MARK: - Weekly check-in trigger
 
     /// Posts the wrap-up opener as a coach-initiated assistant message
-    /// when the current time falls in the Sunday-evening / Monday-
-    /// morning window AND no completed review exists for the week
-    /// being wrapped up. Idempotent within the same window thanks to
-    /// the UserDefaults debounce in `WeeklyArtifactsService`.
+    /// when the current time falls in the end-of-week window (last
+    /// evening of the athlete's week / first morning of the new one)
+    /// AND no completed review exists for the week being wrapped up.
+    /// Idempotent within the same window thanks to the UserDefaults
+    /// debounce in `WeeklyArtifactsService`.
     private func maybePromptWeeklyCheckIn() async {
         guard WeeklyArtifactsService.shouldPromptCheckIn(
             now: Date(),
-            reviews: data.weeklyReviews
+            reviews: data.weeklyReviews,
+            anchor: data.settings.weekAnchor
         ) != nil else { return }
         await data.postCoachOpener(
             "Hey, let's wrap up the week. How did it feel overall?"

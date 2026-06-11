@@ -52,7 +52,7 @@ let coachToolDefinitions: [ToolDefinition] = [
     ),
     ToolDefinition(
         name: "get_training_plan",
-        description: "Get the athlete's training plan. If a periodized plan exists, returns season overview with phases, current phase, and current week's sessions. Use includePhaseDetail=true to see all phase details. Use weekNumber to get a specific week's sessions.",
+        description: "Get the athlete's training plan. If a periodized plan exists, returns season overview with phases, current phase, and current week's sessions. Also returns weekStartDay and dayOrder — the weekday that day index 0 maps to (plans default to Monday-start unless the athlete chose another anchor); always read these before reasoning about day indices. Use includePhaseDetail=true to see all phase details. Use weekNumber to get a specific week's sessions.",
         inputSchema: ToolInputSchema(
             type: "object",
             properties: [
@@ -177,14 +177,14 @@ let coachToolDefinitions: [ToolDefinition] = [
                 "weekNumber": ToolProperty(type: "number", description: "Week index to save (1-based).", enum: nil),
                 "phase": ToolProperty(type: "number", description: "Phase number this week belongs to.", enum: nil),
                 "focusOfWeek": ToolProperty(type: "string", description: "Human-readable focus for the week.", enum: nil),
-                "sessions": ToolProperty(type: "array", description: "Array of 7 day objects in Monday-Sunday order. Same shape get_training_plan returns under weekPlan.sessions.", enum: nil),
+                "sessions": ToolProperty(type: "array", description: "Array of 7 day objects in week order starting from the plan's weekStartDay (see get_training_plan dayOrder; Monday-first unless the athlete chose another anchor). Same shape get_training_plan returns under weekPlan.sessions.", enum: nil),
             ],
             required: ["weekNumber", "phase", "focusOfWeek", "sessions"]
         )
     ),
     ToolDefinition(
         name: "patch_weekly_plan",
-        description: "Surgical edits to a single week's plan. Apply one or more operations — move a session between days, update a session's fields, toggle rest, add a session, delete a session. All operations are applied atomically: if any op is invalid, none are applied. Call get_training_plan first to know the day and session indices. Day indices are 0-based (0=Monday, 6=Sunday). Each op you send is logged with its before/after state and the `reason` field — that log is what the week retrospective renders, so include a reason whenever the athlete gave one.",
+        description: "Surgical edits to a single week's plan. Apply one or more operations — move a session between days, update a session's fields, toggle rest, add a session, delete a session. All operations are applied atomically: if any op is invalid, none are applied. Call get_training_plan first to know the day and session indices. Day indices are 0-based relative to the plan's weekStartDay: day 0 is the weekday named by get_training_plan's weekStartDay, and dayOrder lists the full index→weekday mapping (0=Monday..6=Sunday only for a Monday-start plan). Each op you send is logged with its before/after state and the `reason` field — that log is what the week retrospective renders, so include a reason whenever the athlete gave one.",
         inputSchema: ToolInputSchema(
             type: "object",
             properties: [
@@ -227,11 +227,11 @@ let coachToolDefinitions: [ToolDefinition] = [
     ),
     ToolDefinition(
         name: "start_weekly_review_check_in",
-        description: "Start (or resume) the weekly review check-in for the week that just ended. Call this at the very beginning of a Sunday-evening or Monday-morning wrap-up conversation, BEFORE asking any questions. Returns the review id (you'll pass it to populate_review_field and complete_weekly_review) plus the prior week's adherence summary so you can frame the conversation around what actually happened. Idempotent — if a check-in is already in progress for the same week, returns the existing row instead of creating a duplicate. Section 11's WEEKLY CHECK-IN sub-section governs the conversational flow.",
+        description: "Start (or resume) the weekly review check-in for the week that just ended. Call this at the very beginning of an end-of-week wrap-up conversation (last evening of the athlete's week or first morning of the new one — Sunday evening / Monday morning for the default Monday-start week), BEFORE asking any questions. Returns the review id (you'll pass it to populate_review_field and complete_weekly_review) plus the prior week's adherence summary so you can frame the conversation around what actually happened. Idempotent — if a check-in is already in progress for the same week, returns the existing row instead of creating a duplicate. Section 11's WEEKLY CHECK-IN sub-section governs the conversational flow.",
         inputSchema: ToolInputSchema(
             type: "object",
             properties: [
-                "week_start_date": ToolProperty(type: "string", description: "OPTIONAL. yyyy-MM-dd Monday of the week being reviewed. Default: prior Monday (or this Monday on Sunday). Override only if the athlete is retroactively wrapping up an older week.", enum: nil),
+                "week_start_date": ToolProperty(type: "string", description: "OPTIONAL. yyyy-MM-dd first day of the week being reviewed (the athlete's chosen week-start day; Monday by default). Default: the prior week's start (or this week's start when today is the last day of the athlete's week). Override only if the athlete is retroactively wrapping up an older week.", enum: nil),
             ],
             required: nil
         )
@@ -297,7 +297,7 @@ let coachToolDefinitions: [ToolDefinition] = [
                     - Call get_athlete_profile first if you need existing IDs (for injury update/remove).
 
                     SETTINGS:
-                    - update: {appearance?:'system'|'light'|'dark', personality?:'normal'|'goggins'|'hype'|'custom', customPrompt?:'...'}. Only change what the athlete explicitly asked for. Don't silently flip unrelated fields.
+                    - update: {appearance?:'system'|'light'|'dark', personality?:'normal'|'goggins'|'hype'|'custom', customPrompt?:'...', weekStartDay?:'monday'|...|'sunday'}. Only change what the athlete explicitly asked for. Don't silently flip unrelated fields. weekStartDay sets the athlete's preferred training-week start: it moves the weekly check-in rhythm and analytics immediately and applies to the NEXT plan they create — the CURRENT plan keeps the anchor it was built with (re-anchoring a live plan would silently shift every prescribed session to a different weekday). If the athlete asks to change the current plan's week start, explain it takes effect with the next plan.
 
                     APP (navigation):
                     - navigate: {tab:'coach'|'goals'|'plan'|'analytics'|'log'}. Use sparingly — only when the athlete explicitly asks to open a tab. Don't navigate reflexively after every mutation.

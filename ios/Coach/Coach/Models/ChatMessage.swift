@@ -23,10 +23,10 @@ struct RichComponent: Codable, Identifiable {
         )
     }
 
-    static func weekSummary(dots: [DotStatus], sessionsCompleted: Int, total: Int, adherence: Double) -> RichComponent {
+    static func weekSummary(dots: [DotStatus], sessionsCompleted: Int, total: Int, adherence: Double, dayLabels: [String]? = nil) -> RichComponent {
         RichComponent(
             id: "week-\(sessionsCompleted)-\(total)",
-            kind: .weekSummary(WeekSummaryData(dots: dots, sessionsCompleted: sessionsCompleted, total: total, adherence: adherence))
+            kind: .weekSummary(WeekSummaryData(dots: dots, sessionsCompleted: sessionsCompleted, total: total, adherence: adherence, dayLabels: dayLabels))
         )
     }
 
@@ -72,6 +72,10 @@ struct WeekSummaryData: Codable {
     var sessionsCompleted: Int
     var total: Int
     var adherence: Double
+    /// Weekday letters in the same order as `dots` (anchor-ordered, e.g.
+    /// ["S","M","T","W","T","F","S"] for a Sunday-start plan). Optional —
+    /// cards persisted before week-start support render Monday-first.
+    var dayLabels: [String]?
 }
 
 struct StatHighlightData: Codable {

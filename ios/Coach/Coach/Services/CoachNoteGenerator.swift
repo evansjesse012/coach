@@ -166,7 +166,7 @@ enum CoachNoteGenerator {
             }
 
             // Today's sessions
-            let todayDayIdx = (Calendar.current.component(.weekday, from: Date()) + 5) % 7
+            let todayDayIdx = todayDayIndex(anchor: plan.weekAnchor)
             if let wp = plan.weeklyPlans[String(plan.currentWeek)],
                todayDayIdx < wp.sessions.count {
                 let todayPlan = wp.sessions[todayDayIdx]
@@ -185,8 +185,11 @@ enum CoachNoteGenerator {
                     sections.append("TODAY'S PLAN: No sessions prescribed (stub week — not yet generated).")
                 }
 
-                // Yesterday's completion state
-                let yesterdayIdx = todayDayIdx == 0 ? 6 : todayDayIdx - 1
+                // Yesterday's completion state (wraps to the week's last
+                // day when today is day 0 — note yesterday then belongs
+                // to the PRIOR week, so this reads the same slot of the
+                // current week as an approximation, as before).
+                let yesterdayIdx = (todayDayIdx + 6) % 7
                 if yesterdayIdx < wp.sessions.count {
                     let yesterdayPlan = wp.sessions[yesterdayIdx]
                     if yesterdayPlan.isRest == true {

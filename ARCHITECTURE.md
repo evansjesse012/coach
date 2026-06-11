@@ -369,8 +369,9 @@ The most complex subsystem. Lives in `TrainingPlanGenerator.swift`.
   strength focus, progression rules.
 - Per-week brief describing position within the phase ("week 1 of 12
   in Base phase").
-- Asks for JSON with `weeks[0]` containing all 7 days (Monday through
-  Sunday) with full session details.
+- Asks for JSON with `weeks[0]` containing all 7 days, ordered from
+  the plan's week-start anchor (Monday through Sunday by default),
+  with full session details.
 - Streamed, `max_tokens: 10_000`.
 
 **Stage 3 — Stubs:**
@@ -690,10 +691,15 @@ the per-turn shallow merge during the conversation,
 `savePreview` for the generators' writes, plus the `shouldPromptCheckIn`
 trigger logic + `markPromptedForCheckIn` debounce stamp.
 
-`WeekBoundary.swift` (under `Utilities/`) derives Monday/Sunday strings
-in `Calendar.current` (device-local). All weekly artifacts are keyed
-by Monday-of-week strings; mismatched timezones across devices are
-accepted as a single-user-app simplification.
+`WeekBoundary.swift` (under `Utilities/`) derives week-start/week-end
+strings in `Calendar.current` (device-local), anchored on the athlete's
+chosen week-start day (`UserSettings.weekStartDay`, Monday by default —
+see `Utilities/Weekday.swift`). All weekly artifacts are keyed by
+week-start strings; mismatched timezones across devices are accepted
+as a single-user-app simplification. Training plans freeze their own
+anchor at creation (`TrainingPlan.weekStartDay`) — preference changes
+apply to the next plan, never retroactively to a live plan's
+positional day grid.
 
 ### Tool layer
 
@@ -702,8 +708,9 @@ Three tools in `ToolDefinitions.swift`, all dispatched in
 
 - **`start_weekly_review_check_in`** — opens (or resumes) a review
   row for the week being wrapped up. Defaults `week_start_date` via
-  `WeekBoundary.reviewWeekStartString` (Sunday → this Monday; any
-  other day → prior Monday). Returns the review id + a compact
+  `WeekBoundary.reviewWeekStartString` (last day of the athlete's
+  week → this week's start; any other day → prior week's start).
+  Returns the review id + a compact
   adherence summary so the agent can frame the conversation around
   what actually happened that week.
 - **`populate_review_field`** — shallow-merges any subset of
@@ -754,10 +761,12 @@ array.
 
 ### Trigger
 
-`WeeklyArtifactsService.shouldPromptCheckIn(now:reviews:)` returns
-the Monday string of the review-week if a prompt should fire,
-otherwise nil. Trigger window: Sunday after 16:00 OR Monday before
-12:00 local time. Skips when a completed review already exists for
+`WeeklyArtifactsService.shouldPromptCheckIn(now:reviews:anchor:)`
+returns the week-start string of the review-week if a prompt should
+fire, otherwise nil. Trigger window follows the athlete's week
+anchor: last day of their week after 16:00 OR first day of the new
+week before 12:00 local time (Sunday evening / Monday morning on the
+default Monday anchor). Skips when a completed review already exists for
 the corresponding week, and debounces within the same review-window
 via `UserDefaults` so repeated app-opens don't repost the opener.
 

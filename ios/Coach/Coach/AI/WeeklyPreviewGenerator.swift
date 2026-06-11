@@ -88,7 +88,7 @@ enum WeeklyPreviewGenerator {
     // MARK: - System prompt
 
     private static let systemPrompt = """
-    You are an expert endurance coach producing the proactive weekly preview for an athlete. The preview frames the week ahead — it's the single most important communication the coach sends at the week boundary. The athlete will read this on their phone Sunday evening or Monday morning and refer back to it mid-week.
+    You are an expert endurance coach producing the proactive weekly preview for an athlete. The preview frames the week ahead — it's the single most important communication the coach sends at the week boundary. The athlete will read this on their phone at the turn of their training week (the evening their week ends or the morning the new one starts) and refer back to it mid-week.
 
     REQUIRED COMPONENTS, in this order in the rendered prose:
 

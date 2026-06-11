@@ -69,6 +69,11 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             "totalWeeks": plan.totalWeeks,
             "currentWeek": plan.currentWeek,
             "currentPhase": plan.currentPhase,
+            // Day indices in weekPlan.sessions are positional relative to
+            // this anchor: dayOrder[i] is the weekday at index i. Spelled
+            // out so the model never has to assume Monday-first.
+            "weekStartDay": plan.weekAnchor.rawValue,
+            "dayOrder": plan.weekAnchor.weekOrder.map(\.rawValue),
         ]
 
         if includeDetail {
@@ -407,7 +412,8 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             let wp = try JSONDecoder().decode(WeeklyPlan.self, from: data)
             if let err = firstFutureCompletionMark(
                 in: wp,
-                planStartDate: dataService.trainingPlan?.startDate
+                planStartDate: dataService.trainingPlan?.startDate,
+                anchor: dataService.trainingPlan?.weekAnchor ?? .monday
             ) {
                 return ToolResult(summary: jsonString(["error": err]))
             }
@@ -475,7 +481,7 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                     pendingEdits.append(edit)
                 }
             }
-            if let err = firstFutureCompletionMark(in: wp, planStartDate: plan.startDate) {
+            if let err = firstFutureCompletionMark(in: wp, planStartDate: plan.startDate, anchor: plan.weekAnchor) {
                 return ToolResult(summary: jsonString(["error": err]))
             }
             var effects: [ToolEffect] = [.weekUpdated(weekNumber: wp.weekNumber, weekPlan: wp)]
@@ -556,12 +562,13 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
 
     // MARK: start_weekly_review_check_in
     case "start_weekly_review_check_in":
+        let reviewAnchor = dataService.settings.weekAnchor
         let weekStartStr = (input["week_start_date"] as? String)
-            ?? WeekBoundary.reviewWeekStartString(of: Date())
+            ?? WeekBoundary.reviewWeekStartString(of: Date(), anchor: reviewAnchor)
         let weekStart = parseDate(weekStartStr) ?? Date()
 
         do {
-            let review = try await WeeklyArtifactsService.createInProgressReview(weekStart: weekStart)
+            let review = try await WeeklyArtifactsService.createInProgressReview(weekStart: weekStart, anchor: reviewAnchor)
 
             // Build a compact adherence summary to seed the agent's
             // framing of the conversation. If no plan exists or the
@@ -719,8 +726,8 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
             // Build + persist the preview if generation succeeded.
             var savedPreview: WeeklyPreview?
             if let preview {
-                let upcomingStart = nextMondayString(after: finalized.weekEndDate)
-                let upcomingEnd   = sundayString(after: upcomingStart)
+                let upcomingStart = nextWeekStartString(after: finalized.weekEndDate)
+                let upcomingEnd   = weekEndString(after: upcomingStart)
                 let weekly = WeeklyPreview(
                     id: UUID(),
                     userId: nil,
@@ -1049,6 +1056,12 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                let personality = Personality(rawValue: personalityStr) {
                 settings.personality = personality
             }
+            if let weekStartStr = data["weekStartDay"] as? String {
+                guard let day = Weekday(rawValue: weekStartStr.lowercased()) else {
+                    return ToolResult(summary: jsonString(["error": "Unknown weekStartDay '\(weekStartStr)'. Use a lowercase day name: monday, tuesday, wednesday, thursday, friday, saturday, sunday."]))
+                }
+                settings.weekStartDay = day
+            }
             if let appearanceStr = data["appearance"] as? String,
                let appearance = Appearance(rawValue: appearanceStr) {
                 settings.appearance = appearance
@@ -1070,7 +1083,11 @@ func executeTool(name: String, input: [String: Any], dataService: DataService) a
                     "settings": [
                         "appearance": settings.effectiveAppearance.rawValue,
                         "personality": settings.personality.rawValue,
+                        "weekStartDay": settings.weekAnchor.rawValue,
                     ],
+                    "note": data["weekStartDay"] != nil
+                        ? "weekStartDay applies to the weekly check-in rhythm, analytics, and the NEXT training plan. The current plan keeps the week anchor it was created with."
+                        : "",
                 ]),
                 effects: [.settingsUpdated(settings)]
             )
@@ -1109,15 +1126,19 @@ private func parseDate(_ s: String) -> Date? {
     return f.date(from: s)
 }
 
-/// Map a Monday-of-week string to the matching plan week number, or nil
-/// if the date doesn't fall inside any week of the plan. Walks the plan's
-/// weeks comparing each week's start date to the target.
+/// Map a week-start date string (athlete's review anchor) to the
+/// matching plan week number, or nil if the date doesn't fall inside any
+/// week of the plan. Snaps the plan start to the PLAN's anchor (matching
+/// sessionDateString) before the day math; floor division then absorbs
+/// any partial offset when the review anchor differs from the plan's.
 private func weekNumberFor(weekStartDate: String, plan: TrainingPlan) -> Int? {
     guard let planStartStr = plan.startDate,
-          let planStart = parseDate(planStartStr),
+          let rawPlanStart = parseDate(planStartStr),
           let target = parseDate(weekStartDate) else { return nil }
+    let planStart = weekStart(of: rawPlanStart, anchor: plan.weekAnchor)
     let cal = Calendar.current
     let days = cal.dateComponents([.day], from: planStart, to: target).day ?? 0
+    guard days >= 0 else { return nil }
     let weekIndex = days / 7
     let weekNumber = weekIndex + 1
     guard plan.weeklyPlans[String(weekNumber)] != nil else { return nil }
@@ -1146,21 +1167,21 @@ private func upcomingWeekPlan(after review: WeeklyReview, plan: TrainingPlan?) -
     return plan.weeklyPlans[String(n + 1)]
 }
 
-/// Given the Sunday end of the just-reviewed week, return the Monday
-/// (start of upcoming week) as `yyyy-MM-dd`. Falls back to the input
-/// string if parsing fails so we don't crash the executor on malformed
-/// data.
-private func nextMondayString(after sundayStr: String) -> String {
-    guard let sunday = parseDate(sundayStr) else { return sundayStr }
-    let monday = Calendar.current.date(byAdding: .day, value: 1, to: sunday) ?? sunday
-    return formatYMD(monday)
+/// Given the last day of the just-reviewed week, return the start of the
+/// upcoming week (end + 1 day) as `yyyy-MM-dd`. Pure day arithmetic, so
+/// it holds for any week anchor. Falls back to the input string if
+/// parsing fails so we don't crash the executor on malformed data.
+private func nextWeekStartString(after weekEndStr: String) -> String {
+    guard let end = parseDate(weekEndStr) else { return weekEndStr }
+    let next = Calendar.current.date(byAdding: .day, value: 1, to: end) ?? end
+    return formatYMD(next)
 }
 
-/// Given a Monday string, return the matching Sunday (Monday + 6 days).
-private func sundayString(after mondayStr: String) -> String {
-    guard let monday = parseDate(mondayStr) else { return mondayStr }
-    let sunday = Calendar.current.date(byAdding: .day, value: 6, to: monday) ?? monday
-    return formatYMD(sunday)
+/// Given a week-start string, return the matching week end (start + 6 days).
+private func weekEndString(after weekStartStr: String) -> String {
+    guard let start = parseDate(weekStartStr) else { return weekStartStr }
+    let end = Calendar.current.date(byAdding: .day, value: 6, to: start) ?? start
+    return formatYMD(end)
 }
 
 private func formatYMD(_ d: Date) -> String {
@@ -1259,7 +1280,8 @@ private func weeksBetweenTodayAnd(_ dateStr: String?) -> Int? {
 /// an undated plan is a broken state anyway).
 private func firstFutureCompletionMark(
     in wp: WeeklyPlan,
-    planStartDate: String?
+    planStartDate: String?,
+    anchor: Weekday
 ) -> String? {
     guard planStartDate != nil else { return nil }
     let iso = DateFormatter()
@@ -1267,16 +1289,17 @@ private func firstFutureCompletionMark(
     let today = todayString()
 
     for (dayIdx, day) in wp.sessions.enumerated() {
-        // Resolve each day's date through the same Monday-snapped helper the
-        // rest of the app uses (sessionDateString → mondayOf). Recomputing
+        // Resolve each day's date through the same anchor-snapped helper the
+        // rest of the app uses (sessionDateString → weekStart). Recomputing
         // the offset inline without that snap shifts every day by however far
-        // the plan's startDate sits from its Monday, which can push a
+        // the plan's startDate sits from its week anchor, which can push a
         // past/today session forward past `today` and trip a false "future
-        // completion" rejection on plans with a non-Monday startDate.
+        // completion" rejection on plans with a drifted startDate.
         guard let dateStr = sessionDateString(
             planStartDate: planStartDate,
             weekNumber: wp.weekNumber,
-            dayIdx: dayIdx
+            dayIdx: dayIdx,
+            anchor: anchor
         ) else { continue }
         guard dateStr > today else { continue }   // past or today — marking is allowed
         for session in day.sessions {
@@ -1409,7 +1432,7 @@ private func applyPatchOperation(_ op: [String: Any], to wp: inout WeeklyPlan) t
 
 private func validateDay(_ day: Int, in wp: WeeklyPlan) throws {
     guard day >= 0, day < wp.sessions.count else {
-        throw PatchError.invalidOp("day \(day) out of bounds (expected 0-\(wp.sessions.count - 1), day 0 = Monday)")
+        throw PatchError.invalidOp("day \(day) out of bounds (expected 0-\(wp.sessions.count - 1); day 0 = the plan's week start day, see get_training_plan weekStartDay/dayOrder)")
     }
 }
 

@@ -398,7 +398,11 @@ private struct ChatWeekSummary: View {
         }
     }
 
-    private let dayLabels = ["M", "T", "W", "T", "F", "S", "S"]
+    /// Anchor-ordered letters carried on the card data; Monday-first
+    /// fallback for cards persisted before week-start support.
+    private var dayLabels: [String] {
+        data.dayLabels ?? ["M", "T", "W", "T", "F", "S", "S"]
+    }
 
     @ViewBuilder
     private func dotView(for status: DotStatus) -> some View {

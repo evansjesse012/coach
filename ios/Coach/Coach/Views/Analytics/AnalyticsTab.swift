@@ -36,11 +36,19 @@ struct AnalyticsTab: View {
     }
 
     private var weeklyVolume: [TrainingStressCalculator.WeeklyVolume] {
-        TrainingStressCalculator.weeklyVolume(cardio: data.cardio, strength: data.strength)
+        TrainingStressCalculator.weeklyVolume(
+            cardio: data.cardio,
+            strength: data.strength,
+            anchor: data.settings.weekAnchor
+        )
     }
 
     private var weeklyTSS: [TrainingStressCalculator.WeeklyTSS] {
-        TrainingStressCalculator.weeklyTSS(cardio: data.cardio, strength: data.strength)
+        TrainingStressCalculator.weeklyTSS(
+            cardio: data.cardio,
+            strength: data.strength,
+            anchor: data.settings.weekAnchor
+        )
     }
 
     var body: some View {

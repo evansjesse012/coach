@@ -62,21 +62,22 @@ enum WeeklyArtifactsService {
 
     // MARK: - Writes (drive the check-in lifecycle)
 
-    /// Create an in-progress review row keyed by Monday-of-week. If a
-    /// row already exists for that week, returns it instead of
-    /// creating a duplicate — the unique constraint on
-    /// `(user_id, week_start_date)` would reject it anyway, and the
-    /// caller usually wants idempotent "start or resume."
-    static func createInProgressReview(weekStart: Date) async throws -> WeeklyReview {
+    /// Create an in-progress review row keyed by week-start date (the
+    /// athlete's chosen anchor day). If a row already exists for that
+    /// week, returns it instead of creating a duplicate — the unique
+    /// constraint on `(user_id, week_start_date)` would reject it
+    /// anyway, and the caller usually wants idempotent "start or
+    /// resume."
+    static func createInProgressReview(weekStart: Date, anchor: Weekday) async throws -> WeeklyReview {
         let client = SupabaseService.shared.client
-        let mondayStr = WeekBoundary.mondayString(of: weekStart)
-        let sundayStr = WeekBoundary.sundayString(of: weekStart)
+        let weekStartStr = WeekBoundary.weekStartString(of: weekStart, anchor: anchor)
+        let weekEndStr = WeekBoundary.weekEndString(of: weekStart, anchor: anchor)
 
-        // Resume if one already exists for this Monday.
+        // Resume if one already exists for this week-start.
         let existing: [WeeklyReview] = try await client
             .from("weekly_reviews")
             .select()
-            .eq("week_start_date", value: mondayStr)
+            .eq("week_start_date", value: weekStartStr)
             .limit(1)
             .execute()
             .value
@@ -95,8 +96,8 @@ enum WeeklyArtifactsService {
         let row: WeeklyReview = try await client
             .from("weekly_reviews")
             .insert(Insert(
-                week_start_date: mondayStr,
-                week_end_date: sundayStr
+                week_start_date: weekStartStr,
+                week_end_date: weekEndStr
             ))
             .select()
             .single()
@@ -232,26 +233,31 @@ enum WeeklyArtifactsService {
 
     // MARK: - Trigger logic
 
-    /// Returns the `yyyy-MM-dd` Monday of the week that should be
+    /// Returns the `yyyy-MM-dd` week-start of the week that should be
     /// reviewed if the athlete should be prompted to start a check-in
     /// right now, or nil if no prompt is appropriate.
     ///
-    /// Trigger window: Sunday after 16:00 local time, OR Monday before
-    /// 12:00 local time. Only fires when no completed review exists for
-    /// the corresponding week, and only once per (review-week × launch
-    /// session) — UserDefaults stores the most recent prompt timestamp
-    /// to debounce repeated app-opens within the same window.
+    /// Trigger window follows the athlete's week anchor: the LAST day
+    /// of their week after 16:00 local time, OR the FIRST day of the
+    /// new week before 12:00 local time (Sunday evening / Monday
+    /// morning for a Monday anchor). Only fires when no completed
+    /// review exists for the corresponding week, and only once per
+    /// (review-week × launch session) — UserDefaults stores the most
+    /// recent prompt timestamp to debounce repeated app-opens within
+    /// the same window.
     static func shouldPromptCheckIn(
         now: Date,
-        reviews: [WeeklyReview]
+        reviews: [WeeklyReview],
+        anchor: Weekday
     ) -> String? {
         let cal = Calendar.current
         let weekday = cal.component(.weekday, from: now) // 1=Sun..7=Sat
         let hour = cal.component(.hour, from: now)
-        let inWindow = (weekday == 1 && hour >= 16) || (weekday == 2 && hour < 12)
+        let inWindow = (weekday == anchor.previous.calendarWeekday && hour >= 16)
+            || (weekday == anchor.calendarWeekday && hour < 12)
         guard inWindow else { return nil }
 
-        let weekStart = WeekBoundary.reviewWeekStartString(of: now)
+        let weekStart = WeekBoundary.reviewWeekStartString(of: now, anchor: anchor)
 
         // Already completed for this week — nothing to prompt.
         if reviews.contains(where: { $0.weekStartDate == weekStart && $0.completedAt != nil }) {
@@ -262,7 +268,7 @@ enum WeeklyArtifactsService {
         let lastPromptedTs = UserDefaults.standard.double(forKey: lastPromptedKey)
         if lastPromptedTs > 0 {
             let lastPrompted = Date(timeIntervalSince1970: lastPromptedTs)
-            if WeekBoundary.reviewWeekStartString(of: lastPrompted) == weekStart {
+            if WeekBoundary.reviewWeekStartString(of: lastPrompted, anchor: anchor) == weekStart {
                 return nil
             }
         }

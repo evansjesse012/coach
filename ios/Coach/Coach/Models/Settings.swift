@@ -15,6 +15,17 @@ struct UserSettings: Codable {
     var darkMode: Bool
     var appearance: Appearance?
     var pushMessage: PushMessage?
+    /// The athlete's preferred week-start day. Applies to NEW training
+    /// plans, the weekly review/preview ritual, and analytics bucketing.
+    /// An existing plan keeps the anchor frozen on
+    /// `TrainingPlan.weekStartDay` — never re-anchor a live plan from
+    /// this value. nil (rows written before migration 014) → Monday.
+    var weekStartDay: Weekday?
+
+    /// Effective week anchor for athlete-level surfaces (reviews,
+    /// previews, analytics, the next plan). Monday until the athlete
+    /// chooses otherwise.
+    var weekAnchor: Weekday { weekStartDay ?? .monday }
 
     enum CodingKeys: String, CodingKey {
         case personality
@@ -22,6 +33,7 @@ struct UserSettings: Codable {
         case darkMode = "dark_mode"
         case appearance
         case pushMessage = "push_message"
+        case weekStartDay = "week_start_day"
     }
 
     static func defaults() -> UserSettings {

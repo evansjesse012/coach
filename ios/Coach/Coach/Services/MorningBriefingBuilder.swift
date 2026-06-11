@@ -30,7 +30,7 @@ enum MorningBriefingBuilder {
 
         // Today's workout cards
         if let plan {
-            let todayIdx = todayDayIndex()
+            let todayIdx = todayDayIndex(anchor: plan.weekAnchor)
             let weekNum = plan.currentWeek
             if let wp = plan.weeklyPlans[String(weekNum)],
                todayIdx < wp.sessions.count {
@@ -70,7 +70,8 @@ enum MorningBriefingBuilder {
                     dots: dots,
                     sessionsCompleted: adherence.completed,
                     total: adherence.prescribed,
-                    adherence: Double(adherence.adherence) / 100.0
+                    adherence: Double(adherence.adherence) / 100.0,
+                    dayLabels: plan.weekAnchor.weekLetters
                 ))
             }
 
@@ -97,11 +98,6 @@ enum MorningBriefingBuilder {
     }
 
     // MARK: - Helpers
-
-    /// Monday-based day index: 0=Mon, 1=Tue, ..., 6=Sun
-    private static func todayDayIndex() -> Int {
-        (Calendar.current.component(.weekday, from: Date()) + 5) % 7
-    }
 
     private static func primaryRace(events: [Event]) -> Event? {
         events

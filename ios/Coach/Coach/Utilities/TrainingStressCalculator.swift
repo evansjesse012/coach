@@ -214,24 +214,29 @@ enum TrainingStressCalculator {
         }
     }
 
-    /// Groups workout duration by sport into weekly buckets.
+    /// Groups workout duration by sport into weekly buckets. Buckets
+    /// are anchored on the athlete's chosen week-start day so the
+    /// chart's weeks line up with plan weeks and weekly reviews —
+    /// previously this used the locale's `.weekOfYear` (Sunday-first
+    /// in en_US), which disagreed with the app's Monday-default weeks.
     static func weeklyVolume(
         cardio: [CardioWorkout],
-        strength: [StrengthSession]
+        strength: [StrengthSession],
+        anchor: Weekday
     ) -> [WeeklyVolume] {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         let cal = Calendar.current
 
-        func weekStart(for dateStr: String) -> Date? {
+        func bucketStart(for dateStr: String) -> Date? {
             guard let d = fmt.date(from: dateStr) else { return nil }
-            return cal.dateInterval(of: .weekOfYear, for: d)?.start
+            return cal.startOfDay(for: weekStart(of: d, anchor: anchor))
         }
 
         var buckets: [Date: WeeklyVolume] = [:]
 
         for w in cardio {
-            guard let ws = weekStart(for: w.date) else { continue }
+            guard let ws = bucketStart(for: w.date) else { continue }
             var vol = buckets[ws] ?? WeeklyVolume(weekStart: ws)
             let mins = Double(w.duration)
             switch w.sport {
@@ -245,7 +250,7 @@ enum TrainingStressCalculator {
         }
 
         for s in strength {
-            guard let ws = weekStart(for: s.date) else { continue }
+            guard let ws = bucketStart(for: s.date) else { continue }
             var vol = buckets[ws] ?? WeeklyVolume(weekStart: ws)
             vol.strengthMinutes += Double(s.duration ?? 45)
             buckets[ws] = vol
@@ -264,7 +269,8 @@ enum TrainingStressCalculator {
 
     static func weeklyTSS(
         cardio: [CardioWorkout],
-        strength: [StrengthSession]
+        strength: [StrengthSession],
+        anchor: Weekday
     ) -> [WeeklyTSS] {
         let daily = dailyTSS(cardio: cardio, strength: strength)
         let fmt = DateFormatter()
@@ -273,8 +279,8 @@ enum TrainingStressCalculator {
 
         var buckets: [Date: Double] = [:]
         for (dateStr, tss) in daily {
-            guard let d = fmt.date(from: dateStr),
-                  let ws = cal.dateInterval(of: .weekOfYear, for: d)?.start else { continue }
+            guard let d = fmt.date(from: dateStr) else { continue }
+            let ws = cal.startOfDay(for: weekStart(of: d, anchor: anchor))
             buckets[ws, default: 0] += tss
         }
 

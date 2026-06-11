@@ -240,7 +240,8 @@ struct CoachContextSheet: View {
                     let dateStr = sessionDateString(
                         planStartDate: plan.startDate,
                         weekNumber: weekNum,
-                        dayIdx: dayIdx
+                        dayIdx: dayIdx,
+                        anchor: plan.weekAnchor
                     ) ?? ""
                     collected.append((dateStr, session, weekNum, dayIdx))
                 }

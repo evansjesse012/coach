@@ -42,7 +42,12 @@ enum TrainingPlanGenerator {
             strengthDays: strengthDays,
             notes: notes
         )
-        let startDate = computeStartDate(for: event, totalWeeks: totalWeeks)
+        // Freeze the athlete's current week-start preference onto this
+        // plan. The day grid is positional, so the anchor must never
+        // change for the plan's life — later preference changes apply
+        // to the NEXT plan.
+        let anchor = dataService?.settings.weekAnchor ?? .monday
+        let startDate = computeStartDate(for: event, totalWeeks: totalWeeks, anchor: anchor)
 
         // MARK: Stage 1 — skeleton
         updateProgress(dataService, "Designing your season structure…")
@@ -65,6 +70,7 @@ enum TrainingPlanGenerator {
             constraintsBlock: constraintsBlock,
             skeleton: skeleton,
             totalWeeks: totalWeeks,
+            anchor: anchor,
             recentAdherenceContext: nil,
             dataService: dataService
         )
@@ -94,6 +100,7 @@ enum TrainingPlanGenerator {
             currentWeek: 1,
             currentPhase: 1,
             trainingDaysPerWeek: trainingDaysPerWeek,
+            weekStartDay: anchor,
             phases: skeleton.phases,
             weeklyPlans: weeklyPlans
         )
@@ -143,6 +150,7 @@ enum TrainingPlanGenerator {
             constraintsBlock: constraintsBlock,
             skeleton: skeleton,
             totalWeeks: plan.totalWeeks,
+            anchor: plan.weekAnchor,
             recentAdherenceContext: adherence,
             dataService: dataService
         )
@@ -381,6 +389,7 @@ enum TrainingPlanGenerator {
         constraintsBlock: String,
         skeleton: PlanSkeleton,
         totalWeeks: Int,
+        anchor: Weekday,
         recentAdherenceContext: String? = nil,
         dataService: DataService?
     ) async throws -> [WeeklyPlan] {
@@ -449,7 +458,7 @@ enum TrainingPlanGenerator {
         \(weekBriefs)
 
         YOUR JOB
-        For each week listed, write 7 days of sessions (Monday through Sunday). Draw on the phase context for volume, intensity, and key workout placement. Progress the work week-over-week within the phase. Adapt to any adherence history above — if the athlete is missing key sessions, pull back; if they're nailing everything, progress. Be specific, not generic.
+        For each week listed, write 7 days of sessions. The athlete's training week runs \(anchor.displayName) through \(anchor.previous.displayName) — list the 7 day objects in exactly that order, starting with "\(anchor.rawValue)". Draw on the phase context for volume, intensity, and key workout placement. Progress the work week-over-week within the phase. Adapt to any adherence history above — if the athlete is missing key sessions, pull back; if they're nailing everything, progress. Be specific, not generic.
 
         OUTPUT FORMAT
         Return ONLY a JSON object — no markdown fences, no prose, no commentary. Match this shape exactly:
@@ -462,7 +471,7 @@ enum TrainingPlanGenerator {
               "focusOfWeek": "ONE sentence naming the adaptation and position in the phase (e.g. 'Threshold build — second week of progression, key session is Thursday's 3x10min @ LT')",
               "sessions": [
                 {
-                  "day": "monday",
+                  "day": "\(anchor.rawValue)",
                   "isRest": false,
                   "sessions": [
                     {
@@ -636,10 +645,10 @@ enum TrainingPlanGenerator {
     }
 
     /// Picks a start date: event.date - totalWeeks*7 if race date is set,
-    /// otherwise today. Always snapped to the Monday of the resulting week
-    /// so downstream week math (`planStart + (weekNum-1)*7 + dayIdx`) always
-    /// lands on the expected weekday.
-    private static func computeStartDate(for event: Event, totalWeeks: Int) -> String {
+    /// otherwise today. Always snapped to the week-start anchor of the
+    /// resulting week so downstream week math (`planStart +
+    /// (weekNum-1)*7 + dayIdx`) always lands on the expected weekday.
+    private static func computeStartDate(for event: Event, totalWeeks: Int, anchor: Weekday) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         let raw: Date = {
@@ -648,7 +657,7 @@ enum TrainingPlanGenerator {
             }
             return Date()
         }()
-        return formatter.string(from: mondayOf(raw))
+        return formatter.string(from: weekStart(of: raw, anchor: anchor))
     }
 
     /// Extract JSON object from model response text, stripping markdown fences.

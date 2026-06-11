@@ -124,7 +124,8 @@ struct HomeTab: View {
                     dateString: sessionDateString(
                         planStartDate: plan.startDate,
                         weekNumber: week,
-                        dayIdx: day
+                        dayIdx: day,
+                        anchor: plan.weekAnchor
                     ),
                     weekNum: week,
                     dayIdx: day,
@@ -346,7 +347,7 @@ struct HomeTab: View {
     }
 
     private var todayDayIdx: Int {
-        (Calendar.current.component(.weekday, from: Date()) + 5) % 7
+        todayDayIndex(anchor: data.trainingPlan?.weekAnchor ?? .monday)
     }
 
     @ViewBuilder
@@ -785,7 +786,7 @@ struct HomeTab: View {
     }
 
     private func weekdayLetter(_ idx: Int) -> String {
-        let letters = ["M", "T", "W", "T", "F", "S", "S"]
+        let letters = (data.trainingPlan?.weekAnchor ?? .monday).weekLetters
         return idx >= 0 && idx < letters.count ? letters[idx] : "·"
     }
 
@@ -858,23 +859,23 @@ struct HomeTab: View {
         guard let planStart = input.date(from: startStr) else { return "" }
         let cal = Calendar.current
         let raw = cal.date(byAdding: .day, value: (plan.currentWeek - 1) * 7, to: planStart) ?? planStart
-        let monday = mondayOf(raw)
-        guard let sunday = cal.date(byAdding: .day, value: 6, to: monday) else { return "" }
+        let first = weekStart(of: raw, anchor: plan.weekAnchor)
+        guard let last = cal.date(byAdding: .day, value: 6, to: first) else { return "" }
 
         let monthFmt = DateFormatter()
         monthFmt.dateFormat = "MMM"
         let dayFmt = DateFormatter()
         dayFmt.dateFormat = "d"
 
-        let monMonth = monthFmt.string(from: monday)
-        let monDay = dayFmt.string(from: monday)
-        let sunMonth = monthFmt.string(from: sunday)
-        let sunDay = dayFmt.string(from: sunday)
+        let firstMonth = monthFmt.string(from: first)
+        let firstDay = dayFmt.string(from: first)
+        let lastMonth = monthFmt.string(from: last)
+        let lastDay = dayFmt.string(from: last)
 
-        if monMonth == sunMonth {
-            return "\(monMonth) \(monDay) \u{2013} \(sunDay)"
+        if firstMonth == lastMonth {
+            return "\(firstMonth) \(firstDay) \u{2013} \(lastDay)"
         }
-        return "\(monMonth) \(monDay) \u{2013} \(sunMonth) \(sunDay)"
+        return "\(firstMonth) \(firstDay) \u{2013} \(lastMonth) \(lastDay)"
     }
 
     /// VoiceOver label for one week-strip cell. Combines weekday name,
@@ -884,10 +885,8 @@ struct HomeTab: View {
         dayIdx: Int,
         status: WeekStripStatus
     ) -> String {
-        let weekdayNames = [
-            "Monday", "Tuesday", "Wednesday", "Thursday",
-            "Friday", "Saturday", "Sunday"
-        ]
+        let weekdayNames = (data.trainingPlan?.weekAnchor ?? .monday)
+            .weekOrder.map(\.displayName)
         let dayName = (dayIdx >= 0 && dayIdx < weekdayNames.count)
             ? weekdayNames[dayIdx] : "Day"
 

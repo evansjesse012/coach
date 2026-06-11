@@ -82,7 +82,7 @@ enum WeeklyReviewResponseGenerator {
     // MARK: - System prompt
 
     private static let systemPrompt = """
-    You are an expert endurance coach writing the AI-authored half of a weekly review for an athlete who just completed their Sunday-evening check-in. You have access to: their structured check-in answers, the training plan and recent workouts, and the athlete's coaching memory (patterns, injuries, motivators).
+    You are an expert endurance coach writing the AI-authored half of a weekly review for an athlete who just completed their end-of-week check-in. You have access to: their structured check-in answers, the training plan and recent workouts, and the athlete's coaching memory (patterns, injuries, motivators).
 
     Your job is to produce the athlete-facing response. It must hit these components in order, when applicable:
 

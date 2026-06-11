@@ -52,8 +52,8 @@ struct WeekDetailView: View {
     /// Renders nothing for weeks with neither artifact.
     @ViewBuilder
     private var weeklyArtifactsBlock: some View {
-        let weekStart = mondayOfWeek(weekNum: weekNum)
-        let priorWeekStart = priorMonday(of: weekStart)
+        let weekStart = weekStartOfWeek(weekNum: weekNum)
+        let priorWeekStart = priorWeekStartString(of: weekStart)
 
         let artifacts = resolvedArtifacts(weekStart: weekStart, priorWeekStart: priorWeekStart)
 
@@ -93,24 +93,24 @@ struct WeekDetailView: View {
         return (review, preview)
     }
 
-    /// Monday-of-week as `yyyy-MM-dd` for `weekNum`. Computes against
+    /// Week-start date as `yyyy-MM-dd` for `weekNum`. Computes against
     /// the plan's startDate and falls back to nil when the plan or
     /// start date isn't available.
-    private func mondayOfWeek(weekNum: Int) -> String? {
+    private func weekStartOfWeek(weekNum: Int) -> String? {
         guard let plan = data.trainingPlan,
               let startStr = plan.startDate else { return nil }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         guard let start = f.date(from: startStr) else { return nil }
-        // Snap to the week's Monday, matching sessionDateString / weekRangeLabel
-        // / the Home grid. Without this snap a non-Monday startDate makes the
-        // header date range disagree with the day cells by up to 6 days.
+        // Snap to the plan's week-start anchor, matching sessionDateString /
+        // weekRangeLabel / the Home grid. Without this snap a drifted
+        // startDate makes the header date range disagree with the day
+        // cells by up to 6 days.
         let raw = Calendar.current.date(byAdding: .day, value: (weekNum - 1) * 7, to: start) ?? start
-        let monday = mondayOf(raw)
-        return f.string(from: monday)
+        return f.string(from: weekStart(of: raw, anchor: plan.weekAnchor))
     }
 
-    private func priorMonday(of weekStart: String?) -> String? {
+    private func priorWeekStartString(of weekStart: String?) -> String? {
         guard let weekStart else { return nil }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -213,19 +213,23 @@ struct WeekDetailView: View {
     }
 
     private var weekDateRange: String? {
-        weekRangeLabel(planStartDate: data.trainingPlan?.startDate, weekNumber: weekNum)
+        weekRangeLabel(
+            planStartDate: data.trainingPlan?.startDate,
+            weekNumber: weekNum,
+            anchor: data.trainingPlan?.weekAnchor ?? .monday
+        )
     }
 
     /// Week date range for the header, e.g. "Jun 1 - Jun 7".
     private var weekDateRangeText: String? {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        guard let monStr = mondayOfWeek(weekNum: weekNum),
-              let monday = f.date(from: monStr) else { return nil }
-        let sunday = Calendar.current.date(byAdding: .day, value: 6, to: monday) ?? monday
+        guard let startStr = weekStartOfWeek(weekNum: weekNum),
+              let first = f.date(from: startStr) else { return nil }
+        let last = Calendar.current.date(byAdding: .day, value: 6, to: first) ?? first
         let out = DateFormatter()
         out.dateFormat = "MMM d"
-        return "\(out.string(from: monday)) - \(out.string(from: sunday))"
+        return "\(out.string(from: first)) - \(out.string(from: last))"
     }
 
     /// "△ BASE phase" for the week header — keyword uppercased, "phase"
@@ -264,15 +268,15 @@ struct WeekDetailView: View {
     private var monthYearText: String? {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        guard let monStr = mondayOfWeek(weekNum: weekNum),
-              let monday = f.date(from: monStr) else { return nil }
-        let sunday = Calendar.current.date(byAdding: .day, value: 6, to: monday) ?? monday
+        guard let startStr = weekStartOfWeek(weekNum: weekNum),
+              let first = f.date(from: startStr) else { return nil }
+        let last = Calendar.current.date(byAdding: .day, value: 6, to: first) ?? first
         let mo = DateFormatter(); mo.dateFormat = "MMM"
         let yr = DateFormatter(); yr.dateFormat = "yyyy"
-        let startMonth = mo.string(from: monday).uppercased()
-        let endMonth = mo.string(from: sunday).uppercased()
-        let startYear = yr.string(from: monday)
-        let endYear = yr.string(from: sunday)
+        let startMonth = mo.string(from: first).uppercased()
+        let endMonth = mo.string(from: last).uppercased()
+        let startYear = yr.string(from: first)
+        let endYear = yr.string(from: last)
         if startYear == endYear {
             return startMonth == endMonth
                 ? "\(startYear) \(startMonth)"
@@ -327,7 +331,7 @@ struct WeekDetailView: View {
     }
 
     private func dateString(plan: TrainingPlan, dayIdx: Int) -> String {
-        sessionDateString(planStartDate: plan.startDate, weekNumber: weekNum, dayIdx: dayIdx) ?? ""
+        sessionDateString(planStartDate: plan.startDate, weekNumber: weekNum, dayIdx: dayIdx, anchor: plan.weekAnchor) ?? ""
     }
 }
 

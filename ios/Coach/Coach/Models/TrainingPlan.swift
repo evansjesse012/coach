@@ -460,8 +460,20 @@ struct TrainingPlan: Codable, Identifiable {
     var currentWeek: Int
     var currentPhase: Int
     var trainingDaysPerWeek: Int?
+    /// The weekday this plan's weeks start on, frozen at creation. The
+    /// plan's day grid (`WeeklyPlan.sessions[dayIdx]`) is positional, so
+    /// the anchor must never change for the life of the plan — changing
+    /// the athlete's preference applies to the NEXT plan only. nil for
+    /// plans created before the setting existed → Monday.
+    var weekStartDay: Weekday?
     var phases: [TrainingPhase]
     var weeklyPlans: [String: WeeklyPlan]
+
+    /// Effective week anchor: the frozen per-plan value, Monday for
+    /// legacy plans. ALL week math for this plan's sessions must use
+    /// this — never the athlete's current settings value, which may
+    /// have changed since the plan was created.
+    var weekAnchor: Weekday { weekStartDay ?? .monday }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -473,6 +485,7 @@ struct TrainingPlan: Codable, Identifiable {
         case currentWeek = "current_week"
         case currentPhase = "current_phase"
         case trainingDaysPerWeek = "training_days_per_week"
+        case weekStartDay = "week_start_day"
         case phases
         case weeklyPlans = "weekly_plans"
     }

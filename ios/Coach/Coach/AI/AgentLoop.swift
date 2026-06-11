@@ -270,6 +270,7 @@ func runAgentLoop(
     let recoveryPicture = await fetchRecoveryPicture(trainingLoad: trainingLoadSnapshot)
     let coachState = CoachState(
         today: Date(),
+        weekAnchor: dataService.settings.weekAnchor,
         trainingLoad: trainingLoadSnapshot,
         recoveryPicture: recoveryPicture,
         athleteSummary: nil,

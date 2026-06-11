@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var personality: Personality = .normal
     @State private var customPrompt = ""
     @State private var appearance: Appearance = .system
+    @State private var weekStartDay: Weekday = .monday
     @State private var seeding = false
     @State private var seedError: String?
     @State private var showClearConfirm = false
@@ -19,6 +20,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     appearanceSection
                     personalitySection
+                    trainingWeekSection
                     athleteSection
                     healthSection
                     accountSection
@@ -56,6 +58,7 @@ struct SettingsView: View {
                 personality = data.settings.personality
                 customPrompt = data.settings.customPrompt
                 appearance = data.settings.effectiveAppearance
+                weekStartDay = data.settings.weekAnchor
             }
         }
         .preferredColorScheme(schemeFor(appearance))
@@ -76,6 +79,34 @@ struct SettingsView: View {
                             try? await data.saveSettings(s)
                         }
                     }
+            }
+        }
+    }
+
+    private var trainingWeekSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("TRAINING WEEK")
+            CoachCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Week starts on", selection: $weekStartDay) {
+                        // Sunday and Monday first — the common anchors —
+                        // then the rest of the week for full flexibility.
+                        ForEach([Weekday.monday, .sunday, .tuesday, .wednesday, .thursday, .friday, .saturday], id: \.self) { day in
+                            Text(day.displayName).tag(day)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .onChange(of: weekStartDay) { _, newValue in
+                        Task {
+                            var s = data.settings
+                            s.weekStartDay = newValue
+                            try? await data.saveSettings(s)
+                        }
+                    }
+                    Text("Applies to weekly check-ins, analytics, and your next training plan. Your current plan keeps the week it was built on.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

@@ -29,6 +29,12 @@ struct CoachState {
     /// Today's date at the moment the prompt is being built.
     let today: Date
 
+    /// The athlete's preferred week-start day (settings-level anchor).
+    /// Drives the check-in rhythm and the anchor of the NEXT plan; the
+    /// current plan's own anchor is reported by get_training_plan.
+    /// Defaulted so legacy construction sites stay source-compatible.
+    var weekAnchor: Weekday = .monday
+
     /// Phase 4a: structured chronic-load snapshot (CTL/ATL/TSB + 7-day
     /// CTL ramp). Complements `recoveryPicture` — load is the chronic
     /// frame, recovery picture is the acute overlay. nil when the
@@ -97,7 +103,9 @@ struct CoachState {
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "EEEE"
-        return "Today: \(dateFormatter.string(from: today)) (\(dayFormatter.string(from: today)))"
+        return "Today: \(dateFormatter.string(from: today)) (\(dayFormatter.string(from: today)))\n"
+            + "Athlete's training week starts: \(weekAnchor.displayName) "
+            + "(applies to weekly check-ins and new plans; an existing plan's own weekStartDay from get_training_plan governs its day indices)"
     }
 
     /// One-line compact rendering of the training-load snapshot. Section 7

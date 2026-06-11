@@ -116,17 +116,16 @@ func computeWeekAdherence(
 
     let calendar = Calendar.current
 
-    // Calculate the Monday of the target week
-    var weekMonday = calendar.date(byAdding: .day, value: (weekNum - 1) * 7, to: planStart)!
-    let startDay = calendar.component(.weekday, from: weekMonday)
-    if startDay != 2 { // 2 = Monday
-        weekMonday = calendar.date(byAdding: .day, value: -((startDay + 5) % 7), to: weekMonday)!
-    }
+    // Calculate the first day of the target week, snapped to the plan's
+    // week-start anchor — same snap as sessionDateString so adherence
+    // day cells line up with every other surface.
+    let raw = calendar.date(byAdding: .day, value: (weekNum - 1) * 7, to: planStart)!
+    let weekStartDate = weekStart(of: raw, anchor: plan.weekAnchor)
 
     let todayStr = todayString()
 
     let days: [DayReview] = wp.sessions.enumerated().map { (di, dayObj) in
-        let dayDate = calendar.date(byAdding: .day, value: di, to: weekMonday)!
+        let dayDate = calendar.date(byAdding: .day, value: di, to: weekStartDate)!
         let dateStr = formatter.string(from: dayDate)
         let isPast = dateStr < todayStr
         let isToday = dateStr == todayStr
